@@ -1,0 +1,67 @@
+"""Pull moneylines for every active in-season sport from The Odds API.
+
+Snapshot types: open (morning) | bettime (at wager) | close (CLV anchor).
+Requires ODDS_API_KEY. Each sport pull costs credits — budget accordingly
+(4 active sports x 2 snapshots/day fits easily in the $30/mo tier).
+"""
+import os
+import datetime as dt
+import requests
+import sys
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
+from db import connect
+from config import SPORTS, active_sports
+
+API_KEY = os.environ.get("ODDS_API_KEY", "")
+BASE = "https://api.the-odds-api.com/v4/sports/{key}/odds"
+BOOKS = "draftkings,fanduel,betmgm,pinnacle"
+
+
+def pull_sport(sport: str, snapshot_type: str) -> int:
+    cfg = SPORTS[sport]
+    r = requests.get(BASE.format(key=cfg["odds_key"]), params={
+        "apiKey": API_KEY, "regions": "us", "markets": "h2h",
+        "oddsFormat": "american", "bookmakers": BOOKS,
+    }, timeout=30)
+    r.raise_for_status()
+    ts = dt.datetime.utcnow().isoformat()
+    con = connect()
+    n = 0
+    for ev in r.json():
+        gid = f"{sport}-{ev['id']}"
+        home, away = ev["home_team"], ev["away_team"]
+        con.execute(
+            "INSERT OR IGNORE INTO games (game_id, sport, game_date, away, home)"
+            " VALUES (?,?,?,?,?)",
+            (gid, sport, ev["commence_time"][:10], away, home))
+        for bk in ev.get("bookmakers", []):
+            for mkt in bk.get("markets", []):
+                if mkt["key"] != "h2h":
+                    continue
+                prices = {o["name"]: o["price"] for o in mkt["outcomes"]}
+                con.execute(
+                    "INSERT INTO odds_snapshots (game_id, sport, ts, book, away_ml,"
+                    " home_ml, snapshot_type) VALUES (?,?,?,?,?,?,?)",
+                    (gid, sport, ts, bk["key"], prices.get(away), prices.get(home),
+                     snapshot_type))
+                n += 1
+    con.commit()
+    con.close()
+    remaining = r.headers.get("x-requests-remaining", "?")
+    print(f"[{sport}] {n} {snapshot_type} snapshots. Credits left: {remaining}")
+    return n
+
+
+def pull(snapshot_type: str = "open"):
+    if not API_KEY:
+        raise SystemExit("Set ODDS_API_KEY env var first.")
+    month = dt.date.today().month
+    for sport in active_sports(month):
+        try:
+            pull_sport(sport, snapshot_type)
+        except requests.HTTPError as e:
+            print(f"[{sport}] pull failed: {e}")
+
+
+if __name__ == "__main__":
+    pull(sys.argv[1] if len(sys.argv) > 1 else "open")

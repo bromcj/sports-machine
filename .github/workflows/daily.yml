@@ -1,0 +1,17 @@
+name: daily-pipeline
+on:
+  schedule:
+    - cron: '0 14 * * *'   # 10:00 ET morning run (UTC)
+    - cron: '0 22 * * *'   # ~6:00 PM ET close capture
+  workflow_dispatch: {}
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - run: pip install -r requirements.txt
+      - run: python db.py
+      - run: python run_daily.py morning
+        env: { ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }} }
