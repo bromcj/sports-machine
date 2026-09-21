@@ -1,0 +1,10 @@
+# Data stays local — never push to a public repo
+data/
+logs/
+*.db
+*.parquet
+
+# Python junk
+__pycache__/
+*.pyc
+.venv/
