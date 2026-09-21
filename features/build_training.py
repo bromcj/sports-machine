@@ -3,9 +3,16 @@
   python features/build_training.py
 
 Joins, per historical final game:
-  - bullpen quality/fatigue and offense via as-of merge (no future data)
+  - bullpen quality/fatigue and offense on (team, game_date); both tables are
+    already shift(1)-ed at source, so a plain keyed merge is leakage-safe
   - the actual starter's shifted 5-start form via (game_pk, team)
-  - rest days from the schedule, park factor from the home park
+  - rest days from the schedule
+  - park factor for the home VENUE that season, computed from prior seasons
+
+Every join is by explicit key. Never assign a merge result back positionally
+(`.values`): pandas' default sort is not stable, so re-sorting a date-sorted
+frame reshuffles same-day games and silently pairs each team with another
+team's numbers.
 
 Baseline note (honesty): free odds tiers don't include historical closing
 lines, so the market column here is a HOME-CONSTANT baseline (54%). Your
@@ -22,7 +29,7 @@ sys.path.insert(0, str(ROOT))
 from db import connect
 from features.sports.mlb_features import (
     load_statcast, pitcher_game_lines, bullpen_table, offense_table,
-    starter_table, TEAM_ABBR, PARK_FACTORS)
+    starter_table, park_factor_table, venue_id, TEAM_ABBR)
 from model.train import walk_forward
 
 HOME_BASELINE = 0.54
@@ -46,14 +53,13 @@ def load_games() -> pd.DataFrame:
     return g.sort_values("game_date").reset_index(drop=True)
 
 
-def asof_join(games, table, team_col_games, value_cols, prefix):
-    t = table.rename(columns={"team": "_team"}).sort_values("game_date")
-    merged = pd.merge_asof(
-        games.sort_values("game_date"), t,
-        on="game_date", left_by=team_col_games, right_by="_team",
-        direction="backward")
-    return merged[value_cols].rename(
-        columns={c: f"{prefix}_{c}" for c in value_cols})
+def rest_days(df: pd.DataFrame, team_col: str) -> list:
+    """Days since that team last played. df must be sorted by game_date."""
+    prev, out = {}, []
+    for team, d in zip(df[team_col], df["game_date"]):
+        out.append((d - prev[team]).days if team in prev else np.nan)
+        prev[team] = d
+    return out
 
 
 def assemble() -> pd.DataFrame:
@@ -64,30 +70,40 @@ def assemble() -> pd.DataFrame:
     lines = pitcher_game_lines(sc)
     pen, off, sp = bullpen_table(lines), offense_table(sc), starter_table(lines)
 
-    df = games.copy().sort_values("game_date").reset_index(drop=True)
+    df = games.copy()
+    n = len(df)
     for side in ("home", "away"):
-        df = df.reset_index(drop=True)
-        df[[f"{side}_pen_kbb_30d", f"{side}_pen_pitches_3d"]] = asof_join(
-            df, pen, f"{side}_ab", ["pen_kbb_30d", "pen_pitches_3d"], side
-        ).values
-        df[[f"{side}_off_woba_30d"]] = asof_join(
-            df, off, f"{side}_ab", ["off_woba_30d"], side).values
-        s = sp.rename(columns={"pitch_team": f"{side}_ab"})
+        ab = f"{side}_ab"
         df = df.merge(
-            s.rename(columns={"sp_kbb_5s": f"{side}_sp_kbb_5s",
-                              "sp_elite": f"{side}_sp_elite",
-                              "sp_bottom": f"{side}_sp_bottom"}),
-            on=["game_pk", f"{side}_ab"], how="left")
-        # rest days
-        prev = {}
-        rest = []
-        for _, r in df.iterrows():
-            team, d = r[f"{side}_ab"], r["game_date"]
-            rest.append((d - prev[team]).days if team in prev else np.nan)
-            prev[team] = d
-        df[f"{side}_rest_days"] = rest
+            pen.rename(columns={"team": ab,
+                                "pen_kbb_30d": f"{side}_pen_kbb_30d",
+                                "pen_pitches_3d": f"{side}_pen_pitches_3d"}),
+            on=[ab, "game_date"], how="left")
+        df = df.merge(
+            off.rename(columns={"team": ab,
+                                "off_woba_30d": f"{side}_off_woba_30d"}),
+            on=[ab, "game_date"], how="left")
+        df = df.merge(
+            sp.rename(columns={"pitch_team": ab,
+                               "sp_kbb_5s": f"{side}_sp_kbb_5s",
+                               "sp_elite": f"{side}_sp_elite",
+                               "sp_bottom": f"{side}_sp_bottom"}),
+            on=["game_pk", ab], how="left")
+    if len(df) != n:
+        raise AssertionError(
+            f"joins changed the row count ({n} -> {len(df)}); a stat table has "
+            f"duplicate keys and is fanning games out.")
 
-    df["park_factor"] = df["home_ab"].map(PARK_FACTORS).fillna(1.0)
+    df = df.sort_values("game_date", kind="stable").reset_index(drop=True)
+    for side in ("home", "away"):
+        df[f"{side}_rest_days"] = rest_days(df, f"{side}_ab")
+
+    # Park factor is keyed on VENUE and season, not team: the Athletics have
+    # played in two parks inside this window and a static team->park map would
+    # hand their Sacramento games the Oakland Coliseum's number.
+    pf = park_factor_table(games)
+    df["venue"] = [venue_id(t, s) for t, s in zip(df["home_ab"], df["season"])]
+    df["park_factor"] = [pf[(v, s)] for v, s in zip(df["venue"], df["season"])]
     df["novig_home_prob"] = HOME_BASELINE  # placeholder baseline; see docstring
 
     feats = [c for c in df.columns if any(

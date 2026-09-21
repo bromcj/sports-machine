@@ -21,13 +21,18 @@ FEATURE_COLUMNS = [
     "park_factor",
 ]
 
-PARK_FACTORS = {  # runs, 1.00 = neutral (static v1; refresh yearly)
+PARK_PRIORS = {  # runs, 1.00 = neutral. Cold-start priors ONLY: used for a
+                 # venue with no history yet. Seasons with history get an
+                 # empirical factor from park_factor_table() instead.
+                 # Keyed by VENUE, not team - a club that moves changes key.
     "COL": 1.12, "CIN": 1.06, "BOS": 1.05, "KC": 1.04, "AZ": 1.03,
     "TEX": 1.02, "PHI": 1.02, "BAL": 1.01, "MIN": 1.01, "ATL": 1.01,
     "TOR": 1.00, "CHC": 1.00, "WSH": 1.00, "LAA": 1.00, "PIT": 0.99,
     "MIL": 0.99, "STL": 0.99, "NYY": 0.99, "HOU": 0.99,
     "DET": 0.98, "CWS": 0.98, "SD": 0.97, "TB": 0.97, "LAD": 0.97,
-    "NYM": 0.96, "CLE": 0.96, "OAK": 0.96, "ATH": 0.96, "SF": 0.95,
+    "NYM": 0.96, "CLE": 0.96, "ATH": 0.96, "SF": 0.95,  # ATH = Oakland Coliseum
+    # "SAC" is deliberately absent: a brand-new park has no history, and
+    # inheriting the Coliseum's 0.96 is exactly the bug this avoids.
     "SEA": 0.94, "MIA": 0.94,
 }
 
@@ -41,14 +46,71 @@ TEAM_ABBR = {
     "Los Angeles Angels": "LAA", "Los Angeles Dodgers": "LAD",
     "Miami Marlins": "MIA", "Milwaukee Brewers": "MIL",
     "Minnesota Twins": "MIN", "New York Mets": "NYM",
-    "New York Yankees": "NYY", "Oakland Athletics": "OAK",
-    "Athletics": "ATH", "Philadelphia Phillies": "PHI",
+    "New York Yankees": "NYY", "Philadelphia Phillies": "PHI",
+    # One franchise, two names: Statcast has used ATH for every season.
+    "Oakland Athletics": "ATH", "Athletics": "ATH",
     "Pittsburgh Pirates": "PIT", "San Diego Padres": "SD",
     "San Francisco Giants": "SF", "Seattle Mariners": "SEA",
     "St. Louis Cardinals": "STL", "Tampa Bay Rays": "TB",
     "Texas Rangers": "TEX", "Toronto Blue Jays": "TOR",
     "Washington Nationals": "WSH",
 }
+
+
+VENUES = {
+    # (team, season) -> venue id, for clubs that have moved. Everyone else
+    # defaults to their own abbreviation, so this stays short.
+    # The A's left the Oakland Coliseum after 2024 for a minor-league park in
+    # West Sacramento. A Las Vegas park is expected; when it opens it is two
+    # more lines here, and nothing else in the codebase needs to know.
+    ("ATH", 2025): "SAC",
+    ("ATH", 2026): "SAC",
+}
+
+PF_REGRESSION = 162   # shrink weight in games: a venue needs ~2 home seasons
+                      # of evidence to move halfway from 1.00 to its raw mark
+PF_MIN_GAMES = 81     # below this, no empirical estimate - fall back to prior
+
+
+def venue_id(team: str, season: int) -> str:
+    """Which ballpark a club played in that season. Season granularity, so a
+    mid-season relocation would need a date-keyed table instead."""
+    return VENUES.get((team, season), team)
+
+
+def park_factor_table(games: pd.DataFrame) -> dict:
+    """(venue, season) -> park factor, built from PRIOR seasons only.
+
+    Classic construction: runs per game at the venue over runs per game in its
+    occupant's road games, which controls for the club's own quality (a weak
+    offense makes its home park look pitcher-friendly otherwise). Shrunk toward
+    1.00 because a single season of park data is very noisy.
+
+    A venue with no history - a relocation, a new build - gets the static prior
+    if one exists and 1.00 otherwise. Never the previous park's value: the
+    Athletics' Sacramento park has run hotter than Coors while the Coliseum it
+    replaced was among the coldest in baseball.
+
+    Needs columns: home_ab, away_ab, season, home_score, away_score.
+    """
+    g = games.copy()
+    g["total_runs"] = g["home_score"] + g["away_score"]
+    g["venue"] = [venue_id(t, s) for t, s in zip(g["home_ab"], g["season"])]
+
+    out = {}
+    for season in sorted(g["season"].unique()):
+        past = g[g["season"] < season]
+        for venue in g.loc[g["season"] == season, "venue"].unique():
+            home = past[past["venue"] == venue]
+            occupants = home["home_ab"].unique()
+            road = past[past["away_ab"].isin(occupants) & (past["venue"] != venue)]
+            if len(home) < PF_MIN_GAMES or len(road) < PF_MIN_GAMES:
+                out[(venue, season)] = PARK_PRIORS.get(venue, 1.00)
+                continue
+            raw = home["total_runs"].mean() / road["total_runs"].mean()
+            n = len(home)
+            out[(venue, season)] = (n * raw + PF_REGRESSION) / (n + PF_REGRESSION)
+    return out
 
 
 def load_statcast(years=None) -> pd.DataFrame:

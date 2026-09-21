@@ -14,6 +14,7 @@ from sklearn.metrics import mean_squared_error, log_loss
 import sys as _sys
 _sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
 from config import SPORTS
+from model.calibrate import fit_k
 
 MODEL_VERSION = "ridge-margin-v2"  # one architecture, per-sport models
 ALPHAS = [0.1, 1.0, 10.0, 50.0, 100.0]
@@ -37,6 +38,15 @@ def walk_forward(df: pd.DataFrame, feature_cols: list[str],
 
     df must contain one row per game with features, target (home minus away runs),
     season, home_won (0/1), and novig_home_prob (market baseline) columns.
+
+    The reported `k_fit` is diagnostic only. It is the margin -> win-prob
+    steepness the TRAINING data would choose, measured on out-of-fold
+    predictions so it stays leakage-free, and it is NOT applied - predictions
+    use the config k_default. Measured 2026-09: fitting k is neutral to
+    slightly worse here, because these predicted margins are compressed
+    (sd ~0.5 against ~4.5 for real ones) and the log-loss surface around
+    k is correspondingly flat. Watch k_fit drift away from k_default as you
+    add features: that is the signal the config prior has gone stale.
     """
     seasons = sorted(df[season_col].unique())
     results = []
@@ -56,6 +66,18 @@ def walk_forward(df: pd.DataFrame, feature_cols: list[str],
             if rmse < best_rmse:
                 best_alpha, best_rmse = a, rmse
 
+        # Diagnostic only: what steepness would the training data pick?
+        # Leave-one-season-out inside the training window, so every prediction
+        # k sees was made by a model that had not seen that game.
+        oof_pred, oof_y = [], []
+        for s in seasons[:i]:
+            fold_tr, fold_va = train[train[season_col] != s], train[train[season_col] == s]
+            fm = make_pipeline(StandardScaler(), Ridge(alpha=best_alpha))
+            fm.fit(fold_tr[feature_cols], fold_tr[target_col])
+            oof_pred.append(fm.predict(fold_va[feature_cols]))
+            oof_y.append(fold_va["home_won"].values)
+        k_fit = fit_k(np.concatenate(oof_pred), np.concatenate(oof_y))
+
         model = make_pipeline(StandardScaler(), Ridge(alpha=best_alpha))
         model.fit(train[feature_cols], train[target_col])
         pred_diff = model.predict(test[feature_cols])
@@ -65,6 +87,8 @@ def walk_forward(df: pd.DataFrame, feature_cols: list[str],
         metrics = {
             "test_season": int(seasons[i]),
             "alpha": best_alpha,
+            "k_used": SPORTS[sport]["k_default"],
+            "k_fit": round(k_fit, 3),
             "rmse": mean_squared_error(test[target_col], pred_diff) ** 0.5,
             "logloss_model": log_loss(y, np.clip(pred_prob, 1e-6, 1 - 1e-6)),
             "brier_model": float(np.mean((pred_prob - y) ** 2)),
