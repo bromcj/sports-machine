@@ -1,0 +1,81 @@
+game_id,sport,game_date,away,home,away_starter,home_starter,away_score,home_score,status,away_starter_id,home_starter_id
+mlb-823543,mlb,2026-09-22,Tampa Bay Rays,New York Yankees,Nick Martinez,Carlos Rodón,0,0,live,607259,607074
+mlb-823494,mlb,2026-09-22,Tampa Bay Rays,New York Yankees,Drew Rasmussen,Max Fried,,,preview,656876,608331
+mlb-824785,mlb,2026-09-22,Toronto Blue Jays,Baltimore Orioles,Max Scherzer,Chris Bassitt,,,preview,453286,605135
+mlb-824222,mlb,2026-09-22,Washington Nationals,Detroit Tigers,Riley Cornelio,Drew Anderson,,,preview,683000,623454
+mlb-823328,mlb,2026-09-22,St. Louis Cardinals,Pittsburgh Pirates,Andre Pallante,Jared Jones,,,preview,669467,683003
+mlb-823412,mlb,2026-09-22,Milwaukee Brewers,Philadelphia Phillies,Dustin May,Zack Wheeler,,,preview,669160,554430
+mlb-824709,mlb,2026-09-22,Cleveland Guardians,Boston Red Sox,Parker Messick,Payton Tolle,,,preview,800048,801139
+mlb-824867,mlb,2026-09-22,Cincinnati Reds,Atlanta Braves,Brandon Williamson,JR Ritchie,,,preview,682227,702275
+mlb-824061,mlb,2026-09-22,Chicago White Sox,Kansas City Royals,Anthony Kay,Daniel Lynch IV,,,preview,641743,663738
+mlb-824624,mlb,2026-09-22,Miami Marlins,Chicago Cubs,Janson Junk,Shota Imanaga,,,preview,676083,684007
+mlb-822840,mlb,2026-09-22,New York Mets,Texas Rangers,Sean Manaea,MacKenzie Gore,,,preview,640455,669022
+mlb-824302,mlb,2026-09-22,Arizona Diamondbacks,Colorado Rockies,Michael Soroka,Kyle Freeland,,,preview,647336,607536
+mlb-824953,mlb,2026-09-22,Los Angeles Angels,Athletics,Yusei Kikuchi,Brady Basso,,,preview,579328,669620
+mlb-823089,mlb,2026-09-22,Houston Astros,Seattle Mariners,Cristian Javier,Logan Gilbert,,,preview,664299,669302
+mlb-823166,mlb,2026-09-22,Minnesota Twins,San Francisco Giants,Taj Bradley,Anthony Molina,,,preview,671737,683627
+mlb-823897,mlb,2026-09-22,San Diego Padres,Los Angeles Dodgers,Michael King,,,,preview,650633,
+mlb-espn-401873648,mlb,2026-09-22,Tampa Bay Rays,New York Yankees,,,0,0,live,,
+mlb-espn-401817035,mlb,2026-09-22,Toronto Blue Jays,Baltimore Orioles,,,,,scheduled,,
+mlb-espn-401817032,mlb,2026-09-22,Milwaukee Brewers,Philadelphia Phillies,,,,,scheduled,,
+mlb-espn-401817033,mlb,2026-09-22,St. Louis Cardinals,Pittsburgh Pirates,,,,,scheduled,,
+mlb-espn-401817036,mlb,2026-09-22,Washington Nationals,Detroit Tigers,,,,,scheduled,,
+mlb-espn-401817031,mlb,2026-09-22,Cleveland Guardians,Boston Red Sox,,,,,scheduled,,
+mlb-espn-401817034,mlb,2026-09-22,Tampa Bay Rays,New York Yankees,,,,,scheduled,,
+mlb-espn-401817030,mlb,2026-09-22,Cincinnati Reds,Atlanta Braves,,,,,scheduled,,
+mlb-espn-401817037,mlb,2026-09-22,Chicago White Sox,Kansas City Royals,,,,,scheduled,,
+mlb-espn-401817038,mlb,2026-09-22,Miami Marlins,Chicago Cubs,,,,,scheduled,,
+mlb-espn-401817039,mlb,2026-09-23,New York Mets,Texas Rangers,,,,,scheduled,,
+mlb-espn-401817040,mlb,2026-09-23,Arizona Diamondbacks,Colorado Rockies,,,,,scheduled,,
+mlb-espn-401817041,mlb,2026-09-23,Los Angeles Angels,Athletics,,,,,scheduled,,
+mlb-espn-401817042,mlb,2026-09-23,Houston Astros,Seattle Mariners,,,,,scheduled,,
+mlb-espn-401817043,mlb,2026-09-23,Minnesota Twins,San Francisco Giants,,,,,scheduled,,
+mlb-espn-401817044,mlb,2026-09-23,San Diego Padres,Los Angeles Dodgers,,,,,scheduled,,
+nfl-espn-401872932,nfl,2026-09-18,Detroit Lions,Buffalo Bills,,,31,41,final,,
+nfl-espn-401872933,nfl,2026-09-20,Carolina Panthers,Atlanta Falcons,,,34,3,final,,
+nfl-espn-401872937,nfl,2026-09-20,Minnesota Vikings,Chicago Bears,,,9,3,final,,
+nfl-espn-401872939,nfl,2026-09-20,Philadelphia Eagles,Tennessee Titans,,,24,20,final,,
+nfl-espn-401872946,nfl,2026-09-20,Pittsburgh Steelers,New England Patriots,,,3,20,final,,
+nfl-espn-401872936,nfl,2026-09-20,Green Bay Packers,New York Jets,,,20,17,final,,
+nfl-espn-401872935,nfl,2026-09-20,Cleveland Browns,Tampa Bay Buccaneers,,,23,19,final,,
+nfl-espn-401872938,nfl,2026-09-20,New Orleans Saints,Baltimore Ravens,,,24,17,final,,
+nfl-espn-401872934,nfl,2026-09-20,Cincinnati Bengals,Houston Texans,,,20,6,final,,
+nfl-espn-401872940,nfl,2026-09-20,Jacksonville Jaguars,Denver Broncos,,,13,20,final,,
+nfl-espn-401872941,nfl,2026-09-20,Las Vegas Raiders,Los Angeles Chargers,,,26,14,final,,
+nfl-espn-401872944,nfl,2026-09-20,Washington Commanders,Dallas Cowboys,,,20,37,final,,
+nfl-espn-401872943,nfl,2026-09-20,Seattle Seahawks,Arizona Cardinals,,,31,7,final,,
+nfl-espn-401872942,nfl,2026-09-20,Miami Dolphins,San Francisco 49ers,,,13,35,final,,
+nfl-espn-401872945,nfl,2026-09-21,Indianapolis Colts,Kansas City Chiefs,,,30,33,final,,
+nfl-espn-401872947,nfl,2026-09-22,New York Giants,Los Angeles Rams,,,6,28,final,,
+mlb-394e1e2b849c5b4eaf2b5984eaa74b79,mlb,2026-09-22,Tampa Bay Rays,New York Yankees,,,,,scheduled,,
+mlb-7fafa79a573ac098f38c8c6c4293b93e,mlb,2026-09-22,Toronto Blue Jays,Baltimore Orioles,,,,,scheduled,,
+mlb-e1693becb4cbacb4b30e46c1c960d9a5,mlb,2026-09-22,Washington Nationals,Detroit Tigers,,,,,scheduled,,
+mlb-2ec6c946384087513c61f58aad6e082f,mlb,2026-09-22,Milwaukee Brewers,Philadelphia Phillies,,,,,scheduled,,
+mlb-388cb001ef45b493163b9d37cf60f606,mlb,2026-09-22,St. Louis Cardinals,Pittsburgh Pirates,,,,,scheduled,,
+mlb-3b4ceeb7bb4bee993b6876fead12eeba,mlb,2026-09-22,Cleveland Guardians,Boston Red Sox,,,,,scheduled,,
+mlb-574050c10d1acc2da7baf72384eeaa11,mlb,2026-09-22,Tampa Bay Rays,New York Yankees,,,,,scheduled,,
+mlb-0c17c76059d99e5bb249df6a7c540127,mlb,2026-09-22,Cincinnati Reds,Atlanta Braves,,,,,scheduled,,
+mlb-82b37a47daa08ef041c888d37b999303,mlb,2026-09-22,Miami Marlins,Chicago Cubs,,,,,scheduled,,
+mlb-ebb664c5095200280fa1b15540c2c88b,mlb,2026-09-22,Chicago White Sox,Kansas City Royals,,,,,scheduled,,
+mlb-1cfde197827ecee7feb17929bf32793b,mlb,2026-09-23,New York Mets,Texas Rangers,,,,,scheduled,,
+mlb-afbac30624ec674873fd96ac159f69ad,mlb,2026-09-23,Arizona Diamondbacks,Colorado Rockies,,,,,scheduled,,
+mlb-0ae15942e1f4c4657b06458868afbf96,mlb,2026-09-23,Los Angeles Angels,Athletics,,,,,scheduled,,
+mlb-a5e0deb6f51b7edebbd82d0eaf966294,mlb,2026-09-23,Houston Astros,Seattle Mariners,,,,,scheduled,,
+mlb-81f539754930db6ffbd116ca2d30ee9c,mlb,2026-09-23,Minnesota Twins,San Francisco Giants,,,,,scheduled,,
+mlb-85b75fcab1b69e0a4e414382b9f1cc7e,mlb,2026-09-23,San Diego Padres,Los Angeles Dodgers,,,,,scheduled,,
+nfl-e5fbd3b3953b896b1bf897ddadb3cc4b,nfl,2026-09-25,Atlanta Falcons,Green Bay Packers,,,,,scheduled,,
+nfl-b225458a282e140c44c45651255f2f6c,nfl,2026-09-27,Los Angeles Chargers,Buffalo Bills,,,,,scheduled,,
+nfl-613b8cd3a5fab58f7be4e3fd6f76223e,nfl,2026-09-27,Carolina Panthers,Cleveland Browns,,,,,scheduled,,
+nfl-71123be049587b6facce3a20c53e5d09,nfl,2026-09-27,Cincinnati Bengals,Pittsburgh Steelers,,,,,scheduled,,
+nfl-07f552badfa8a565d1be22123713e4da,nfl,2026-09-27,New York Jets,Detroit Lions,,,,,scheduled,,
+nfl-17a730b7d399feeab6a78c30767c29d2,nfl,2026-09-27,Houston Texans,Indianapolis Colts,,,,,scheduled,,
+nfl-1f3cfd315a24d1a7dd5859a8e6b88e18,nfl,2026-09-27,New England Patriots,Jacksonville Jaguars,,,,,scheduled,,
+nfl-0339a0e41bcee12820eb3e64bb5fadb4,nfl,2026-09-27,Kansas City Chiefs,Miami Dolphins,,,,,scheduled,,
+nfl-555afd4a27aaa392662881cffa8f2eef,nfl,2026-09-27,Tennessee Titans,New York Giants,,,,,scheduled,,
+nfl-2a529c108305ffa049d8b6cfdbaa4d36,nfl,2026-09-27,Seattle Seahawks,Washington Commanders,,,,,scheduled,,
+nfl-9d2b09e0f9b6dd5ce0d985894f4f98fa,nfl,2026-09-27,Arizona Cardinals,San Francisco 49ers,,,,,scheduled,,
+nfl-f1724dead3eab61546033032fc782375,nfl,2026-09-27,Minnesota Vikings,Tampa Bay Buccaneers,,,,,scheduled,,
+nfl-84cfca14efc21363fd605508404cf1ff,nfl,2026-09-27,Baltimore Ravens,Dallas Cowboys,,,,,scheduled,,
+nfl-2e523fcb0497aa689473e290eb2b97de,nfl,2026-09-27,Las Vegas Raiders,New Orleans Saints,,,,,scheduled,,
+nfl-3bfd8bfb4b8e9a365a0877879b73b16b,nfl,2026-09-28,Los Angeles Rams,Denver Broncos,,,,,scheduled,,
+nfl-47dc7baa254659f3beb2ed2b38c207b6,nfl,2026-09-29,Philadelphia Eagles,Chicago Bears,,,,,scheduled,,
