@@ -429,6 +429,11 @@ def build(d):
                 '<span class="chart-only"><b class="c1">Blue</b> is how wrong the '
                 'program was; <b class="c2">orange</b> is how wrong the bookmakers '
                 'were. <strong>Shorter is better.</strong></span></p>'
+                '<p class="note">&ldquo;How wrong&rdquo; counts two things at once: '
+                'whether it picked the right side, and how sure it was. Being '
+                'confident and wrong costs far more than being unsure and wrong '
+                '&mdash; which is the right way to score something you might put '
+                'money on.</p>'
                 + legend2() + svg + bl_seasons(srows, True) + tbl)
         else:
             panels += (
@@ -503,6 +508,12 @@ def build(d):
   table.checks td {{ text-align:center; font-weight:600; width:86px; }}
   table.checks td.ok {{ color:var(--good); }} table.checks td.no {{ color:var(--crit); }}
 
+  .primer {{ margin:30px 0 0; padding:16px 18px; border-radius:12px;
+    border-left:3px solid var(--s2);
+    background:color-mix(in srgb, var(--s2) 6%, transparent); }}
+  .primer h3 {{ margin:0 0 6px; font-size:15px; }}
+  .primer p {{ font-size:15px; color:var(--ink2); margin:0 0 8px; max-width:62ch; }}
+  .primer p:last-child {{ margin-bottom:0; }}
   .bl {{ font-size:16px; margin:14px 0 4px; padding:12px 14px; border-radius:10px;
     background:color-mix(in srgb, var(--ink) 5%, transparent); max-width:64ch; }}
   .bl strong {{ color:var(--ink); }}
@@ -580,12 +591,28 @@ def build(d):
   <div class="hero-v">{verdict}</div>
   <div class="hero-c">{passed} of {total} safety checks passed</div>
   <p class="hero-s">It picks the winning side <strong>{acc}</strong> of the time,
-  tested the honest way: trained on past seasons only, then graded on a season it had
-  never seen, over <strong>{d.get("n_train", 0):,}</strong> real games. That sounds
-  like plenty. It isn&rsquo;t &mdash; coin flipping is 50%, the home team wins about
-  53% on its own, and bookmakers do better than all of that while taking a cut of
-  every bet. To make money you have to beat <strong>them</strong>.</p>
+  over <strong>{d.get("n_train", 0):,}</strong> real games. It was trained on past
+  seasons only and then graded on a season it had never seen &mdash; and that last
+  part is the whole test. Any program looks brilliant on games it already knows the
+  answer to; the only score worth anything comes from games it was never shown.</p>
+  <p class="hero-s">{acc} sounds like plenty. It isn&rsquo;t. Coin flipping is 50%,
+  and the home team wins about 53% of the time for free. Bookmakers do better than
+  both while taking a cut of every bet, so to make money you have to beat
+  <strong>them</strong> &mdash; and section 2 shows that happening, season by
+  season.</p>
   {checks_tbl}
+</section>
+
+<section class="primer">
+  <h3>First, the thing this all turns on</h3>
+  <p>A betting line is a prediction. When a bookmaker puts a price on a game, that
+  price converts directly into a percentage chance &mdash; that is all the orange
+  numbers on this page are.</p>
+  <p>Those percentages are very hard to beat. They absorb every injury report, every
+  professional gambler&rsquo;s opinion and every dollar wagered, and they get
+  corrected within minutes of being wrong. That makes them the toughest free
+  benchmark in existence, which is why this program is measured against them rather
+  than against whether its guesses feel reasonable.</p>
 </section>
 
 <h2>1 &mdash; Tonight&rsquo;s games</h2>
@@ -599,8 +626,14 @@ bookmakers, and the line between them is how far apart they are.</span></p>
 {picks_tbl}
 
 <h2>2 &mdash; Has it ever beaten a bookmaker?</h2>
-<p class="note">This is the test that decides everything. Two charts below, and they
-are <strong>not</strong> the same test.</p>
+<p class="note">This is the test that decides everything, and baseball
+can&rsquo;t sit it yet: the program only started recording real betting prices when
+it was switched on, so there is no history to grade it against. So a second version
+was built for American football, where years of real bookmaker prices already
+existed. Same design, different sport &mdash; and a real test available
+immediately.</p>
+<p class="note">Two charts below, and they are <strong>not</strong> the same
+test.</p>
 {panels}
 
 <h2>3 &mdash; What it pays attention to</h2>
