@@ -72,11 +72,7 @@ def offense_asof(sc: pd.DataFrame, asof: pd.Timestamp) -> dict:
 
 
 def starters_asof(lines: pd.DataFrame, asof: pd.Timestamp) -> dict:
-    """pitcher_id -> (sp_kbb_5s, sp_elite, sp_bottom) over their last 5 starts.
-
-    Deciles are taken across the same population the flags describe - every
-    pitcher with a current form number - matching how starter_table builds them.
-    """
+    """pitcher_id -> sp_kbb_5s over their last 5 starts."""
     sp = _asof(lines[lines["is_starter"]], "game_date", asof)
     form = {}
     for pid, g in sp.groupby("pitcher"):
@@ -86,11 +82,7 @@ def starters_asof(lines: pd.DataFrame, asof: pd.Timestamp) -> dict:
         pa = g["pa"].sum()
         if pa:
             form[int(pid)] = float((g["k"].sum() - g["bb"].sum()) / pa)
-    if not form:
-        return {}
-    vals = np.array(list(form.values()))
-    hi, lo = np.quantile(vals, 0.90), np.quantile(vals, 0.10)
-    return {pid: (v, float(v >= hi), float(v <= lo)) for pid, v in form.items()}
+    return form
 
 
 def rest_days_asof(con, teams: set, asof: pd.Timestamp) -> dict:
@@ -197,15 +189,13 @@ def _row(g, pen, off, sform, rest, pf, asof):
     if ha not in rest or aa not in rest:
         return None, "no prior game found for one side (rest days unknown)"
 
-    hk, he, hb = sform[int(hid)]
-    ak, ae, ab_ = sform[int(aid)]
+    hk, ak = sform[int(hid)], sform[int(aid)]
     venue = venue_id(ha, asof.year)
     vec = {
         "home_pen_kbb_30d": pen[ha][0], "home_pen_pitches_3d": pen[ha][1],
         "away_pen_kbb_30d": pen[aa][0], "away_pen_pitches_3d": pen[aa][1],
         "home_off_woba_30d": off[ha], "away_off_woba_30d": off[aa],
-        "home_sp_kbb_5s": hk, "home_sp_elite": he, "home_sp_bottom": hb,
-        "away_sp_kbb_5s": ak, "away_sp_elite": ae, "away_sp_bottom": ab_,
+        "home_sp_kbb_5s": hk, "away_sp_kbb_5s": ak,
         "home_rest_days": rest[ha], "away_rest_days": rest[aa],
         "park_factor": pf.get((venue, asof.year), PARK_PRIORS.get(venue, 1.00)),
     }

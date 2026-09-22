@@ -90,9 +90,7 @@ def assemble() -> pd.DataFrame:
             on=[ab, "game_date"], how="left")
         df = df.merge(
             sp.rename(columns={"pitch_team": ab,
-                               "sp_kbb_5s": f"{side}_sp_kbb_5s",
-                               "sp_elite": f"{side}_sp_elite",
-                               "sp_bottom": f"{side}_sp_bottom"}),
+                               "sp_kbb_5s": f"{side}_sp_kbb_5s"}),
             on=["game_pk", ab], how="left")
     if len(df) != n:
         raise AssertionError(

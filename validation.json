@@ -4,24 +4,24 @@
     "baseline_kind": "placeholder",
     "cleared": false,
     "reason": "baseline is a placeholder, not a real market - beating it proves the model learned something, not that it has edge",
-    "recorded_at": "2026-09-22T04:30:53+00:00",
+    "recorded_at": "2026-09-22T05:26:48+00:00",
     "seasons": [
       {
         "beat_market": true,
         "logloss_market": 0.693083,
-        "logloss_model": 0.685606,
+        "logloss_model": 0.684738,
         "season": 2024
       },
       {
         "beat_market": true,
         "logloss_market": 0.688989,
-        "logloss_model": 0.687365,
+        "logloss_model": 0.687165,
         "season": 2025
       },
       {
         "beat_market": true,
         "logloss_market": 0.691354,
-        "logloss_model": 0.689947,
+        "logloss_model": 0.689744,
         "season": 2026
       }
     ]
