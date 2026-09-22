@@ -264,45 +264,60 @@ def tech(summary, body):
 
 # ================================================================== charts
 def chart_seasons(seasons, opponent):
-    """Grouped bars. The axis is labelled and the values are printed, because
-    the question this chart answers is comparative and the reader was asked to
-    judge lengths with no scale at all before."""
+    """Connected dots, one row per season - deliberately NOT bars.
+
+    A bar encodes magnitude as length from zero, so a truncated axis makes a
+    small difference look enormous; that is exactly what the previous version
+    did to gaps of a few hundredths. A dot encodes position, so a tight axis is
+    honest here: the marks are where the numbers actually sit, and the exact
+    values are printed beside them either way.
+    """
     if not seasons:
         return "", ""
-    W, h, PAD_L, PAD_B, PAD_T = 760, 250, 118, 46, 34
+    PAD_T, ROW = 54, 40
+    h = PAD_T + len(seasons) * ROW + 44
+    x0, x1 = 112, 520
     lo = min(min(s["logloss_model"], s["logloss_market"]) for s in seasons)
     hi = max(max(s["logloss_model"], s["logloss_market"]) for s in seasons)
-    pad = (hi - lo) * .45 or .01
-    lo, hi = max(0, lo - pad), hi + pad
-    sy = lambda v: PAD_T + (hi - v) / (hi - lo) * (h - PAD_T - PAD_B)
-    gw = (W - PAD_L - 24) / len(seasons)
-    bw = min(46, gw / 2 - 10)
-    o = [f'<svg viewBox="0 0 {W} {h}" role="img" aria-label="Prediction error '
-         f'by season for the model and for {esc(opponent)}; lower is better">']
-    for i in range(4):
-        v = lo + (hi - lo) * i / 3
-        o.append(f'<line class="grid" x1="{PAD_L}" y1="{sy(v):.1f}" x2="{W-24}" y2="{sy(v):.1f}"/>')
-        o.append(f'<text class="tick" x="{PAD_L-10}" y="{sy(v)+4:.1f}" text-anchor="end">{v:.2f}</text>')
-    o.append(f'<text class="axis" x="{PAD_L-10}" y="{PAD_T-14}" text-anchor="end">'
-             f'prediction error</text>')
-    o.append(f'<text class="axis better" x="{PAD_L+6}" y="{PAD_T-14}">&#8595; lower is better</text>')
-    for i, s in enumerate(seasons):
-        cx = PAD_L + gw * i + gw / 2
-        for j, (key, cls, who) in enumerate((("logloss_model", "mk1", "Sports Machine"),
-                                             ("logloss_market", "mk2", opponent))):
-            v = s[key]
-            x = cx - bw - 1 + j * (bw + 2)
-            o.append(f'<rect class="{cls} bar" x="{x:.1f}" y="{sy(v):.1f}" width="{bw:.1f}" '
-                     f'height="{max(0, h-PAD_B-sy(v)):.1f}" rx="4"><title>'
-                     f'{s["season"]} — {esc(who)}: {v:.3f}</title></rect>')
-            o.append(f'<text class="barval" x="{x+bw/2:.1f}" y="{sy(v)-7:.1f}" '
-                     f'text-anchor="middle">{v:.2f}</text>')
-        o.append(f'<text class="cat" x="{cx:.1f}" y="{h-PAD_B+24}" text-anchor="middle">{s["season"]}</text>')
+    pad = (hi - lo) * .25 or .01
+    lo, hi = lo - pad, hi + pad
+    sx = lambda v: x0 + (v - lo) / (hi - lo) * (x1 - x0)
+    step = 0.02
+    o = [f'<svg viewBox="0 0 760 {h}" role="img" aria-label="Prediction error by '
+         f'season for Sports Machine and for the bookmakers; lower is better">']
+    t = (int(lo / step) + 1) * step
+    while t < hi:
+        o.append(f'<line class="grid" x1="{sx(t):.1f}" y1="{PAD_T-14}" '
+                 f'x2="{sx(t):.1f}" y2="{h-44}"/>')
+        o.append(f'<text class="tick" x="{sx(t):.1f}" y="{PAD_T-20}" '
+                 f'text-anchor="middle">{t:.2f}</text>')
+        t += step
+    o.append(f'<text class="axis better" x="{x0}" y="{h-12}">'
+             f'&#8592; lower prediction error is better</text>')
+    o.append(f'<text class="tick" x="{x1+30}" y="{PAD_T-20}">more accurate</text>')
+    for i, s_ in enumerate(seasons):
+        y = PAD_T + i * ROW + ROW / 2
+        m, k = s_["logloss_model"], s_["logloss_market"]
+        a_, b_ = sx(m), sx(k)
+        o.append(f'<text class="cat" x="{x0-18}" y="{y+5}" text-anchor="end">{s_["season"]}</text>')
+        o.append(f'<line class="conn" x1="{a_:.1f}" y1="{y}" x2="{b_:.1f}" y2="{y}"/>')
+        for val, cls, who in ((k, "mk2", opponent), (m, "mk1", "Sports Machine")):
+            cx = sx(val)
+            o.append(f'<circle class="ring" cx="{cx:.1f}" cy="{y}" r="8"/>'
+                     f'<circle class="{cls}" cx="{cx:.1f}" cy="{y}" r="6.5"><title>'
+                     f'{s_["season"]} — {esc(who)}: {val:.3f}</title></circle>')
+        # exact values, placed on the outside of each dot so they never collide
+        lft, rgt = (m, k) if m <= k else (k, m)
+        o.append(f'<text class="barval" x="{sx(lft)-13:.1f}" y="{y+4}" '
+                 f'text-anchor="end">{lft:.3f}</text>')
+        o.append(f'<text class="barval" x="{sx(rgt)+13:.1f}" y="{y+4}">{rgt:.3f}</text>')
+        better = "Sports Machine" if m < k else opponent
+        o.append(f'<text class="val" x="{x1+30}" y="{y+5}">{esc(better)}</text>')
     o.append("</svg>")
-    rows = [(s["season"], f'{s["logloss_model"]:.3f}', f'{s["logloss_market"]:.3f}',
-             "Sports Machine" if s["logloss_model"] < s["logloss_market"] else opponent.capitalize())
-            for s in seasons]
-    tbl = table(["Season", "Sports Machine error", f"{opponent.capitalize()} error",
+    rows = [(s_["season"], f'{s_["logloss_model"]:.3f}', f'{s_["logloss_market"]:.3f}',
+             "Sports Machine" if s_["logloss_model"] < s_["logloss_market"] else opponent)
+            for s_ in seasons]
+    tbl = table(["Season", "Sports Machine error", f"{opponent} error",
                  "More accurate"], rows, "Show the exact numbers")
     return "".join(o), tbl
 
@@ -316,7 +331,7 @@ def chart_picks(rows):
     rows = sorted(rows, key=lambda r: -abs(r["model_prob"] - r["market_prob"]))
     PAD_T, ROW = 52, 34
     h = PAD_T + len(rows) * ROW + 40
-    x0, x1 = 128, 588
+    x0, x1 = 128, 508
     lo = min(min(r["model_prob"], r["market_prob"]) for r in rows) - .05
     hi = max(max(r["model_prob"], r["market_prob"]) for r in rows) + .05
     lo, hi = max(0, lo), min(1, hi)
@@ -332,7 +347,8 @@ def chart_picks(rows):
                      f'text-anchor="middle">{t:.0%}</text>')
     o.append(f'<text class="axis" x="{(x0+x1)/2:.0f}" y="{h-10}" text-anchor="middle">'
              f'chance the home team wins</text>')
-    o.append(f'<text class="tick" x="{x1+26}" y="{PAD_T-18}">difference</text>')
+    o.append(f'<text class="tick" x="{x1+30}" y="{PAD_T-18}">machine picks</text>')
+    o.append(f'<text class="tick" x="{x1+150}" y="{PAD_T-18}">difference</text>')
     for i, r in enumerate(rows):
         y = PAD_T + i * ROW + ROW / 2
         a, b = sx(r["model_prob"]), sx(r["market_prob"])
@@ -350,12 +366,16 @@ def chart_picks(rows):
                  f'{r["model_prob"]:.0%}</title></circle>')
         word = "lower" if pts < 0 else "higher"
         unit = "pt" if round(abs(pts)) == 1 else "pts"
-        o.append(f'<text class="val" x="{x1+26}" y="{y+5}">'
+        # The pick is simply the side it gives the better than even chance to.
+        pick = abbr(r["home"]) if r["model_prob"] > .5 else abbr(r["away"])
+        o.append(f'<text class="pick" x="{x1+30}" y="{y+5}">{esc(pick)}</text>')
+        o.append(f'<text class="val dim" x="{x1+150}" y="{y+5}">'
                  f'{abs(pts):.0f} {unit} {word}</text>')
     o.append("</svg>")
-    tbl = table(["Game", "Sports Machine", "Bookmakers", "Difference"],
-                [(f'{r["away"]} @ {r["home"]}', f'{r["model_prob"]:.0%}',
-                  f'{r["market_prob"]:.0%}',
+    tbl = table(["Game", "Machine picks", "Sports Machine", "Bookmakers", "Difference"],
+                [(f'{r["away"]} @ {r["home"]}',
+                  r["home"] if r["model_prob"] > .5 else r["away"],
+                  f'{r["model_prob"]:.0%}', f'{r["market_prob"]:.0%}',
                   f'{(r["model_prob"]-r["market_prob"])*100:+.0f} '
                   f'{"pt" if round(abs((r["model_prob"]-r["market_prob"])*100)) == 1 else "pts"}')
                  for r in rows],
@@ -405,12 +425,13 @@ def bl_seasons(seasons, opponent):
     n = len(seasons)
     lost = sum(1 for s in seasons if s["logloss_model"] >= s["logloss_market"])
     if lost == n:
-        return bl(f"{opponent.capitalize()} predictions were more accurate in "
-                  f"all {n} seasons tested.")
+        return bl(f"The {opponent.lower()} predicted more accurately in all {n} "
+                  f"football seasons tested.")
     if lost == 0:
-        return bl(f"Sports Machine was more accurate in all {n} seasons tested.")
-    return bl(f"{opponent.capitalize()} predictions were more accurate in "
-              f"{lost} of the {n} seasons tested.")
+        return bl(f"Sports Machine predicted more accurately in all {n} football "
+                  f"seasons tested.")
+    return bl(f"The {opponent.lower()} predicted more accurately in {lost} of the "
+              f"{n} football seasons tested.")
 
 
 def bl_picks(n, lower):
@@ -486,18 +507,21 @@ def build(d):
 
     picks_svg, picks_tbl, n_games, n_lower = chart_picks(d["picks"])
     imp_svg, imp_tbl, imp_scaled = chart_importance(d["coef"])
-    OPP = "bookmaker"
+    OPP = "Bookmakers"
     nfl_rows = d["seasons"].get("nfl") or []
     nfl_svg, nfl_tbl = chart_seasons(nfl_rows, OPP) if nfl_rows else ("", "")
 
     priced_note = (f'{n_games} of tonight&rsquo;s {d["n_pred"]} predicted '
                    f'games have a bookmaker price so far.'
                    if d["n_pred"] > n_games else "")
+    TAG = {"now": "Happening now", "next": "Next", "goal": "Goal", "later": ""}
     steps = ""
     for label, when in ROADMAP:
+        tag = TAG[when]
         steps += (f'<li class="step {when}"><span class="dot"></span>'
                   f'<span class="st">{esc(label)}</span>'
-                  f'<span class="tag">{"happening now" if when == "now" else ("next up" if when == "next" else "")}</span></li>')
+                  + (f'<span class="tag">{esc(tag)}</span>' if tag else
+                     '<span class="tag waiting">Not started</span>') + '</li>')
 
     acc = f'{d["accuracy"]:.1%}' if d.get("accuracy") else "&mdash;"
     accent = "var(--good)" if cleared else "var(--crit)"
@@ -575,6 +599,8 @@ def build(d):
   .cat {{ fill:var(--ink); font-weight:500; }}
   .cat.big {{ font-size:16px; font-weight:600; }}
   .val {{ fill:var(--ink); font-variant-numeric:tabular-nums; font-weight:600; }}
+  .val.dim {{ fill:var(--ink2); font-weight:500; }}
+  .pick {{ fill:var(--s1); font-weight:700; font-size:15px; }}
   .barval {{ font-size:12px; font-variant-numeric:tabular-nums; }}
   .tick {{ font-size:12px; }} .axis {{ font-size:12px; font-weight:600; }}
   .axis.better {{ fill:var(--ink2); font-weight:500; }}
@@ -587,6 +613,10 @@ def build(d):
     margin-right:7px; vertical-align:-1px; }}
   .sw1 {{ background:var(--s1); }} .sw2 {{ background:var(--s2); }}
 
+  .callout {{ font-size:15px; margin:14px 0 0; padding:14px 16px; border-radius:11px;
+    max-width:70ch; color:var(--ink2); border-left:3px solid var(--s2);
+    background:color-mix(in srgb, var(--s2) 7%, transparent); }}
+  .callout strong {{ color:var(--ink); }}
   .bl {{ font-size:17px; margin:18px 0 0; padding:15px 17px; border-radius:11px;
     background:var(--box); border:1px solid var(--boxline); max-width:66ch; }}
   .bl strong {{ color:var(--ink); }}
@@ -617,24 +647,37 @@ def build(d):
 
   /* 6 — roadmap */
   ol.road {{ list-style:none; margin:24px 0 0; padding:0; }}
-  .step {{ display:flex; align-items:center; gap:14px; padding:11px 0 11px 4px;
+  .step {{ display:flex; align-items:center; gap:16px; padding:13px 0 13px 4px;
     position:relative; }}
-  .step .dot {{ flex:0 0 13px; height:13px; border-radius:99px;
-    background:var(--surface); box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--ink) 28%,transparent);
-    z-index:1; }}
-  .step::before {{ content:""; position:absolute; left:10px; top:0; bottom:0;
-    width:2px; background:color-mix(in srgb, var(--ink) 13%, transparent); }}
+  .step .dot {{ flex:0 0 15px; height:15px; border-radius:99px;
+    background:var(--surface);
+    box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--ink) 22%,transparent); z-index:1; }}
+  /* the rail is solid where the project has got to, dashed where it has not */
+  .step::before {{ content:""; position:absolute; left:11px; top:0; bottom:0;
+    width:2px; background:color-mix(in srgb, var(--ink) 15%, transparent); }}
+  .step.later::before, .step.goal::before {{ background:none;
+    border-left:2px dashed color-mix(in srgb, var(--ink) 22%, transparent); }}
   .step:first-child::before {{ top:50%; }} .step:last-child::before {{ bottom:50%; }}
-  .step .st {{ font-size:15px; color:var(--ink2); }}
-  .step.now .dot {{ background:var(--s1); box-shadow:inset 0 0 0 2px var(--s1),
-    0 0 0 4px color-mix(in srgb, var(--s1) 22%, transparent); }}
-  .step.now .st {{ color:var(--ink); font-weight:650; }}
-  .step.next .dot {{ box-shadow:inset 0 0 0 2px var(--s2); }}
-  .step.goal .dot {{ box-shadow:inset 0 0 0 2px var(--good); }}
-  .step.goal .st {{ color:var(--ink); font-weight:650; }}
-  .tag {{ font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
-    color:var(--s1); }}
-  .step.next .tag {{ color:var(--s2); }}
+  .step .st {{ font-size:15px; color:var(--ink); }}
+
+  .step.now .dot {{ background:var(--s1); box-shadow:inset 0 0 0 3px var(--s1),
+    0 0 0 5px color-mix(in srgb, var(--s1) 20%, transparent); }}
+  .step.now::before {{ background:var(--s1); }}
+  .step.now .st {{ font-weight:700; }}
+  .step.next .dot {{ box-shadow:inset 0 0 0 3px var(--s2); }}
+  .step.next .st {{ font-weight:650; }}
+  .step.later .dot, .step.goal .dot {{ flex-basis:11px; height:11px; margin-left:2px; }}
+  .step.later .st {{ color:var(--ink2); }}
+  .step.goal .dot {{ box-shadow:inset 0 0 0 3px var(--good); }}
+  .step.goal .st {{ font-weight:700; }}
+
+  .tag {{ font-size:11px; font-weight:700; letter-spacing:.07em;
+    text-transform:uppercase; padding:3px 9px; border-radius:99px;
+    color:var(--s1); background:color-mix(in srgb, var(--s1) 12%, transparent); }}
+  .step.next .tag {{ color:var(--s2); background:color-mix(in srgb,var(--s2) 12%,transparent); }}
+  .step.goal .tag {{ color:var(--good); background:color-mix(in srgb,var(--good) 13%,transparent); }}
+  .tag.waiting {{ color:var(--ink2); background:none; font-weight:600;
+    letter-spacing:.04em; text-transform:none; padding:0; }}
 
   @media (max-width:640px) {{
     .wrap {{ padding:28px 16px 56px; }}
@@ -658,11 +701,10 @@ def build(d):
 <section style="margin-top:8px">
   <div class="verdict">
     <div class="vv">{"READY TO BET" if cleared else "NOT READY TO BET"}</div>
-    <div class="vc">{passed_hd} safety checks passed</div>
-    <p class="vp">Sports Machine is not allowed to place real bets until it proves
-    it can beat bookmaker prices on games it has never seen before. These three
-    checks are enforced in the code itself — the program will refuse a bet, not
-    just advise against one.</p>
+    <div class="vc">{passed_hd} betting checks passed</div>
+    <p class="vp">Sports Machine cannot place a real bet until all three checks
+    pass. The restriction is enforced in code — it can&rsquo;t be accidentally
+    bypassed.</p>
     <ol class="gates">{gate_rows}</ol>
   </div>
 </section>
@@ -672,14 +714,14 @@ def build(d):
   <h2>How it has done so far</h2>
   <div class="cards">
     <div class="card"><div class="card-v">{acc}</div>
-      <div class="card-l">Games picked correctly</div>
+      <div class="card-l">Winners picked correctly</div>
       <div class="card-s">on games it had never seen</div></div>
     <div class="card"><div class="card-v">{d.get("n_test", 0):,}</div>
       <div class="card-l">Games tested</div>
-      <div class="card-s">seasons {d.get("test_seasons", ["—"])[0]}&ndash;{d.get("test_seasons", ["—"])[-1]}</div></div>
-    <div class="card bad"><div class="card-v">{passed_hd}</div>
-      <div class="card-l">Betting checks passed</div>
-      <div class="card-s">all three are required</div></div>
+      <div class="card-s">never used for training</div></div>
+    <div class="card"><div class="card-v">{len(d.get("test_seasons", []))}</div>
+      <div class="card-l">Seasons tested</div>
+      <div class="card-s">{d.get("test_seasons", ["—"])[0]}&ndash;{d.get("test_seasons", ["—"])[-1]}</div></div>
   </div>
   <p class="note">For scale: a coin flip gets 50%, and simply always picking the
   home team gets about 53%.</p>
@@ -696,13 +738,17 @@ def build(d):
 </section>
 
 <section>
-  <p class="eyebrow">The test that matters</p>
+  <p class="eyebrow">The test that matters &mdash; American football</p>
   <h2>Has it ever beaten the bookmakers?</h2>
-  <p class="note">We compare Sports Machine's predictions against bookmaker
-  predictions for the same games. Lower prediction error is better.</p>
-  <p class="note">Baseball can't sit this test yet — its bookmaker prices are only
-  being collected now. So this is the same program on American football, where
-  years of real bookmaker prices are already on public record.</p>
+  <p class="callout"><strong>These are football results, not baseball.</strong>
+  Baseball cannot sit this test yet — its bookmaker prices are only being collected
+  now, so there is no history to grade against. The same program was therefore run
+  on <strong>American football, seasons 2022&ndash;2025</strong>, where years of real
+  bookmaker prices are already on public record. Nothing on this chart is a baseball
+  result.</p>
+  <p class="note">For each season we compare Sports Machine's predictions against
+  the bookmakers' predictions for the same games. Lower prediction error is
+  better.</p>
   {legend("Sports Machine", "Bookmakers")}
   {nfl_svg}
   {bl_seasons(nfl_rows, OPP)}
