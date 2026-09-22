@@ -116,33 +116,27 @@ def gather():
     return d
 
 
-
 # -------------------------------------------------------------------- labels
-# Six merged groups. A lay reader wants to know WHAT matters, not which dugout
-# it helps, so home/away pairs collapse into one bar.
+SPORT_NAME = {"mlb": "Baseball", "nfl": "Football"}
+
 GROUP_NAME = {"sp": "Who's pitching", "off": "Recent hitting",
               "pen_q": "Bullpen quality", "park": "The ballpark",
               "rest": "Days off", "pen_t": "Bullpen tiredness"}
 
-GLOSS_HEAD = {"sp": "Who's pitching", "off": "Recent hitting",
-              "pen_q": "Bullpen quality", "pen_t": "Bullpen tiredness",
-              "rest": "Days off", "park": "The ballpark"}
-
 FEATURE_DEF = {
     "sp": ("Strikeouts minus walks, as a share of the batters they faced, over "
-           "their last 5 starts. It is the cleanest single read on how well a "
-           "pitcher is throwing right now - it ignores luck on balls in play."),
+           "their last 5 starts. It ignores luck on balls in play."),
     "off": ("Every plate appearance in the last 30 days, weighted by how many "
-            "runs that outcome is typically worth. A home run counts far more "
-            "than a walk, so it beats batting average as a measure of hitting."),
-    "pen_q": ("The same strikeouts-minus-walks measure, but for every pitcher "
-              "who appears after the starter, over the last 30 days."),
-    "pen_t": ("How many pitches the relief pitchers have thrown in the last "
-              "3 days. A worn-out bullpen gives up more runs."),
+            "runs that outcome is typically worth, so a home run counts far "
+            "more than a walk."),
+    "pen_q": ("The same strikeouts-minus-walks measure, for every pitcher who "
+              "appears after the starter, over the last 30 days."),
+    "pen_t": ("Pitches thrown by the relief pitchers in the last 3 days. A "
+              "worn-out bullpen gives up more runs."),
     "rest": "Days since that team last played a game.",
     "park": ("How much more, or less, scoring happens at this stadium than at "
-             "an average one - worked out from what actually happened there in "
-             "previous seasons, not from its dimensions."),
+             "an average one, from what actually happened there in past "
+             "seasons rather than from its dimensions."),
 }
 
 
@@ -171,27 +165,41 @@ def abbr(team):
     return "".join(w[0] for w in str(team).split()[:3]).upper()
 
 
+_TID = [0]
+
+
 def table(headers, rows, caption):
-    """Every chart carries one. Hover tooltips do not exist on a phone, so on a
-    narrow screen the table replaces the chart rather than supplementing it."""
+    """Collapsed on desktop, forced open on a phone - where it REPLACES the
+    chart, because SVG text at 375px lands near 6px and hover does not exist.
+
+    A <details> cannot do that: it collapses its content whatever CSS the child
+    carries, so a media query cannot open one. This is the checkbox-and-label
+    pattern instead - pure CSS, no script, and the breakpoint genuinely works.
+    """
+    _TID[0] += 1
+    tid = f"t{_TID[0]}"
     head = "".join(f"<th>{esc(h)}</th>" for h in headers)
     body = "".join("<tr>" + "".join(f"<td>{esc(c)}</td>" for c in r) + "</tr>"
                    for r in rows) or f'<tr><td colspan="{len(headers)}">nothing yet</td></tr>'
-    # `open` is not cosmetic. A closed <details> collapses its content whatever
-    # display value the child carries, so the mobile rule that hides the SVG
-    # left the page with no chart AND no table. Open by default, collapsible.
-    return (f'<details class="tbl" open><summary>{esc(caption)}</summary>'
-            f'<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></details>')
+    return (f'<input type="checkbox" id="{tid}" class="tgl">'
+            f'<label for="{tid}">{esc(caption)}</label>'
+            f'<div class="tblbox"><table><thead><tr>{head}</tr></thead>'
+            f'<tbody>{body}</tbody></table></div>')
+
+
+def margin_words(better, worse):
+    """Plain-language size of a win. The mobile table shows no scores, so
+    without this the reader cannot tell a hair from a mile. The winner has its
+    own column, so this one carries only the size."""
+    rel = abs(worse - better) / max(worse, better) if max(worse, better) else 0
+    return "clearly" if rel >= .03 else ("narrowly" if rel >= .01 else "barely")
 
 
 # -------------------------------------------------------------------- charts
 def chart_picks(rows):
-    """Dumbbell: the program's number and the bookmakers' number, per game.
-
-    The gap is signed (program - bookmakers). It used to print unsigned, so
-    every row read '+10.1%' even though the program sits BELOW the bookmakers
-    on most home teams - which is the single most interesting pattern here.
-    """
+    """Dumbbell, one row per game. The gap is signed (program - bookmakers):
+    unsigned it read '+10%' on every row even though the program sits BELOW the
+    bookmakers on most home teams, which is the pattern worth seeing."""
     rows = [r for r in rows if r.get("market_prob") is not None]
     if not rows:
         return "", "", 0, 0
@@ -219,17 +227,17 @@ def chart_picks(rows):
     for i, r in enumerate(rows):
         y = PAD_T + i * ROW + ROW / 2
         a, b = sx(r["model_prob"]), sx(r["market_prob"])
-        gap = r["model_prob"] - r["market_prob"]          # SIGNED
+        gap = r["model_prob"] - r["market_prob"]
         lab = f'{abbr(r["away"])} @ {abbr(r["home"])}'
         o.append(f'<text class="cat" x="{x0-16}" y="{y+5}" text-anchor="end">{esc(lab)}</text>')
         o.append(f'<line class="conn" x1="{a:.1f}" y1="{y}" x2="{b:.1f}" y2="{y}"/>')
         o.append(f'<circle class="ring" cx="{b:.1f}" cy="{y}" r="7.5"/>'
                  f'<circle class="mk2" cx="{b:.1f}" cy="{y}" r="6"><title>'
-                 f'{esc(r["away"])} at {esc(r["home"])} — bookmakers say the home '
-                 f'team wins {r["market_prob"]:.1%}</title></circle>')
+                 f'{esc(r["away"])} at {esc(r["home"])} — bookmakers: home team '
+                 f'wins {r["market_prob"]:.1%}</title></circle>')
         o.append(f'<circle class="ring" cx="{a:.1f}" cy="{y}" r="7.5"/>'
                  f'<circle class="mk1" cx="{a:.1f}" cy="{y}" r="6"><title>'
-                 f'{esc(r["away"])} at {esc(r["home"])} — the program says '
+                 f'{esc(r["away"])} at {esc(r["home"])} — the program: '
                  f'{r["model_prob"]:.1%}</title></circle>')
         o.append(f'<text class="val" x="{x1+22}" y="{y+5}">{gap:+.0%}</text>')
     o.append("</svg>")
@@ -243,14 +251,13 @@ def chart_picks(rows):
     return "".join(o), tbl, len(rows), lower
 
 
-def chart_seasons(seasons, demoted=False):
-    """Grouped bars, one scale. No y-axis values: their real unit is log-loss,
-    which a stranger cannot read, and the spread is too small to see anyway.
-    Bar length does the work; the numbers stay in the tooltips."""
+def chart_seasons(seasons, opponent):
+    """Grouped bars, one scale, no y-axis values - the unit is log-loss, which
+    a stranger cannot read, and the spread is too small to see. Bar length
+    carries it; the numbers stay in the tooltips."""
     if not seasons:
         return "", ""
-    W = 740
-    h, PAD_L, PAD_B, PAD_T = (170, 26, 40, 16) if demoted else (230, 26, 44, 20)
+    W, h, PAD_L, PAD_B, PAD_T = 740, 230, 26, 44, 20
     lo = min(min(s["logloss_model"], s["logloss_market"]) for s in seasons)
     hi = max(max(s["logloss_model"], s["logloss_market"]) for s in seasons)
     pad = (hi - lo) * .35 or .01
@@ -258,9 +265,8 @@ def chart_seasons(seasons, demoted=False):
     sy = lambda v: PAD_T + (hi - v) / (hi - lo) * (h - PAD_T - PAD_B)
     gw = (W - PAD_L - 30) / len(seasons)
     bw = min(52, gw / 2 - 8)
-    o = [f'<svg class="{"demoted" if demoted else ""}" viewBox="0 0 {W} {h}" role="img" '
-         f'aria-label="How wrong the program was each season, next to what it is '
-         f'measured against. Shorter bars are better.">']
+    o = [f'<svg viewBox="0 0 {W} {h}" role="img" aria-label="How wrong the '
+         f'program was each season next to {esc(opponent)}. Shorter is better.">']
     for i in range(4):
         v = lo + (hi - lo) * i / 3
         o.append(f'<line class="grid" x1="{PAD_L}" y1="{sy(v):.1f}" x2="{W-30}" y2="{sy(v):.1f}"/>')
@@ -268,35 +274,32 @@ def chart_seasons(seasons, demoted=False):
     for i, s in enumerate(seasons):
         cx = PAD_L + gw * i + gw / 2
         for j, (key, cls, who) in enumerate((("logloss_model", "mk1", "the program"),
-                                             ("logloss_market", "mk2", "what it is measured against"))):
+                                             ("logloss_market", "mk2", opponent))):
             v = s[key]
             x = cx - bw - 1 + j * (bw + 2)
             o.append(f'<rect class="{cls} bar" x="{x:.1f}" y="{sy(v):.1f}" width="{bw:.1f}" '
                      f'height="{max(0, h-PAD_B-sy(v)):.1f}" rx="4"><title>'
-                     f'{s["season"]} — {who}: {v:.4f} (lower is better)</title></rect>')
+                     f'{s["season"]} — {esc(who)}: {v:.4f} (lower is better)</title></rect>')
         o.append(f'<text class="cat" x="{cx:.1f}" y="{h-PAD_B+22}" text-anchor="middle">{s["season"]}</text>')
     o.append("</svg>")
-    # No raw scores here: on a phone this table REPLACES the chart, so anything
-    # in it is visible text, and the underlying unit is log-loss. Who was more
-    # accurate is the whole message; the numbers stay in the tooltips.
-    tbl = table(["Season", "Who predicted it better"],
-                [(s["season"],
-                  "the program" if s["logloss_model"] < s["logloss_market"]
-                  else "what it's measured against")
-                 for s in seasons], "Show these seasons as a table")
+    rows = []
+    for s in seasons:
+        m, k = s["logloss_model"], s["logloss_market"]
+        winner = "the program" if m < k else opponent
+        rows.append((s["season"], winner, margin_words(min(m, k), max(m, k))))
+    tbl = table(["Season", "Who predicted it better", "By how much"], rows,
+                "Show these seasons as a table")
     return "".join(o), tbl
 
 
 def chart_importance(coef):
-    """Six merged bars from one origin, longest first. No signed axis: a lay
-    reader wants to know what matters, not which dugout it helps. No printed
-    values either - the ranking is the entire message."""
+    """Six merged bars from one origin, longest first. No signed axis and no
+    printed values: the ranking is the entire message."""
     if not coef:
         return "", "", None
     g = {}
     for name, c in coef:
-        k = feature_key(name)
-        g[k] = g.get(k, 0.0) + abs(c)          # merge home/away into one
+        g[feature_key(name)] = g.get(feature_key(name), 0.0) + abs(c)
     order = sorted(g.items(), key=lambda kv: -kv[1])
     ROW, PAD_T, x0, x1 = 40, 14, 190, 690
     h = PAD_T + len(order) * ROW + 10
@@ -311,65 +314,55 @@ def chart_importance(coef):
                  f'height="22" rx="4"><title>{esc(GROUP_NAME[k])} — {esc(FEATURE_DEF[k])}'
                  f'</title></rect>')
     o.append("</svg>")
-    rows = [(GROUP_NAME[k], f"{v/mx:.0%} as important as the top one") for k, v in order]
-    tbl = table(["What it looks at", "Relative weight"], rows,
+    tbl = table(["What it looks at", "As important as the top one"],
+                [(GROUP_NAME[k], f"{v/mx:.0%}") for k, v in order],
                 "Show this ranking as a table")
     return "".join(o), tbl, order
 
 
 # ------------------------------------------------------------ bottom lines
-# Every figure in these sentences is computed. Nothing here is written by hand,
-# so the page cannot drift out of step with the database.
+# Declarative. Every figure computed, nothing written by hand, so the page
+# cannot drift out of step with the database.
 def bl(text):
     return f'<p class="bl"><strong>Bottom line:</strong> {text}</p>'
 
 
 def bl_picks(n, lower):
     if not n:
-        return bl("no games tonight have both a prediction and a price.")
-    disagree = n            # every priced game differs to some degree
-    s = (f"the program disagrees with the bookmakers on {disagree} of {n} "
-         f"game{'s' if n != 1 else ''} tonight — that's a warning sign, not an edge.")
+        return ""
+    s = f"it disagrees with the bookmakers on all {n} games tonight"
     if lower:
-        s += (f" On {lower} of them it thinks the home team is <em>less</em> "
-              f"likely to win than the bookmakers do.")
-    return bl(s)
+        s += f", and on {lower} of them it rates the home team lower than they do"
+    return bl(s + ".")
 
 
-def bl_seasons(seasons, real_market):
+def bl_seasons(seasons, opponent):
     n = len(seasons)
     lost = sum(1 for s in seasons if s["logloss_model"] >= s["logloss_market"])
-    if real_market:
-        if lost == n:
-            return bl(f"the bookmakers beat it in all {n} seasons tested.")
-        if lost == 0:
-            return bl(f"it beat the bookmakers in all {n} seasons tested — "
-                      f"the first real sign of an edge.")
-        return bl(f"the bookmakers beat it in {lost} of the {n} seasons tested.")
-    won = n - lost
-    if won == n:
-        return bl("it beat a coin flip at baseball. It has never been tested "
-                  "against a real bookmaker.")
-    return bl(f"it beat the stand-in in {won} of {n} seasons. It has never been "
-              f"tested against a real bookmaker.")
+    if lost == n:
+        return bl(f"{opponent} predicted every one of the {n} seasons better "
+                  f"than the program did.")
+    if lost == 0:
+        return bl(f"the program predicted all {n} seasons better than "
+                  f"{opponent} did.")
+    return bl(f"{opponent} predicted {lost} of the {n} seasons better.")
 
 
 def bl_importance(order):
-    """Verified against the data, not assumed. 'More than everything else
-    combined' was the obvious sentence to write and it is false here: the top
-    factor is 0.56 against 0.99 for the rest."""
+    """'More than everything else combined' was the obvious sentence and it is
+    false here - the top factor is 0.56 against 0.99 for the rest - so the
+    claim is checked before it is emitted."""
     if not order:
         return ""
     top, top_v = order[0]
     rest = sum(v for _, v in order[1:])
-    second_v = order[1][1] if len(order) > 1 else 0
+    second = order[1][1] if len(order) > 1 else 0
     name = GROUP_NAME[top].lower()
     if top_v > rest:
         return bl(f"{name} matters more than everything else combined.")
-    if second_v:
-        return bl(f"{name} matters more than any other single thing — about "
-                  f"{top_v/second_v:.1f}× the next biggest — but not more than "
-                  f"the rest of the list put together.")
+    if second:
+        return bl(f"{name} matters more than any other single thing, about "
+                  f"{top_v/second:.1f}× the next biggest.")
     return bl(f"{name} matters most.")
 
 
@@ -378,17 +371,10 @@ CHECK = {"walk_forward": "Beats the bookmakers on past seasons",
          "paper_trading": "Tracked through 50+ bets on paper, no money",
          "armed": "A human has switched it on"}
 
-STAMP = "Practice test &mdash; doesn&rsquo;t count yet"
 
-
-def legend():
-    return ('<div class="legend"><span><i class="sw1"></i>the program</span>'
-            '<span><i class="sw2"></i>the bookmakers</span></div>')
-
-
-def legend2():
-    return ('<div class="legend"><span><i class="sw1"></i>how wrong the program was</span>'
-            '<span><i class="sw2"></i>what it is measured against</span></div>')
+def legend(a, b):
+    return (f'<div class="legend"><span><i class="sw1"></i>{a}</span>'
+            f'<span><i class="sw2"></i>{b}</span></div>')
 
 
 def build(d):
@@ -397,59 +383,39 @@ def build(d):
     total = sum(len(g) for g in d["gates"].values()) or 6
     cleared = any(all(g.values()) for g in d["gates"].values())
 
-    # Three checks listed once in a compact grid. The old version repeated
-    # nearly the same sentence six times.
     rows = "".join(
         f'<tr><th scope="row">{esc(CHECK[k])}</th>' +
         "".join(f'<td class="{"ok" if d["gates"].get(s, {}).get(k) else "no"}">'
                 f'{"yes" if d["gates"].get(s, {}).get(k) else "not yet"}</td>'
                 for s in sports) + "</tr>"
         for k in CHECK)
-    head = "".join(f"<th>{s.upper()}</th>" for s in sports)
+    head = "".join(f"<th>{SPORT_NAME.get(s, s.upper())}</th>" for s in sports)
     checks_tbl = (f'<table class="checks"><thead><tr><th scope="col">Check</th>'
                   f'{head}</tr></thead><tbody>{rows}</tbody></table>')
 
     picks_svg, picks_tbl, n_games, n_lower = chart_picks(d["picks"])
     imp_svg, imp_tbl, imp_order = chart_importance(d["coef"])
 
-    # Football first and full-strength: it is the only one graded against real
-    # bookmaker prices. Baseball second and visibly demoted, because rendering
-    # them as twins invites a skimmer to read them as the same test.
-    panels = ""
-    for sport, real in (("nfl", True), ("mlb", False)):
-        srows = d["seasons"].get(sport)
-        if not srows:
-            continue
-        svg, tbl = chart_seasons(srows, demoted=not real)
-        if real:
-            panels += (
-                '<h3>Graded against real bookmaker prices</h3>'
-                '<p class="note">Each pair of bars is one American football season '
-                'the program had never seen when it was trained. '
-                '<span class="chart-only"><b class="c1">Blue</b> is how wrong the '
-                'program was; <b class="c2">orange</b> is how wrong the bookmakers '
-                'were. <strong>Shorter is better.</strong></span></p>'
-                '<p class="note">&ldquo;How wrong&rdquo; counts two things at once: '
-                'whether it picked the right side, and how sure it was. Being '
-                'confident and wrong costs far more than being unsure and wrong '
-                '&mdash; which is the right way to score something you might put '
-                'money on.</p>'
-                + legend2() + svg + bl_seasons(srows, True) + tbl)
-        else:
-            panels += (
-                f'<div class="demote"><div class="stamp">{STAMP}</div>'
-                '<h3>Baseball, graded against a stand-in</h3>'
-                '<p class="note">Same chart, but the orange bars here are a '
-                'placeholder, not real bookmaker prices. Beating them shows the '
-                'program learned something about baseball &mdash; not that it could '
-                'beat a bookmaker.</p>'
-                + legend2() + svg + bl_seasons(srows, False) + tbl + '</div>')
+    # Only the football model is graded against real bookmaker prices, so it is
+    # the only season chart on the page. The baseball one was scored against a
+    # placeholder - it proved nothing the page is asking about, and cost a
+    # heading, a stamp, two notes, a legend, an SVG, a bottom line and a table
+    # to say something that fits in one sentence.
+    nfl_rows = d["seasons"].get("nfl") or []
+    OPP = "the bookmakers"
+    nfl_svg, nfl_tbl = chart_seasons(nfl_rows, OPP) if nfl_rows else ("", "")
+    season_block = (legend("how wrong the program was", OPP) + nfl_svg
+                    + '<p class="note">&ldquo;How wrong&rdquo; counts whether it '
+                      'picked the right side and how sure it was, so confident '
+                      'mistakes cost most.</p>'
+                    + bl_seasons(nfl_rows, OPP) + nfl_tbl) if nfl_rows else ""
 
     yrs = d.get("train_seasons") or []
     tiles = [("Games studied", f'{d.get("n_train", 0):,}',
               f'{yrs[0]}&ndash;{yrs[-1]}' if yrs else "not trained yet"),
-             ("Predictions made today", f'{d["n_pred"]:,}',
-              "one per game it has enough data for")]
+             ("Games priced today", f'{n_games:,}',
+              f'of {d["n_pred"]} predicted &mdash; the rest have no bookmaker '
+              f'price yet' if d["n_pred"] > n_games else "all of today's slate")]
     tile_html = "".join(
         f'<div class="tile"><div class="tile-l">{l}</div>'
         f'<div class="tile-v">{v}</div><div class="tile-s">{s}</div></div>'
@@ -461,8 +427,10 @@ def build(d):
         if k in seen:
             continue
         seen.add(k)
-        gloss.append(f"<dt>{esc(GLOSS_HEAD[k])}</dt><dd>{esc(FEATURE_DEF[k])}</dd>")
-    gloss_html = "<dl class='gloss'>" + "".join(gloss) + "</dl>" if gloss else ""
+        gloss.append(f"<dt>{esc(GROUP_NAME[k])}</dt><dd>{esc(FEATURE_DEF[k])}</dd>")
+    gloss_html = ('<details class="gloss-d"><summary>What each of these actually '
+                  'measures</summary><dl class="gloss">' + "".join(gloss)
+                  + "</dl></details>") if gloss else ""
 
     acc = f'{d["accuracy"]:.1%}' if d.get("accuracy") else "&mdash;"
     verdict = "READY TO BET" if cleared else "NOT READY TO BET"
@@ -484,12 +452,10 @@ def build(d):
   .wrap {{ max-width:880px; margin:0 auto; padding:32px 16px 56px; }}
   h1 {{ font-size:26px; margin:0 0 6px; letter-spacing:-.02em; }}
   h2 {{ font-size:20px; margin:44px 0 6px; letter-spacing:-.01em; }}
-  h3 {{ font-size:15px; margin:20px 0 4px; }}
-  .lede {{ font-size:17px; margin:10px 0 4px; max-width:60ch; }}
+  .lede {{ font-size:17px; margin:10px 0 4px; max-width:62ch; }}
   .muted {{ color:var(--ink2); font-size:13px; margin:0; }}
-  .note {{ font-size:15px; color:var(--ink2); margin:6px 0 10px; max-width:64ch; }}
+  .note {{ font-size:15px; color:var(--ink2); margin:8px 0 10px; max-width:64ch; }}
   .note strong, .note b {{ color:var(--ink); }}
-  .c1 {{ color:var(--s1); }} .c2 {{ color:var(--s2); }}
 
   .hero {{ margin:26px 0 10px; padding:22px; border-radius:14px;
     border:2px solid {accent};
@@ -505,27 +471,19 @@ def build(d):
     border-bottom:1px solid color-mix(in srgb, var(--ink) 12%, transparent); }}
   table.checks thead th {{ font-size:12px; color:var(--ink2);
     text-transform:uppercase; letter-spacing:.05em; }}
-  table.checks td {{ text-align:center; font-weight:600; width:86px; }}
+  table.checks td {{ text-align:center; font-weight:600; width:92px; }}
   table.checks td.ok {{ color:var(--good); }} table.checks td.no {{ color:var(--crit); }}
 
   .primer {{ margin:30px 0 0; padding:16px 18px; border-radius:12px;
     border-left:3px solid var(--s2);
     background:color-mix(in srgb, var(--s2) 6%, transparent); }}
-  .primer h3 {{ margin:0 0 6px; font-size:15px; }}
-  .primer p {{ font-size:15px; color:var(--ink2); margin:0 0 8px; max-width:62ch; }}
-  .primer p:last-child {{ margin-bottom:0; }}
+  .primer p {{ font-size:15px; color:var(--ink2); margin:0; max-width:62ch; }}
+
   .bl {{ font-size:16px; margin:14px 0 4px; padding:12px 14px; border-radius:10px;
     background:color-mix(in srgb, var(--ink) 5%, transparent); max-width:64ch; }}
   .bl strong {{ color:var(--ink); }}
 
   svg {{ width:100%; height:auto; display:block; margin-top:8px; overflow:visible; }}
-  svg.demoted {{ opacity:.6; }}
-  .demote {{ margin-top:26px; padding:14px 16px 6px; border-radius:12px;
-    border:1px dashed color-mix(in srgb, var(--ink) 26%, transparent); }}
-  .stamp {{ display:inline-block; font-size:11px; font-weight:700;
-    letter-spacing:.08em; text-transform:uppercase; padding:4px 9px;
-    border-radius:5px; color:var(--ink2);
-    border:1px solid color-mix(in srgb, var(--ink) 30%, transparent); }}
   .grid {{ stroke:color-mix(in srgb, var(--ink) 11%, transparent); stroke-width:1; }}
   .conn {{ stroke:color-mix(in srgb, var(--ink) 26%, transparent); stroke-width:2; }}
   .ring {{ fill:var(--surface); }}
@@ -545,11 +503,17 @@ def build(d):
     margin-right:6px; vertical-align:-1px; }}
   .sw1 {{ background:var(--s1); }} .sw2 {{ background:var(--s2); }}
 
-  details.tbl {{ margin-top:10px; }}
-  details.tbl summary {{ font-size:14px; color:var(--ink2); cursor:pointer; }}
-  details table {{ border-collapse:collapse; width:100%; margin-top:10px;
+  /* Checkbox toggle, not <details>: a media query cannot open a <details>,
+     and on a phone the table has to REPLACE the chart. */
+  .tgl {{ position:absolute; opacity:0; width:0; height:0; }}
+  .tgl + label {{ display:inline-block; margin-top:12px; font-size:14px;
+    color:var(--ink2); cursor:pointer; border-bottom:1px dotted currentColor; }}
+  .tgl:focus-visible + label {{ outline:2px solid var(--s1); outline-offset:3px; }}
+  .tblbox {{ display:none; }}
+  .tgl:checked ~ .tblbox {{ display:block; }}
+  .tblbox table {{ border-collapse:collapse; width:100%; margin-top:10px;
     font-size:14px; }}
-  details th, details td {{ text-align:left; padding:6px 9px;
+  .tblbox th, .tblbox td {{ text-align:left; padding:6px 9px;
     font-variant-numeric:tabular-nums;
     border-bottom:1px solid color-mix(in srgb, var(--ink) 10%, transparent); }}
 
@@ -560,19 +524,19 @@ def build(d):
   .tile-l {{ font-size:13px; color:var(--ink2); }}
   .tile-v {{ font-size:26px; font-weight:650; letter-spacing:-.02em; margin:2px 0; }}
   .tile-s {{ font-size:12px; color:var(--ink2); }}
-  .gloss {{ margin:8px 0 0; max-width:66ch; }}
+  .gloss-d {{ margin-top:12px; }}
+  .gloss-d summary {{ font-size:14px; color:var(--ink2); cursor:pointer; }}
+  .gloss {{ margin:10px 0 0; max-width:66ch; }}
   .gloss dt {{ font-weight:600; font-size:14px; margin-top:14px; }}
   .gloss dd {{ margin:2px 0 0; font-size:14px; color:var(--ink2); }}
-  h3.small {{ font-size:12px; color:var(--ink2); margin-top:26px;
+  h3.small {{ font-size:12px; color:var(--ink2); margin-top:30px;
     text-transform:uppercase; letter-spacing:.06em; }}
 
-  /* On a phone the SVG text would scale to about 6px and hover does not exist,
-     so the table becomes the chart rather than a supplement to it. */
   @media (max-width:560px) {{
     body {{ font-size:15px; }}
-    svg, .legend {{ display:none; }}
-    details.tbl summary {{ display:none; }}
-    .chart-only {{ display:none; }}
+    svg, .legend, .chart-only {{ display:none; }}
+    .tgl + label {{ display:none; }}
+    .tblbox {{ display:block; }}
     .hero-v {{ font-size:30px; }}
     .bl {{ font-size:15px; }}
   }}
@@ -581,9 +545,8 @@ def build(d):
 
 <header>
   <h1>Sports Machine</h1>
-  <p class="lede">A program that tries to predict who wins baseball games, and then
-  refuses to let anyone bet on its predictions until it can prove it is better than
-  the bookmakers.</p>
+  <p class="lede">Predicts who wins baseball games. It will not place a bet until it
+  can prove it beats the bookmakers &mdash; three checks, enforced in code.</p>
   <p class="muted">{esc(d["generated"])}</p>
 </header>
 
@@ -591,67 +554,44 @@ def build(d):
   <div class="hero-v">{verdict}</div>
   <div class="hero-c">{passed} of {total} safety checks passed</div>
   <p class="hero-s">It picks the winning side <strong>{acc}</strong> of the time,
-  over <strong>{d.get("n_train", 0):,}</strong> real games. It was trained on past
-  seasons only and then graded on a season it had never seen &mdash; and that last
-  part is the whole test. Any program looks brilliant on games it already knows the
-  answer to; the only score worth anything comes from games it was never shown.</p>
-  <p class="hero-s">{acc} sounds like plenty. It isn&rsquo;t. Coin flipping is 50%,
-  and the home team wins about 53% of the time for free. Bookmakers do better than
-  both while taking a cut of every bet, so to make money you have to beat
-  <strong>them</strong> &mdash; and section 2 shows that happening, season by
-  season.</p>
+  over <strong>{d.get("n_train", 0):,}</strong> games it had never seen when it was
+  trained. Coin flipping is 50% and the home team wins about 53% for free.
+  Bookmakers beat both, and take a cut of every bet.</p>
   {checks_tbl}
 </section>
 
 <section class="primer">
-  <h3>First, the thing this all turns on</h3>
-  <p>A betting line is a prediction. When a bookmaker puts a price on a game, that
-  price converts directly into a percentage chance &mdash; that is all the orange
-  numbers on this page are.</p>
-  <p>Those percentages are very hard to beat. They absorb every injury report, every
-  professional gambler&rsquo;s opinion and every dollar wagered, and they get
-  corrected within minutes of being wrong. That makes them the toughest free
-  benchmark in existence, which is why this program is measured against them rather
-  than against whether its guesses feel reasonable.</p>
+  <p>A betting line is a prediction: a bookmaker&rsquo;s price converts directly
+  into a percentage chance, which is all the orange numbers here are. Those
+  percentages are extremely hard to beat, because they absorb every injury report
+  and every dollar wagered within minutes.</p>
 </section>
 
 <h2>1 &mdash; Tonight&rsquo;s games</h2>
-<p class="note">Each row is one game: the program&rsquo;s estimate of the home
-team&rsquo;s chances, next to the bookmakers&rsquo;.<span class="chart-only"> The
-<b class="c1">blue dot</b> is the program, the <b class="c2">orange dot</b> is the
-bookmakers, and the line between them is how far apart they are.</span></p>
-{legend()}
+{legend("the program", "the bookmakers")}
 {picks_svg}
 {bl_picks(n_games, n_lower)}
 {picks_tbl}
 
 <h2>2 &mdash; Has it ever beaten a bookmaker?</h2>
-<p class="note">This is the test that decides everything, and baseball
-can&rsquo;t sit it yet: the program only started recording real betting prices when
-it was switched on, so there is no history to grade it against. So a second version
-was built for American football, where years of real bookmaker prices already
-existed. Same design, different sport &mdash; and a real test available
-immediately.</p>
-<p class="note">Two charts below, and they are <strong>not</strong> the same
-test.</p>
-{panels}
+<p class="note">Four seasons of American football, each one graded against the
+prices bookmakers actually offered.<span class="chart-only"> Shorter is
+better.</span></p>
+{season_block}
+<p class="note">Baseball can&rsquo;t sit this test yet &mdash; the program only
+started recording real betting prices when it was switched on.</p>
 
 <h2>3 &mdash; What it pays attention to</h2>
-<p class="note">Everything the program knows about a game, most important
-first.</p>
 {imp_svg}
 {bl_importance(imp_order)}
 {imp_tbl}
-<h3 class="small">What each of these actually measures</h3>
 {gloss_html}
 
 <h2>What happens next</h2>
 <p class="note">The program collects betting prices three times a day on its own.
-Once it has enough of them, the baseball model can be re-graded against real
-bookmaker prices instead of a stand-in &mdash; and that is the test that decides
-whether any of this is worth anything. Until then the honest answer to
-&ldquo;does it work?&rdquo; is <strong>we don&rsquo;t know yet</strong>, and it is
-built to keep saying that.</p>
+Once it has enough, the baseball model can be graded against real bookmaker prices
+&mdash; the test that decides whether any of this is worth anything. Until then it
+stays locked.</p>
 
 <h3 class="small">By the numbers</h3>
 <div class="tiles">{tile_html}</div>
