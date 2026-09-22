@@ -558,6 +558,9 @@ def build(d):
   trained. Coin flipping is 50% and the home team wins about 53% for free.
   Bookmakers beat both, and take a cut of every bet.</p>
   {checks_tbl}
+  <p class="hero-s">Past seasons can be over-fitted, so the second check re-tests on
+  games that had not happened yet. The third is a manual switch, so nothing can start
+  betting by accident.</p>
 </section>
 
 <section class="primer">
@@ -575,11 +578,11 @@ def build(d):
 
 <h2>2 &mdash; Has it ever beaten a bookmaker?</h2>
 <p class="note">Four seasons of American football, each one graded against the
-prices bookmakers actually offered.<span class="chart-only"> Shorter is
-better.</span></p>
+prices bookmakers actually offered &mdash; football has years of those on public
+record.<span class="chart-only"> Shorter is better.</span></p>
 {season_block}
-<p class="note">Baseball can&rsquo;t sit this test yet &mdash; the program only
-started recording real betting prices when it was switched on.</p>
+<p class="note">Baseball can&rsquo;t sit this test yet: its prices are only being
+collected now, three times a day, starting from when the program was switched on.</p>
 
 <h2>3 &mdash; What it pays attention to</h2>
 {imp_svg}
