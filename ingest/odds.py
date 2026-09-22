@@ -1,6 +1,10 @@
 """Pull moneylines for every active in-season sport from The Odds API.
 
 Snapshot types: open (morning) | bettime (at wager) | close (CLV anchor).
+These label WHICH PULL a row came from. Because a single pull returns tonight's
+games alongside games days away, the label alone does not mean "near the close" -
+each row also stores commence_time, so the true closing snapshot for any one
+game is the latest row before its first pitch. See bets.log.closing_snapshot.
 Requires ODDS_API_KEY. Each sport pull costs credits — budget accordingly
 (4 active sports x 2 snapshots/day fits easily in the $30/mo tier).
 """
@@ -30,10 +34,11 @@ def pull_sport(sport: str, snapshot_type: str) -> int:
     for ev in r.json():
         gid = f"{sport}-{ev['id']}"
         home, away = ev["home_team"], ev["away_team"]
+        commence = ev["commence_time"]          # full ISO timestamp, not just the date
         con.execute(
             "INSERT OR IGNORE INTO games (game_id, sport, game_date, away, home)"
             " VALUES (?,?,?,?,?)",
-            (gid, sport, ev["commence_time"][:10], away, home))
+            (gid, sport, commence[:10], away, home))
         for bk in ev.get("bookmakers", []):
             for mkt in bk.get("markets", []):
                 if mkt["key"] != "h2h":
@@ -41,9 +46,9 @@ def pull_sport(sport: str, snapshot_type: str) -> int:
                 prices = {o["name"]: o["price"] for o in mkt["outcomes"]}
                 con.execute(
                     "INSERT INTO odds_snapshots (game_id, sport, ts, book, away_ml,"
-                    " home_ml, snapshot_type) VALUES (?,?,?,?,?,?,?)",
+                    " home_ml, snapshot_type, commence_time) VALUES (?,?,?,?,?,?,?,?)",
                     (gid, sport, ts, bk["key"], prices.get(away), prices.get(home),
-                     snapshot_type))
+                     snapshot_type, commence))
                 n += 1
     con.commit()
     con.close()

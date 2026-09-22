@@ -28,7 +28,12 @@ CREATE TABLE IF NOT EXISTS odds_snapshots (
     book TEXT NOT NULL,
     away_ml INTEGER,
     home_ml INTEGER,
-    snapshot_type TEXT NOT NULL    -- 'open' | 'bettime' | 'close'
+    snapshot_type TEXT NOT NULL,   -- 'open' | 'bettime' | 'close'
+    commence_time TEXT             -- ISO first-pitch time, from the odds API.
+                                   -- snapshot_type records WHICH PULL this came
+                                   -- from; this records how close to the actual
+                                   -- start it was. Only the second one lets you
+                                   -- identify a true closing line per game.
 );
 
 CREATE TABLE IF NOT EXISTS features (
@@ -77,11 +82,34 @@ def connect():
     return con
 
 
+# Columns added after the first release. Each is applied to an existing DB if
+# missing, so `python db.py` is safe to re-run and upgrades in place.
+MIGRATIONS = [
+    ("odds_snapshots", "commence_time", "TEXT"),
+]
+
+
+def migrate(con):
+    """Add any columns a pre-existing DB is missing. Idempotent."""
+    applied = []
+    for table, column, coltype in MIGRATIONS:
+        cols = {r["name"] for r in con.execute(f"PRAGMA table_info({table})")}
+        if not cols:
+            continue          # table doesn't exist yet; SCHEMA just created it
+        if column not in cols:
+            con.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}")
+            applied.append(f"{table}.{column}")
+    return applied
+
+
 def init():
     con = connect()
     con.executescript(SCHEMA)
+    applied = migrate(con)
     con.commit()
     con.close()
+    if applied:
+        print(f"Migrated: added {', '.join(applied)}")
     print(f"DB initialized at {DB_PATH}")
 
 

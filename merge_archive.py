@@ -36,11 +36,13 @@ def merge():
                 if dup:
                     continue
                 con.execute(
-                    "INSERT INTO odds_snapshots (game_id, sport, ts, book, "
-                    "away_ml, home_ml, snapshot_type) VALUES (?,?,?,?,?,?,?)",
+                    "INSERT INTO odds_snapshots (game_id, sport, ts, book, away_ml,"
+                    " home_ml, snapshot_type, commence_time) VALUES (?,?,?,?,?,?,?,?)",
                     (row["game_id"], row["sport"], row["ts"], row["book"],
                      row["away_ml"] or None, row["home_ml"] or None,
-                     row["snapshot_type"]))
+                     row["snapshot_type"],
+                     # absent from CSVs archived before commence_time was added
+                     row.get("commence_time") or None))
                 added_snaps += 1
 
     for p in sorted(ARCHIVE.glob("games-*.csv")):

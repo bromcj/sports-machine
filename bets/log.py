@@ -23,6 +23,41 @@ def record_bet(game_id, sport, side, book, line_taken, stake, model_prob,
     con.close()
 
 
+def closing_snapshot(game_id: str, book: str | None = None):
+    """The truest closing line we captured for one game: the latest snapshot
+    taken BEFORE first pitch, whatever pull it happened to come from.
+
+    Why not just trust snapshot_type='close'? A single pull returns tonight's
+    games and games several days out, so the same label covers prices that are
+    minutes from the close and prices that are days from it. commence_time is
+    what separates them. Scheduled pulls are also queued by GitHub and can run
+    late, so the intended close pull is not reliably the nearest one.
+
+    Returns the row plus minutes_before_start, so you can judge how good an
+    anchor it is - a snapshot 400 minutes early is not a closing line, and CLV
+    computed against it is not meaningful.
+    """
+    con = connect()
+    q = ("SELECT * FROM odds_snapshots WHERE game_id=? AND commence_time IS NOT NULL"
+         " AND ts < commence_time")
+    args = [game_id]
+    if book:
+        q += " AND book=?"
+        args.append(book)
+    q += " ORDER BY ts DESC LIMIT 1"
+    row = con.execute(q, args).fetchone()
+    con.close()
+    if row is None:
+        return None
+    start = dt.datetime.fromisoformat(row["commence_time"].replace("Z", "+00:00"))
+    taken = dt.datetime.fromisoformat(row["ts"])
+    if taken.tzinfo is None:
+        taken = taken.replace(tzinfo=dt.timezone.utc)
+    out = dict(row)
+    out["minutes_before_start"] = round((start - taken).total_seconds() / 60, 1)
+    return out
+
+
 def grade(bet_id: int, closing_line: int, won: bool | None):
     """Attach closing line + CLV, settle P&L. won=None for push."""
     con = connect()

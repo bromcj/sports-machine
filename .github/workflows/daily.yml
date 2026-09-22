@@ -1,9 +1,21 @@
 name: daily-pipeline
 on:
   schedule:
-    - cron: '0 14 * * *'
-    - cron: '0 22 * * *'
-    - cron: '30 0 * * *'
+    # Times are UTC. GitHub cron has no timezone and no DST awareness, so the
+    # local times noted below are Eastern DAYLIGHT time, which covers the whole
+    # MLB season (Mar-Nov). In winter each one fires an hour earlier locally.
+    #
+    # BUDGET: the free Odds API tier is 500 credits/month, and one pull costs
+    # 1 credit PER IN-SEASON SPORT. All four sports are live in October, so
+    # 3 pulls/day = 12/day = ~360/month. A 4th daily pull would be ~480 and a
+    # 5th would blow the cap. Do not add a cron without redoing that math.
+    #
+    # The close pulls are deliberately EARLY: GitHub queues scheduled runs and
+    # routinely starts them 5-30 min late, so aiming at first pitch would often
+    # land after it. Landing slightly early is recoverable; landing late is not.
+    - cron: '0 14 * * *'    # 10:00 am ET - opening lines, probables are up
+    - cron: '40 22 * * *'   #  6:40 pm ET - ~25 min before the 7:05 pm main slate
+    - cron: '20 1 * * *'    #  9:20 pm ET - ~20 min before 9:40 pm west-coast games
   workflow_dispatch: {}
 permissions:
   contents: write
@@ -19,11 +31,14 @@ jobs:
       - run: python db.py
       - name: pull
         run: |
-          if [ "${{ github.event.schedule }}" = "0 14 * * *" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            python run_daily.py morning
-          else
-            python run_daily.py close
-          fi
+          # An empty schedule means this was triggered by hand.
+          case "${{ github.event.schedule }}" in
+            '0 14 * * *') MODE=morning ;;
+            '')           MODE=morning ;;
+            *)            MODE=close   ;;
+          esac
+          echo "mode=$MODE  (schedule='${{ github.event.schedule }}')"
+          python run_daily.py "$MODE"
         env:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
       - run: python export_snapshots.py
