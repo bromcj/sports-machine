@@ -27,33 +27,34 @@
     ]
   },
   "nfl": {
+    "armed": false,
     "baseline_kind": "market",
     "cleared": false,
     "reason": "lost to market in 4 of 4 seasons (2022, 2023, 2024, 2025)",
-    "recorded_at": "2026-09-22T00:33:33+00:00",
+    "recorded_at": "2026-09-22T04:40:11+00:00",
     "seasons": [
       {
         "beat_market": false,
-        "logloss_market": 0.607521,
-        "logloss_model": 0.638911,
+        "logloss_market": 0.608546,
+        "logloss_model": 0.640331,
         "season": 2022
       },
       {
         "beat_market": false,
         "logloss_market": 0.627349,
-        "logloss_model": 0.661386,
+        "logloss_model": 0.661845,
         "season": 2023
       },
       {
         "beat_market": false,
         "logloss_market": 0.587489,
-        "logloss_model": 0.640337,
+        "logloss_model": 0.640557,
         "season": 2024
       },
       {
         "beat_market": false,
-        "logloss_market": 0.60823,
-        "logloss_model": 0.638203,
+        "logloss_market": 0.609383,
+        "logloss_model": 0.638903,
         "season": 2025
       }
     ]

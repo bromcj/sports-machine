@@ -29,20 +29,32 @@ def check() -> int:
     con = connect()
     problems, lines = [], []
 
+    any_slate = False
     for sport in live:
         snaps = con.execute(
             "SELECT COUNT(*) c, SUM(away_ml IS NOT NULL) p FROM odds_snapshots "
             "WHERE sport=?", (sport,)).fetchone()
         games = con.execute(
             "SELECT COUNT(*) c FROM games WHERE sport=?", (sport,)).fetchone()
-        ok = snaps["c"] > 0 and (snaps["p"] or 0) > 0
-        icon = "🟢" if ok else "🔴"
-        lines.append(f"| {icon} {sport.upper()} | {games['c']} games | "
-                     f"{snaps['c']} snapshots |")
+        today = con.execute(
+            "SELECT COUNT(*) c FROM games WHERE sport=? AND game_date=?",
+            (sport, dt.date.today().isoformat())).fetchone()
+        priced = snaps["c"] > 0 and (snaps["p"] or 0) > 0
+        # An empty slate is not a fault. config.py marks a sport in-season by
+        # MONTH, so there are long dead windows inside an "active" month -
+        # roughly Mar 1-25 for MLB, Oct 1-20 for NBA, Feb 9-28 for NFL. Failing
+        # the run on those days emails the owner three times a day for weeks,
+        # and an alert that cries wolf is worse than no alert.
+        no_slate = today["c"] == 0
+        ok = priced or no_slate
+        icon = "⚪" if no_slate and not priced else ("🟢" if ok else "🔴")
+        note = "no games scheduled" if no_slate and not priced else f"{snaps['c']} snapshots"
+        lines.append(f"| {icon} {sport.upper()} | {games['c']} games | {note} |")
+        any_slate = any_slate or not no_slate
         if not ok:
             problems.append(
-                f"{sport}: 0 usable odds snapshots this run — API key, "
-                f"credit balance, or the sport has no games today.")
+                f"{sport}: {today['c']} games scheduled today but 0 usable odds "
+                f"snapshots — check the API key and credit balance.")
 
     archive = ROOT / "archive"
     fresh = []
@@ -52,7 +64,7 @@ def check() -> int:
         # putting the cutoff in the future so nothing looks fresh.
         cutoff = time.time() - 2 * 3600
         fresh = [p for p in archive.glob("*.csv") if p.stat().st_mtime > cutoff]
-    if not fresh:
+    if not fresh and any_slate:
         problems.append("archive: no CSV exported in this run window.")
     con.close()
 

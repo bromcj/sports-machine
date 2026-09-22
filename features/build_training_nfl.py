@@ -32,6 +32,14 @@ def main():
     df = build_table()
     n0 = len(df)
     df = df.dropna(subset=FEATURE_COLUMNS + ["point_diff", "novig_home_prob"])
+    # A tie has point_diff == 0, and home_won = (point_diff > 0) scores it as an
+    # AWAY win. That teaches the model a loss where none happened and makes the
+    # log-loss unwinnable on those rows. NFL ties are rare but real; MLB has
+    # none (extra innings), so only this table needs the filter.
+    ties = int((df["point_diff"] == 0).sum())
+    if ties:
+        df = df[df["point_diff"] != 0]
+        print(f"Dropped {ties} tie(s): a draw is neither a home nor an away win.")
     print(f"{n0} regular-season games; {len(df)} with complete features+market "
           f"({n0 - len(df)} dropped).")
     df.to_parquet(ROOT / "data" / "training_nfl.parquet", index=False)
