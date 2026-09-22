@@ -16,7 +16,17 @@ on:
     - cron: '0 14 * * *'    # 10:00 am ET - opening lines, probables are up
     - cron: '40 22 * * *'   #  6:40 pm ET - ~25 min before the 7:05 pm main slate
     - cron: '20 1 * * *'    #  9:20 pm ET - ~20 min before 9:40 pm west-coast games
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Which pull to run'
+        required: true
+        default: morning
+        type: choice
+        options:
+          - morning   # opening lines   (costs 1 credit per in-season sport)
+          - close     # closing lines   (costs 1 credit per in-season sport)
+          - grade     # finals + review (free: ESPN and MLB APIs, no odds pull)
 permissions:
   contents: write
 jobs:
@@ -30,17 +40,21 @@ jobs:
       - run: pip install -r requirements.txt
       - run: python db.py
       - name: pull
-        run: |
-          # An empty schedule means this was triggered by hand.
-          case "${{ github.event.schedule }}" in
-            '0 14 * * *') MODE=morning ;;
-            '')           MODE=morning ;;
-            *)            MODE=close   ;;
-          esac
-          echo "mode=$MODE  (schedule='${{ github.event.schedule }}')"
-          python run_daily.py "$MODE"
+        # Inputs go through env, never interpolated straight into the script.
         env:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+          SCHEDULE: ${{ github.event.schedule }}
+          DISPATCH_MODE: ${{ github.event.inputs.mode }}
+        run: |
+          # An empty SCHEDULE means this was triggered by hand, so honour the
+          # dropdown; fall back to morning if it is somehow unset.
+          case "$SCHEDULE" in
+            '0 14 * * *') MODE=morning ;;
+            '')           MODE="${DISPATCH_MODE:-morning}" ;;
+            *)            MODE=close   ;;
+          esac
+          echo "mode=$MODE  (schedule='$SCHEDULE' dispatch='$DISPATCH_MODE')"
+          python run_daily.py "$MODE"
       - run: python export_snapshots.py
       - name: commit archive
         run: |
