@@ -1,0 +1,33 @@
+game_id,sport,game_date,away,home,away_starter,home_starter,away_score,home_score,status
+mlb-7294e99a67c70c66b6edecf9841d4f03,mlb,2026-09-22,Minnesota Twins,San Francisco Giants,,,,,scheduled
+mlb-394e1e2b849c5b4eaf2b5984eaa74b79,mlb,2026-09-22,Tampa Bay Rays,New York Yankees,,,,,scheduled
+mlb-7fafa79a573ac098f38c8c6c4293b93e,mlb,2026-09-22,Toronto Blue Jays,Baltimore Orioles,,,,,scheduled
+mlb-e1693becb4cbacb4b30e46c1c960d9a5,mlb,2026-09-22,Washington Nationals,Detroit Tigers,,,,,scheduled
+mlb-2ec6c946384087513c61f58aad6e082f,mlb,2026-09-22,Milwaukee Brewers,Philadelphia Phillies,,,,,scheduled
+mlb-388cb001ef45b493163b9d37cf60f606,mlb,2026-09-22,St. Louis Cardinals,Pittsburgh Pirates,,,,,scheduled
+mlb-3b4ceeb7bb4bee993b6876fead12eeba,mlb,2026-09-22,Cleveland Guardians,Boston Red Sox,,,,,scheduled
+mlb-574050c10d1acc2da7baf72384eeaa11,mlb,2026-09-22,Tampa Bay Rays,New York Yankees,,,,,scheduled
+mlb-0c17c76059d99e5bb249df6a7c540127,mlb,2026-09-22,Cincinnati Reds,Atlanta Braves,,,,,scheduled
+mlb-82b37a47daa08ef041c888d37b999303,mlb,2026-09-22,Miami Marlins,Chicago Cubs,,,,,scheduled
+mlb-ebb664c5095200280fa1b15540c2c88b,mlb,2026-09-22,Chicago White Sox,Kansas City Royals,,,,,scheduled
+mlb-1cfde197827ecee7feb17929bf32793b,mlb,2026-09-23,New York Mets,Texas Rangers,,,,,scheduled
+mlb-afbac30624ec674873fd96ac159f69ad,mlb,2026-09-23,Arizona Diamondbacks,Colorado Rockies,,,,,scheduled
+mlb-0ae15942e1f4c4657b06458868afbf96,mlb,2026-09-23,Los Angeles Angels,Athletics,,,,,scheduled
+mlb-a5e0deb6f51b7edebbd82d0eaf966294,mlb,2026-09-23,Houston Astros,Seattle Mariners,,,,,scheduled
+mlb-81f539754930db6ffbd116ca2d30ee9c,mlb,2026-09-23,Minnesota Twins,San Francisco Giants,,,,,scheduled
+mlb-85b75fcab1b69e0a4e414382b9f1cc7e,mlb,2026-09-23,San Diego Padres,Los Angeles Dodgers,,,,,scheduled
+nfl-e5fbd3b3953b896b1bf897ddadb3cc4b,nfl,2026-09-25,Atlanta Falcons,Green Bay Packers,,,,,scheduled
+nfl-b225458a282e140c44c45651255f2f6c,nfl,2026-09-27,Los Angeles Chargers,Buffalo Bills,,,,,scheduled
+nfl-613b8cd3a5fab58f7be4e3fd6f76223e,nfl,2026-09-27,Carolina Panthers,Cleveland Browns,,,,,scheduled
+nfl-71123be049587b6facce3a20c53e5d09,nfl,2026-09-27,Cincinnati Bengals,Pittsburgh Steelers,,,,,scheduled
+nfl-07f552badfa8a565d1be22123713e4da,nfl,2026-09-27,New York Jets,Detroit Lions,,,,,scheduled
+nfl-17a730b7d399feeab6a78c30767c29d2,nfl,2026-09-27,Houston Texans,Indianapolis Colts,,,,,scheduled
+nfl-1f3cfd315a24d1a7dd5859a8e6b88e18,nfl,2026-09-27,New England Patriots,Jacksonville Jaguars,,,,,scheduled
+nfl-0339a0e41bcee12820eb3e64bb5fadb4,nfl,2026-09-27,Kansas City Chiefs,Miami Dolphins,,,,,scheduled
+nfl-2a529c108305ffa049d8b6cfdbaa4d36,nfl,2026-09-27,Seattle Seahawks,Washington Commanders,,,,,scheduled
+nfl-9d2b09e0f9b6dd5ce0d985894f4f98fa,nfl,2026-09-27,Arizona Cardinals,San Francisco 49ers,,,,,scheduled
+nfl-f1724dead3eab61546033032fc782375,nfl,2026-09-27,Minnesota Vikings,Tampa Bay Buccaneers,,,,,scheduled
+nfl-84cfca14efc21363fd605508404cf1ff,nfl,2026-09-27,Baltimore Ravens,Dallas Cowboys,,,,,scheduled
+nfl-2e523fcb0497aa689473e290eb2b97de,nfl,2026-09-27,Las Vegas Raiders,New Orleans Saints,,,,,scheduled
+nfl-3bfd8bfb4b8e9a365a0877879b73b16b,nfl,2026-09-28,Los Angeles Rams,Denver Broncos,,,,,scheduled
+nfl-47dc7baa254659f3beb2ed2b38c207b6,nfl,2026-09-29,Philadelphia Eagles,Chicago Bears,,,,,scheduled

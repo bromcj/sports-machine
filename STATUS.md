@@ -1,16 +1,11 @@
-# Machine Status — 2026-09-22 04:22 UTC
+# Machine Status — 2026-09-22 04:24 UTC
 
-**🔴 ATTENTION NEEDED**
+**🟢 ALL SYSTEMS HEALTHY**
 
 | Sport | Schedule | Odds this run |
 |---|---|---|
-| 🟢 MLB | 12079 games | 69 snapshots |
-| 🟢 NFL | 33 games | 66 snapshots |
+| 🟢 MLB | 17 games | 64 snapshots |
+| 🟢 NFL | 15 games | 59 snapshots |
 
-Archive files this run: 0
+Archive files this run: 6
 In-season: mlb, nfl
-
-## Problems
-- archive: no CSV exported in this run window.
-
-_This run was failed on purpose so GitHub emails the owner. See the run log for details._
