@@ -38,21 +38,35 @@ def closing_snapshot(game_id: str, book: str | None = None):
     computed against it is not meaningful.
     """
     con = connect()
-    q = ("SELECT * FROM odds_snapshots WHERE game_id=? AND commence_time IS NOT NULL"
-         " AND ts < commence_time")
+    q = "SELECT * FROM odds_snapshots WHERE game_id=? AND commence_time IS NOT NULL"
     args = [game_id]
     if book:
         q += " AND book=?"
         args.append(book)
-    q += " ORDER BY ts DESC LIMIT 1"
-    row = con.execute(q, args).fetchone()
+    rows = con.execute(q, args).fetchall()
     con.close()
-    if row is None:
+
+    # Compare real datetimes, not strings. ts is naive UTC (utcnow().isoformat())
+    # while commence_time carries a 'Z', and a raw string compare gets that wrong:
+    # '...T23:20:00.000001' sorts BEFORE '...T23:20:00Z' because '.' < 'Z', so a
+    # snapshot taken just after first pitch would pass as a closing line.
+    best = None
+    for row in rows:
+        try:
+            start = dt.datetime.fromisoformat(row["commence_time"].replace("Z", "+00:00"))
+            taken = dt.datetime.fromisoformat(row["ts"])
+        except (ValueError, AttributeError):
+            continue                      # unparseable timestamp; ignore the row
+        if taken.tzinfo is None:
+            taken = taken.replace(tzinfo=dt.timezone.utc)
+        if taken >= start:
+            continue                      # taken at or after first pitch
+        if best is None or taken > best[0]:
+            best = (taken, start, row)
+
+    if best is None:
         return None
-    start = dt.datetime.fromisoformat(row["commence_time"].replace("Z", "+00:00"))
-    taken = dt.datetime.fromisoformat(row["ts"])
-    if taken.tzinfo is None:
-        taken = taken.replace(tzinfo=dt.timezone.utc)
+    taken, start, row = best
     out = dict(row)
     out["minutes_before_start"] = round((start - taken).total_seconds() / 60, 1)
     return out

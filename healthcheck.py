@@ -12,6 +12,7 @@ Checks:
 """
 import datetime as dt
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -46,13 +47,16 @@ def check() -> int:
     archive = ROOT / "archive"
     fresh = []
     if archive.exists():
-        cutoff = dt.datetime.utcnow().timestamp() - 2 * 3600
+        # NOT utcnow().timestamp(): utcnow() is naive, so .timestamp()
+        # reads it as LOCAL time and lands hours off anywhere but UTC,
+        # putting the cutoff in the future so nothing looks fresh.
+        cutoff = time.time() - 2 * 3600
         fresh = [p for p in archive.glob("*.csv") if p.stat().st_mtime > cutoff]
     if not fresh:
         problems.append("archive: no CSV exported in this run window.")
     con.close()
 
-    stamp = dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     body = [f"# Machine Status — {stamp}", "",
             "**" + ("🟢 ALL SYSTEMS HEALTHY" if not problems
                     else "🔴 ATTENTION NEEDED") + "**", "",
