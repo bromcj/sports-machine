@@ -472,7 +472,7 @@ def legend(a, b):
 ROADMAP = [
     ("Collect real bookmaker prices", "now"),
     ("Predict games before they happen", "now"),
-    ("Compare predictions against the market", "next"),
+    ("Grade completed games against bookmaker closing prices", "next"),
     ("Check the bets would clear the bookmaker's cut", "later"),
     ("Human approval", "later"),
     ("Betting unlocked", "goal"),
@@ -710,8 +710,8 @@ def build(d):
 </section>
 
 <section>
-  <p class="eyebrow">Scorecard</p>
-  <h2>How it has done so far</h2>
+  <p class="eyebrow">Scorecard &mdash; baseball</p>
+  <h2>Baseball performance so far</h2>
   <div class="cards">
     <div class="card"><div class="card-v">{acc}</div>
       <div class="card-l">Winners picked correctly</div>
@@ -742,10 +742,9 @@ def build(d):
   <h2>Has it ever beaten the bookmakers?</h2>
   <p class="callout"><strong>These are football results, not baseball.</strong>
   Baseball cannot sit this test yet — its bookmaker prices are only being collected
-  now, so there is no history to grade against. The same program was therefore run
-  on <strong>American football, seasons 2022&ndash;2025</strong>, where years of real
-  bookmaker prices are already on public record. Nothing on this chart is a baseball
-  result.</p>
+  now, so there is no history to grade against. The same program was therefore run on
+  <strong>American football, seasons 2022&ndash;2025</strong>, where years of real
+  bookmaker prices are already on public record.</p>
   <p class="note">For each season we compare Sports Machine's predictions against
   the bookmakers' predictions for the same games. Lower prediction error is
   better.</p>
