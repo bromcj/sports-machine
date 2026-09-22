@@ -59,6 +59,18 @@ def _save(data: dict) -> None:
     PATH.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+
+def _same_except_time(a: dict, b: dict) -> bool:
+    """Equal ignoring the recorded_at / armed_at stamps."""
+    strip = lambda d: {k: v for k, v in d.items() if not k.endswith('_at')}
+    if strip(a) != strip(b):
+        return False
+    for k in set(a) | set(b):
+        if isinstance(a.get(k), dict) and isinstance(b.get(k), dict):
+            if not _same_except_time(a[k], b[k]):
+                return False
+    return True
+
 def _now() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
 
@@ -97,13 +109,20 @@ def record(sport: str, baseline_kind: str, seasons: list[dict]) -> dict:
 
     data = _load()
     entry = data.setdefault(sport, {})
-    entry.update({"recorded_at": _now(), "baseline_kind": baseline_kind,
-                  "cleared": cleared, "reason": reason, "seasons": rows})
-    # A new walk-forward supersedes any previous decision to stake money.
-    entry["armed"] = False
+    new_entry = dict(entry)
+    new_entry.update({"recorded_at": _now(), "baseline_kind": baseline_kind,
+                      "cleared": cleared, "reason": reason, "seasons": rows,
+                      # A new walk-forward supersedes any earlier decision
+                      # to stake money.
+                      "armed": False})
+    # Rewrite only when the VERDICT changed. Re-running training with the
+    # same results otherwise churns just the timestamp, dirtying the working
+    # tree and making machine_daily.bat refuse to pull.
+    if entry and _same_except_time(entry, new_entry):
+        return entry
+    data[sport] = new_entry
     _save(data)
-    return entry
-
+    return new_entry
 
 def record_paper(sport: str, n_bets: int, avg_clv: float) -> dict:
     """Gate 2: paper-traded picks held positive closing-line value.
@@ -122,13 +141,17 @@ def record_paper(sport: str, n_bets: int, avg_clv: float) -> dict:
 
     data = _load()
     entry = data.setdefault(sport, {})
-    entry["paper_trading"] = {"passed": passed, "n_bets": int(n_bets),
-                              "avg_clv": round(float(avg_clv), 3),
-                              "reason": reason, "recorded_at": _now()}
+    new_paper = {"passed": passed, "n_bets": int(n_bets),
+                 "avg_clv": round(float(avg_clv), 3),
+                 "reason": reason, "recorded_at": _now()}
+    old_paper = entry.get("paper_trading") or {}
+    if old_paper and _same_except_time(old_paper, new_paper):
+        return old_paper
+    entry["paper_trading"] = new_paper
     if not passed:
         entry["armed"] = False
     _save(data)
-    return entry["paper_trading"]
+    return new_paper
 
 
 def arm(sport: str) -> str:
