@@ -45,9 +45,12 @@ OUT = ROOT / "dashboard.html"
 # scripts/validate_palette.js --pairs all: ALL CHECKS PASS in both modes
 # (CVD dE 24.7 light / 26.8 dark, normal-vision 33.6 / 31.8, contrast >= 3:1).
 LIGHT = dict(surface="#fcfcfb", ink="#0b0b0b", ink2="#52514e",
-             s1="#2a78d6", s2="#eb6834", good="#0ca30c", crit="#d03b3b")
+             s1="#2a78d6", s2="#eb6834", good="#0ca30c", crit="#d03b3b",
+             # bottom-line box: a real step off the surface in BOTH themes.
+             box="#f0efeb", boxline="#dedcd6")
 DARK = dict(surface="#1a1a19", ink="#ffffff", ink2="#c3c2b7",
-            s1="#3987e5", s2="#d95926", good="#0ca30c", crit="#d03b3b")
+            s1="#3987e5", s2="#d95926", good="#0ca30c", crit="#d03b3b",
+            box="#272724", boxline="#3b3a36")
 
 
 def esc(s):
@@ -496,8 +499,12 @@ def build(d):
   .primer p {{ font-size:15px; color:var(--ink2); margin:0; max-width:62ch; }}
 
   .bl {{ font-size:16px; margin:14px 0 4px; padding:12px 14px; border-radius:10px;
-    background:color-mix(in srgb, var(--ink) 5%, transparent); max-width:64ch; }}
+    background:var(--box); border:1px solid var(--boxline); max-width:64ch; }}
   .bl strong {{ color:var(--ink); }}
+  /* Windows high-contrast strips backgrounds; keep the box readable as a box. */
+  @media (forced-colors: active) {{
+    .bl {{ border:1px solid CanvasText; background:Canvas; }}
+  }}
 
   svg {{ width:100%; height:auto; display:block; margin-top:8px; overflow:visible; }}
   .grid {{ stroke:color-mix(in srgb, var(--ink) 11%, transparent); stroke-width:1; }}
