@@ -31,6 +31,7 @@ from features.sports.mlb_features import (
     load_statcast, pitcher_game_lines, bullpen_table, offense_table,
     starter_table, park_factor_table, venue_id, TEAM_ABBR)
 from model.train import walk_forward
+from model.validation import record, explain, PLACEHOLDER
 
 HOME_BASELINE = 0.54
 OUT = ROOT / "data" / "training_mlb.parquet"
@@ -125,8 +126,15 @@ if __name__ == "__main__":
         results = walk_forward(df, feats, target_col="run_diff",
                                season_col="season", sport="mlb")
         print(results.to_string(index=False))
-        print("\nBar: logloss_model < logloss_market (home-constant baseline)."
-              "\nBeat it here, then paper-trade vs REAL closing lines.")
+        # Recorded as PLACEHOLDER: novig_home_prob is a 0.54 constant, not a
+        # market. bets.engine keeps refusing MLB however well this scores,
+        # which is correct - beating a constant is not evidence of edge.
+        record("mlb", PLACEHOLDER,
+               results.rename(columns={"test_season": "season"}).to_dict("records"))
+        print()
+        print(explain("mlb"))
+        print("Bar: logloss_model < logloss_market on REAL de-vigged closing"
+              " lines. The archive is collecting them now.")
     else:
         print("Need 3+ seasons backfilled for walk-forward CV. "
               "Run: python backfill.py")

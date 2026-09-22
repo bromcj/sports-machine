@@ -12,6 +12,7 @@ No-bet guardrails by sport:
 import sys
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
 from config import SPORTS
+from model.validation import is_cleared, explain
 
 KELLY_FRACTION = 0.25
 MAX_STAKE_PCT = 0.03
@@ -48,8 +49,22 @@ def kelly_stake(model_prob: float, ml: int, bankroll: float) -> float:
 
 
 def evaluate(sport: str, model_home_prob: float, away_ml: int, home_ml: int,
-             bankroll: float, flags: dict | None = None) -> dict:
+             bankroll: float, flags: dict | None = None,
+             allow_unvalidated: bool = False) -> dict:
+    """Decide whether to bet, and how much.
+
+    A sport whose walk-forward has not beaten the real market is refused before
+    any edge math runs. min_edge measures DISAGREEMENT with the price, which is
+    only worth money when the model forecasts better than the price does. The
+    NFL v1 model disagreed on 74% of games, claimed +12.5%, and returned -9.3%.
+
+    allow_unvalidated=True is for backtests that must score an uncleared model
+    on purpose. Never set it on a path that can stake real money.
+    """
     flags = flags or {}
+    if not (allow_unvalidated or is_cleared(sport)):
+        return {"sport": sport, "bet": False,
+                "reason": "not validated: " + explain(sport)}
     min_edge = SPORTS[sport]["min_edge"]
     blocked = [k for k in GUARDRAIL_FLAGS.get(sport, ()) if flags.get(k)]
     novig_away, novig_home = novig_probs(away_ml, home_ml)
@@ -80,7 +95,15 @@ def clv_pct(line_taken: int, closing_line: int) -> float:
 
 
 if __name__ == "__main__":
-    print(evaluate("mlb", 0.62, +130, -150, 1000))
-    print(evaluate("nfl", 0.62, +130, -150, 1000))                       # higher bar
-    print(evaluate("nhl", 0.62, +130, -150, 1000, {"goalie_unconfirmed": True}))
+    from model.validation import report
+    print(report())
+    print()
+    # Every sport is refused until its walk-forward beats a real market.
+    for sp in ("mlb", "nfl", "nhl"):
+        print(sp, "->", evaluate(sp, 0.62, +130, -150, 1000)["reason"])
+    print()
+    # The edge math itself, with the guard deliberately bypassed.
+    print("bypassed:", evaluate("mlb", 0.62, +130, -150, 1000, allow_unvalidated=True))
+    print("bypassed:", evaluate("nhl", 0.62, +130, -150, 1000,
+                                {"goalie_unconfirmed": True}, allow_unvalidated=True))
     print("CLV -104 -> close -120:", clv_pct(-104, -120), "%")

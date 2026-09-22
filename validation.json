@@ -1,0 +1,60 @@
+{
+  "mlb": {
+    "baseline_kind": "placeholder",
+    "cleared": false,
+    "reason": "baseline is a placeholder, not a real market - beating it proves the model learned something, not that it has edge",
+    "recorded_at": "2026-09-22T00:34:04+00:00",
+    "seasons": [
+      {
+        "beat_market": true,
+        "logloss_market": 0.693083,
+        "logloss_model": 0.685606,
+        "season": 2024
+      },
+      {
+        "beat_market": true,
+        "logloss_market": 0.688989,
+        "logloss_model": 0.687365,
+        "season": 2025
+      },
+      {
+        "beat_market": true,
+        "logloss_market": 0.691354,
+        "logloss_model": 0.689947,
+        "season": 2026
+      }
+    ]
+  },
+  "nfl": {
+    "baseline_kind": "market",
+    "cleared": false,
+    "reason": "lost to market in 4 of 4 seasons (2022, 2023, 2024, 2025)",
+    "recorded_at": "2026-09-22T00:33:33+00:00",
+    "seasons": [
+      {
+        "beat_market": false,
+        "logloss_market": 0.607521,
+        "logloss_model": 0.638911,
+        "season": 2022
+      },
+      {
+        "beat_market": false,
+        "logloss_market": 0.627349,
+        "logloss_model": 0.661386,
+        "season": 2023
+      },
+      {
+        "beat_market": false,
+        "logloss_market": 0.587489,
+        "logloss_model": 0.640337,
+        "season": 2024
+      },
+      {
+        "beat_market": false,
+        "logloss_market": 0.60823,
+        "logloss_model": 0.638203,
+        "season": 2025
+      }
+    ]
+  }
+}

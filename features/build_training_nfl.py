@@ -21,6 +21,7 @@ ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 from features.sports.nfl_features_v1 import build_table, FEATURE_COLUMNS
 from model.calibrate import fit_k
+from model.validation import record, explain, REAL_MARKET
 
 ALPHAS = [0.1, 1.0, 10.0, 50.0, 100.0]
 FIRST_TEST_SEASON = 2022          # train needs >=2 prior full seasons
@@ -77,6 +78,10 @@ def main():
 
     out = pd.DataFrame(rows)
     print(out.to_string(index=False))
+    record("nfl", REAL_MARKET,
+           out.rename(columns={"test_season": "season"}).to_dict("records"))
+    print()
+    print(explain("nfl"))
     print("\nQualifying bar: logloss_model < logloss_home (must pass).")
     print("Title fight:    logloss_model vs logloss_market (real closing lines).")
     print("Expect the market to win; the mission is closing the gap.")
