@@ -622,9 +622,74 @@ Once it has enough, the baseball model can be graded against real bookmaker pric
 </body></html>"""
 
 
+# ----------------------------------------------------------------- picture
+PNG = ROOT / "dashboard.png"
+
+# Edge ships with Windows and Chrome is common; either can screenshot a local
+# file headlessly. That keeps this dependency-free - no playwright, no
+# selenium, nothing to install.
+BROWSERS = [
+    r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+    r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+    r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+]
+
+
+def find_browser():
+    import shutil
+    for b in BROWSERS:
+        if Path(b).exists():
+            return b
+    for name in ("msedge", "chrome", "chromium", "google-chrome"):
+        found = shutil.which(name)
+        if found:
+            return found
+    return None
+
+
+def to_png(width: int = 900, tall: int = 6000, pad: int = 28) -> Path | None:
+    """Screenshot the page, then trim the empty space below the content.
+
+    A headless shot is a fixed window, so it is rendered deliberately too tall
+    and cropped back to where the content actually ends - otherwise every image
+    carries a few thousand pixels of blank page.
+    """
+    import subprocess
+    browser = find_browser()
+    if not browser:
+        print("No Edge or Chrome found, so no PNG. The HTML still works.")
+        return None
+    subprocess.run(
+        [browser, "--headless=new", "--disable-gpu", "--hide-scrollbars",
+         "--force-color-profile=srgb", f"--screenshot={PNG}",
+         f"--window-size={width},{tall}", OUT.as_uri()],
+        capture_output=True, timeout=120)
+    if not PNG.exists():
+        print("The browser did not produce an image.")
+        return None
+    try:
+        from PIL import Image
+    except ImportError:
+        print(f"Wrote {PNG} (uncropped - install Pillow to trim the blank tail)")
+        return PNG
+    im = Image.open(PNG).convert("RGB")
+    W, H = im.size
+    bg = im.getpixel((2, 2))
+    last = 0
+    for y in range(H - 1, -1, -1):
+        if any(im.getpixel((x, y)) != bg for x in range(0, W, 13)):
+            last = y
+            break
+    im.crop((0, 0, W, min(H, last + pad))).save(PNG)
+    print(f"Wrote {PNG}  ({W}x{min(H, last + pad)})")
+    return PNG
+
+
 if __name__ == "__main__":
     data = gather()
     OUT.write_text(build(data), encoding="utf-8")
     print(f"Wrote {OUT}")
+    img = to_png() if "--png" in sys.argv else None
     if "--no-open" not in sys.argv:
-        webbrowser.open(OUT.as_uri())
+        webbrowser.open((img or OUT).as_uri())
