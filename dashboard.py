@@ -116,14 +116,41 @@ def gather():
         except Exception:
             accs = []
     d["accuracy"] = sum(accs) / len(accs) if accs else None
+
+    # How many games that accuracy was actually measured over. walk_forward
+    # trains on seasons[:i] and tests on seasons[i], starting at i=2, so the
+    # first two seasons are never scored. The page used to headline the
+    # accuracy "over 10,482 games it had never seen" - 10,482 is the WHOLE
+    # table, training seasons included. The real figure is smaller.
+    d["n_test"] = 0
+    d["test_seasons"] = []
+    if tp.exists() and accs:
+        ss = sorted(int(x) for x in df["season"].unique())
+        d["test_seasons"] = ss[2:]
+        d["n_test"] = int(df[df["season"].isin(d["test_seasons"])].shape[0])
     return d
 
+# ================================================================== labels
+# Every metric below was traced to source before it was given a plain-English
+# name. What each one actually is:
+#
+#   accuracy    share of test-season games where the higher-probability side
+#               won. walk_forward trains on seasons[:i] and scores season[i]
+#               from i=2, so it is measured on the LAST THREE seasons only -
+#               6,497 games, not the 10,482 in the table.
+#   "how wrong" sklearn.metrics.log_loss on the predicted win probability.
+#               Formally logarithmic loss / cross-entropy. Lower is better,
+#               and being confident and wrong is punished hardest.
+#   importance  absolute standardised ridge coefficients, home and away summed
+#               per concept. Each is the effect on projected run differential
+#               of a one-standard-deviation move in that input, holding the
+#               others fixed. Rescaling so the largest reads 100 is a plain
+#               linear transform, so the ratios survive it.
 
-# -------------------------------------------------------------------- labels
 SPORT_NAME = {"mlb": "Baseball", "nfl": "Football"}
 
 GROUP_NAME = {"sp": "Who's pitching", "off": "Recent hitting",
-              "pen_q": "Bullpen quality", "park": "The ballpark",
+              "pen_q": "Bullpen quality", "park": "Ballpark",
               "rest": "Days off", "pen_t": "Bullpen tiredness"}
 
 FEATURE_DEF = {
@@ -142,6 +169,19 @@ FEATURE_DEF = {
              "seasons rather than from its dimensions."),
 }
 
+# The three gates, in the order they must fall.
+GATES = [
+    ("walk_forward", "Beat bookmaker predictions",
+     "Score better than the bookmakers on seasons the model never saw while "
+     "it was being built."),
+    ("paper_trading", "Show it would actually make money",
+     "Track 50 or more picks at real prices, with no money down, and end up "
+     "ahead of the closing line."),
+    ("armed", "Human approval",
+     "Someone has to switch it on deliberately. The code refuses to do this "
+     "itself until the first two pass."),
+]
+
 
 def feature_key(name):
     if "_sp_" in name:
@@ -158,7 +198,6 @@ def feature_key(name):
 
 
 def abbr(team):
-    """MIL, not 'Milwaukee Bre'. Slicing names produced trailing-space stumps."""
     try:
         from features.sports.mlb_features import TEAM_ABBR
         if team in TEAM_ABBR:
@@ -168,17 +207,43 @@ def abbr(team):
     return "".join(w[0] for w in str(team).split()[:3]).upper()
 
 
+def gate_state(key, st):
+    """The three gates are in genuinely different states, so they must not all
+    read 'not yet'. Derived from what validation.py actually recorded:
+
+      passed      cleared
+      failed      a real test ran and the model lost it
+      untested    the comparison has not been possible yet (placeholder
+                  baseline), so nothing has been proven either way
+      waiting     nothing recorded at all
+      locked      held shut by design until the gates above it pass
+    """
+    if st is None:
+        return ("waiting", "Not started")
+    if key == "walk_forward":
+        if st.get("cleared"):
+            return ("passed", "Passed")
+        if st.get("baseline_kind") == "placeholder":
+            return ("untested", "No real test yet")
+        return ("failed", "Not passed")
+    if key == "paper_trading":
+        p = st.get("paper_trading")
+        if not p:
+            return ("waiting", "Not started")
+        return ("passed", "Passed") if p.get("passed") else ("failed", "Not passed")
+    if st.get("armed"):
+        return ("passed", "Approved")
+    return ("locked", "Locked")
+
+
 _TID = [0]
 
 
 def table(headers, rows, caption):
-    """Collapsed on desktop, forced open on a phone - where it REPLACES the
-    chart, because SVG text at 375px lands near 6px and hover does not exist.
-
-    A <details> cannot do that: it collapses its content whatever CSS the child
-    carries, so a media query cannot open one. This is the checkbox-and-label
-    pattern instead - pure CSS, no script, and the breakpoint genuinely works.
-    """
+    """Collapsed on desktop, forced open on a phone where it replaces the
+    chart. A <details> cannot be opened by a media query - it collapses its
+    content whatever CSS the child carries - so this is the checkbox pattern:
+    pure CSS, no script, and the breakpoint actually works."""
     _TID[0] += 1
     tid = f"t{_TID[0]}"
     head = "".join(f"<th>{esc(h)}</th>" for h in headers)
@@ -190,269 +255,251 @@ def table(headers, rows, caption):
             f'<tbody>{body}</tbody></table></div>')
 
 
-def gap_words(gaps):
-    """Rank each season's gap against the others. An absolute size word came out
-    as "clearly" in all four rows - no information at all, and on a phone this
-    table replaces the chart, so it was the only thing a mobile reader got."""
-    lo, hi = min(gaps), max(gaps)
-    if hi - lo < 1e-9:
-        return ["about the same each year"] * len(gaps)
-    out = []
-    for g in gaps:
-        n = (g - lo) / (hi - lo)
-        out.append(f"widest of the {len(gaps)}" if n > .99
-                   else ("narrowest" if n < .01 else "in between"))
-    return out
+def tech(summary, body):
+    """Progressive disclosure. The page must make sense without ever opening
+    one of these; the real method lives inside."""
+    return (f'<details class="tech"><summary>{esc(summary)}</summary>'
+            f'<div class="tech-b">{body}</div></details>')
 
 
-# -------------------------------------------------------------------- charts
-def chart_picks(rows):
-    """Dumbbell, one row per game. The gap is signed (program - bookmakers):
-    unsigned it read '+10%' on every row even though the program sits BELOW the
-    bookmakers on most home teams, which is the pattern worth seeing."""
-    rows = [r for r in rows if r.get("market_prob") is not None]
-    if not rows:
-        return "", "", 0, 0
-    rows = sorted(rows, key=lambda r: -abs(r["model_prob"] - r["market_prob"]))
-    PAD_T, ROW = 44, 30
-    h = PAD_T + len(rows) * ROW + 34
-    x0, x1 = 150, 620
-    lo = min(min(r["model_prob"], r["market_prob"]) for r in rows) - .04
-    hi = max(max(r["model_prob"], r["market_prob"]) for r in rows) + .04
-    lo, hi = max(0, lo), min(1, hi)
-    sx = lambda p: x0 + (p - lo) / (hi - lo) * (x1 - x0)
-
-    o = [f'<svg viewBox="0 0 740 {h}" role="img" aria-label="For each game '
-         f'tonight, the chance the home team wins according to the program and '
-         f'according to the bookmakers">']
-    for t in [i / 100 for i in range(0, 101, 5)]:
-        if lo <= t <= hi:
-            o.append(f'<line class="grid" x1="{sx(t):.1f}" y1="{PAD_T-10}" '
-                     f'x2="{sx(t):.1f}" y2="{h-34}"/>')
-            o.append(f'<text class="tick" x="{sx(t):.1f}" y="{PAD_T-16}" '
-                     f'text-anchor="middle">{t:.0%}</text>')
-    o.append(f'<text class="axis" x="{(x0+x1)/2:.0f}" y="{h-8}" '
-             f'text-anchor="middle">chance the home team wins</text>')
-    o.append(f'<text class="tick" x="{x1+22}" y="{PAD_T-16}">difference</text>')
-    for i, r in enumerate(rows):
-        y = PAD_T + i * ROW + ROW / 2
-        a, b = sx(r["model_prob"]), sx(r["market_prob"])
-        gap = r["model_prob"] - r["market_prob"]
-        lab = f'{abbr(r["away"])} @ {abbr(r["home"])}'
-        o.append(f'<text class="cat" x="{x0-16}" y="{y+5}" text-anchor="end">{esc(lab)}</text>')
-        o.append(f'<line class="conn" x1="{a:.1f}" y1="{y}" x2="{b:.1f}" y2="{y}"/>')
-        o.append(f'<circle class="ring" cx="{b:.1f}" cy="{y}" r="7.5"/>'
-                 f'<circle class="mk2" cx="{b:.1f}" cy="{y}" r="6"><title>'
-                 f'{esc(r["away"])} at {esc(r["home"])} — bookmakers: home team '
-                 f'wins {r["market_prob"]:.1%}</title></circle>')
-        o.append(f'<circle class="ring" cx="{a:.1f}" cy="{y}" r="7.5"/>'
-                 f'<circle class="mk1" cx="{a:.1f}" cy="{y}" r="6"><title>'
-                 f'{esc(r["away"])} at {esc(r["home"])} — the program: '
-                 f'{r["model_prob"]:.1%}</title></circle>')
-        o.append(f'<text class="val" x="{x1+22}" y="{y+5}">{gap:+.0%}</text>')
-    o.append("</svg>")
-
-    tbl = table(["Game", "Program", "Bookmakers", "Difference"],
-                [(f'{r["away"]} @ {r["home"]}', f'{r["model_prob"]:.0%}',
-                  f'{r["market_prob"]:.0%}',
-                  f'{r["model_prob"] - r["market_prob"]:+.0%}') for r in rows],
-                "Show tonight's games as a table")
-    lower = sum(1 for r in rows if r["model_prob"] < r["market_prob"])
-    return "".join(o), tbl, len(rows), lower
-
-
+# ================================================================== charts
 def chart_seasons(seasons, opponent):
-    """Grouped bars, one scale, no y-axis values - the unit is log-loss, which
-    a stranger cannot read, and the spread is too small to see. Bar length
-    carries it; the numbers stay in the tooltips."""
+    """Grouped bars. The axis is labelled and the values are printed, because
+    the question this chart answers is comparative and the reader was asked to
+    judge lengths with no scale at all before."""
     if not seasons:
         return "", ""
-    W, h, PAD_L, PAD_B, PAD_T = 740, 230, 26, 44, 20
+    W, h, PAD_L, PAD_B, PAD_T = 760, 250, 118, 46, 34
     lo = min(min(s["logloss_model"], s["logloss_market"]) for s in seasons)
     hi = max(max(s["logloss_model"], s["logloss_market"]) for s in seasons)
-    pad = (hi - lo) * .35 or .01
-    lo, hi = lo - pad, hi + pad
+    pad = (hi - lo) * .45 or .01
+    lo, hi = max(0, lo - pad), hi + pad
     sy = lambda v: PAD_T + (hi - v) / (hi - lo) * (h - PAD_T - PAD_B)
-    gw = (W - PAD_L - 30) / len(seasons)
-    bw = min(52, gw / 2 - 8)
-    o = [f'<svg viewBox="0 0 {W} {h}" role="img" aria-label="How wrong the '
-         f'program was each season next to {esc(opponent)}. Shorter is better.">']
+    gw = (W - PAD_L - 24) / len(seasons)
+    bw = min(46, gw / 2 - 10)
+    o = [f'<svg viewBox="0 0 {W} {h}" role="img" aria-label="Prediction error '
+         f'by season for the model and for {esc(opponent)}; lower is better">']
     for i in range(4):
         v = lo + (hi - lo) * i / 3
-        o.append(f'<line class="grid" x1="{PAD_L}" y1="{sy(v):.1f}" x2="{W-30}" y2="{sy(v):.1f}"/>')
-    o.append(f'<text class="axis" x="{PAD_L}" y="{PAD_T-4}">more wrong &#8593;</text>')
+        o.append(f'<line class="grid" x1="{PAD_L}" y1="{sy(v):.1f}" x2="{W-24}" y2="{sy(v):.1f}"/>')
+        o.append(f'<text class="tick" x="{PAD_L-10}" y="{sy(v)+4:.1f}" text-anchor="end">{v:.2f}</text>')
+    o.append(f'<text class="axis" x="{PAD_L-10}" y="{PAD_T-14}" text-anchor="end">'
+             f'prediction error</text>')
+    o.append(f'<text class="axis better" x="{PAD_L+6}" y="{PAD_T-14}">&#8595; lower is better</text>')
     for i, s in enumerate(seasons):
         cx = PAD_L + gw * i + gw / 2
-        for j, (key, cls, who) in enumerate((("logloss_model", "mk1", "the program"),
+        for j, (key, cls, who) in enumerate((("logloss_model", "mk1", "Sports Machine"),
                                              ("logloss_market", "mk2", opponent))):
             v = s[key]
             x = cx - bw - 1 + j * (bw + 2)
             o.append(f'<rect class="{cls} bar" x="{x:.1f}" y="{sy(v):.1f}" width="{bw:.1f}" '
                      f'height="{max(0, h-PAD_B-sy(v)):.1f}" rx="4"><title>'
-                     f'{s["season"]} — {esc(who)}: {v:.4f} (lower is better)</title></rect>')
-        o.append(f'<text class="cat" x="{cx:.1f}" y="{h-PAD_B+22}" text-anchor="middle">{s["season"]}</text>')
+                     f'{s["season"]} — {esc(who)}: {v:.3f}</title></rect>')
+            o.append(f'<text class="barval" x="{x+bw/2:.1f}" y="{sy(v)-7:.1f}" '
+                     f'text-anchor="middle">{v:.2f}</text>')
+        o.append(f'<text class="cat" x="{cx:.1f}" y="{h-PAD_B+24}" text-anchor="middle">{s["season"]}</text>')
     o.append("</svg>")
-    gaps = [abs(s["logloss_market"] - s["logloss_model"])
-            / max(s["logloss_model"], s["logloss_market"]) for s in seasons]
-    words = gap_words(gaps)
-    rows = [(s["season"],
-             "the program" if s["logloss_model"] < s["logloss_market"] else opponent,
-             w)
-            for s, w in zip(seasons, words)]
-    tbl = table(["Season", "Who predicted it better", "Size of the gap"], rows,
-                "Show these seasons as a table")
+    rows = [(s["season"], f'{s["logloss_model"]:.3f}', f'{s["logloss_market"]:.3f}',
+             "Sports Machine" if s["logloss_model"] < s["logloss_market"] else opponent.capitalize())
+            for s in seasons]
+    tbl = table(["Season", "Sports Machine error", f"{opponent.capitalize()} error",
+                 "More accurate"], rows, "Show the exact numbers")
     return "".join(o), tbl
 
 
+def chart_picks(rows):
+    """One row per game: two dots and the distance between them, in percentage
+    POINTS. Never a percent change - 46% vs 56% is 10 points apart, not 18%."""
+    rows = [r for r in rows if r.get("market_prob") is not None]
+    if not rows:
+        return "", "", 0, 0
+    rows = sorted(rows, key=lambda r: -abs(r["model_prob"] - r["market_prob"]))
+    PAD_T, ROW = 52, 34
+    h = PAD_T + len(rows) * ROW + 40
+    x0, x1 = 128, 588
+    lo = min(min(r["model_prob"], r["market_prob"]) for r in rows) - .05
+    hi = max(max(r["model_prob"], r["market_prob"]) for r in rows) + .05
+    lo, hi = max(0, lo), min(1, hi)
+    sx = lambda p: x0 + (p - lo) / (hi - lo) * (x1 - x0)
+    o = [f'<svg viewBox="0 0 760 {h}" role="img" aria-label="For each game, the '
+         f'chance the home team wins according to Sports Machine and according '
+         f'to the bookmakers">']
+    for t in [i / 100 for i in range(0, 101, 5)]:
+        if lo <= t <= hi:
+            o.append(f'<line class="grid" x1="{sx(t):.1f}" y1="{PAD_T-12}" '
+                     f'x2="{sx(t):.1f}" y2="{h-40}"/>')
+            o.append(f'<text class="tick" x="{sx(t):.1f}" y="{PAD_T-18}" '
+                     f'text-anchor="middle">{t:.0%}</text>')
+    o.append(f'<text class="axis" x="{(x0+x1)/2:.0f}" y="{h-10}" text-anchor="middle">'
+             f'chance the home team wins</text>')
+    o.append(f'<text class="tick" x="{x1+26}" y="{PAD_T-18}">difference</text>')
+    for i, r in enumerate(rows):
+        y = PAD_T + i * ROW + ROW / 2
+        a, b = sx(r["model_prob"]), sx(r["market_prob"])
+        pts = (r["model_prob"] - r["market_prob"]) * 100
+        lab = f'{abbr(r["away"])} @ {abbr(r["home"])}'
+        o.append(f'<text class="cat" x="{x0-18}" y="{y+5}" text-anchor="end">{esc(lab)}</text>')
+        o.append(f'<line class="conn" x1="{a:.1f}" y1="{y}" x2="{b:.1f}" y2="{y}"/>')
+        o.append(f'<circle class="ring" cx="{b:.1f}" cy="{y}" r="8"/>'
+                 f'<circle class="mk2" cx="{b:.1f}" cy="{y}" r="6.5"><title>'
+                 f'{esc(r["away"])} at {esc(r["home"])} — bookmakers: '
+                 f'{r["market_prob"]:.0%}</title></circle>')
+        o.append(f'<circle class="ring" cx="{a:.1f}" cy="{y}" r="8"/>'
+                 f'<circle class="mk1" cx="{a:.1f}" cy="{y}" r="6.5"><title>'
+                 f'{esc(r["away"])} at {esc(r["home"])} — Sports Machine: '
+                 f'{r["model_prob"]:.0%}</title></circle>')
+        word = "lower" if pts < 0 else "higher"
+        unit = "pt" if round(abs(pts)) == 1 else "pts"
+        o.append(f'<text class="val" x="{x1+26}" y="{y+5}">'
+                 f'{abs(pts):.0f} {unit} {word}</text>')
+    o.append("</svg>")
+    tbl = table(["Game", "Sports Machine", "Bookmakers", "Difference"],
+                [(f'{r["away"]} @ {r["home"]}', f'{r["model_prob"]:.0%}',
+                  f'{r["market_prob"]:.0%}',
+                  f'{(r["model_prob"]-r["market_prob"])*100:+.0f} '
+                  f'{"pt" if round(abs((r["model_prob"]-r["market_prob"])*100)) == 1 else "pts"}')
+                 for r in rows],
+                "Show the exact numbers")
+    lower = sum(1 for r in rows if r["model_prob"] < r["market_prob"])
+    return "".join(o), tbl, len(rows), lower
+
+
 def chart_importance(coef):
-    """Six merged bars from one origin, longest first. No signed axis and no
-    printed values: the ranking is the entire message."""
+    """Six merged bars, rescaled so the largest reads 100. That is a plain
+    linear rescale of the existing standardised coefficients, so every ratio
+    between factors survives it unchanged."""
     if not coef:
         return "", "", None
     g = {}
     for name, c in coef:
         g[feature_key(name)] = g.get(feature_key(name), 0.0) + abs(c)
     order = sorted(g.items(), key=lambda kv: -kv[1])
-    ROW, PAD_T, x0, x1 = 40, 14, 190, 690
-    h = PAD_T + len(order) * ROW + 10
     mx = order[0][1] or 1
-    o = [f'<svg viewBox="0 0 740 {h}" role="img" aria-label="What the program '
-         f'leans on most, longest bar first">']
-    for i, (k, v) in enumerate(order):
+    scaled = [(k, v, round(100 * v / mx)) for k, v in order]
+    ROW, PAD_T, x0, x1 = 44, 10, 210, 660
+    h = PAD_T + len(scaled) * ROW + 8
+    o = [f'<svg viewBox="0 0 760 {h}" role="img" aria-label="What moves the '
+         f'prediction most, scaled so the biggest factor is 100">']
+    for i, (k, _, n) in enumerate(scaled):
         y = PAD_T + i * ROW
-        w = v / mx * (x1 - x0)
-        o.append(f'<text class="cat big" x="{x0-16}" y="{y+22}" text-anchor="end">{esc(GROUP_NAME[k])}</text>')
-        o.append(f'<rect class="mk1 bar" x="{x0}" y="{y+6}" width="{max(w,2):.1f}" '
-                 f'height="22" rx="4"><title>{esc(GROUP_NAME[k])} — {esc(FEATURE_DEF[k])}'
+        w = n / 100 * (x1 - x0)
+        o.append(f'<text class="cat big" x="{x0-18}" y="{y+25}" text-anchor="end">{esc(GROUP_NAME[k])}</text>')
+        o.append(f'<rect class="mk1 bar" x="{x0}" y="{y+7}" width="{max(w,2):.1f}" '
+                 f'height="24" rx="5"><title>{esc(GROUP_NAME[k])} — {esc(FEATURE_DEF[k])}'
                  f'</title></rect>')
+        o.append(f'<text class="val" x="{x0+w+12:.1f}" y="{y+25}">{n}</text>')
     o.append("</svg>")
-    tbl = table(["What it looks at", "As important as the top one"],
-                [(GROUP_NAME[k], f"{v/mx:.0%}") for k, v in order],
-                "Show this ranking as a table")
-    return "".join(o), tbl, order
+    tbl = table(["What it looks at", "Relative weight (biggest = 100)"],
+                [(GROUP_NAME[k], n) for k, _, n in scaled], "Show the exact numbers")
+    return "".join(o), tbl, scaled
 
 
-# ------------------------------------------------------------ bottom lines
-# Declarative. Every figure computed, nothing written by hand, so the page
-# cannot drift out of step with the database.
+# =========================================================== bottom lines
+# Declarative, and every figure computed. Nothing here is written by hand, so
+# the page cannot drift out of step with the database.
 def bl(text):
     return f'<p class="bl"><strong>Bottom line:</strong> {text}</p>'
-
-
-def bl_picks(n, lower):
-    if not n:
-        return ""
-    s = f"it disagrees with the bookmakers on all {n} games tonight"
-    if lower:
-        s += f", and on {lower} of them it rates the home team lower than they do"
-    return bl(s + ".")
 
 
 def bl_seasons(seasons, opponent):
     n = len(seasons)
     lost = sum(1 for s in seasons if s["logloss_model"] >= s["logloss_market"])
     if lost == n:
-        return bl(f"{opponent} predicted every one of the {n} seasons better "
-                  f"than the program did.")
+        return bl(f"{opponent.capitalize()} predictions were more accurate in "
+                  f"all {n} seasons tested.")
     if lost == 0:
-        return bl(f"the program predicted all {n} seasons better than "
-                  f"{opponent} did.")
-    return bl(f"{opponent} predicted {lost} of the {n} seasons better.")
+        return bl(f"Sports Machine was more accurate in all {n} seasons tested.")
+    return bl(f"{opponent.capitalize()} predictions were more accurate in "
+              f"{lost} of the {n} seasons tested.")
 
 
-def bl_importance(order):
-    """'More than everything else combined' was the obvious sentence and it is
-    false here - the top factor is 0.56 against 0.99 for the rest - so the
-    claim is checked before it is emitted."""
-    if not order:
+def bl_picks(n, lower):
+    if not n:
         return ""
-    top, top_v = order[0]
-    rest = sum(v for _, v in order[1:])
-    second = order[1][1] if len(order) > 1 else 0
+    s = f"It disagrees with the bookmakers on all {n} games tonight"
+    if lower:
+        s += (f", and on {lower} of them it gives the home team a lower chance "
+              f"than they do")
+    return bl(s + ".")
+
+
+def bl_importance(scaled):
+    """'More than everything else combined' is the sentence that wants writing
+    and it is false here - the top factor is 0.56 against 0.99 for the rest -
+    so the claim is checked against the numbers before it is emitted."""
+    if not scaled:
+        return ""
+    top, top_v, _ = scaled[0]
+    rest = sum(v for _, v, _ in scaled[1:])
+    second = scaled[1][1] if len(scaled) > 1 else 0
     name = GROUP_NAME[top].lower()
     if top_v > rest:
-        return bl(f"{name} matters more than everything else combined.")
+        return bl(f"{name.capitalize()} matters more than everything else combined.")
     if second:
-        return bl(f"{name} matters more than any other single thing, about "
-                  f"{top_v/second:.1f}× the next biggest.")
-    return bl(f"{name} matters most.")
+        return bl(f"{GROUP_NAME[top]} has the biggest effect on the model's "
+                  f"predictions — about {top_v/second:.1f} times the next "
+                  f"biggest factor.")
+    return bl(f"{GROUP_NAME[top]} has the biggest effect.")
 
 
-# ---------------------------------------------------------------------- page
-CHECK = {"walk_forward": "Beats the bookmakers on past seasons",
-         "paper_trading": "Tracked through 50+ bets on paper, no money",
-         "armed": "A human has switched it on"}
-
-
+# ==================================================================== page
 def legend(a, b):
     return (f'<div class="legend"><span><i class="sw1"></i>{a}</span>'
             f'<span><i class="sw2"></i>{b}</span></div>')
 
 
+ROADMAP = [
+    ("Collect real bookmaker prices", "now"),
+    ("Predict games before they happen", "now"),
+    ("Compare predictions against the market", "next"),
+    ("Check the bets would clear the bookmaker's cut", "later"),
+    ("Human approval", "later"),
+    ("Betting unlocked", "goal"),
+]
+
+
 def build(d):
+    from model.validation import status as _status
     sports = list(d["gates"]) or ["mlb", "nfl"]
     cleared = any(all(g.values()) for g in d["gates"].values())
-    # The reader counts the rows in the table, so the headline has to count the
-    # same way: three checks, not three-times-two. Computed, so it still reads
-    # correctly if the sports ever diverge.
-    n_checks = len(CHECK)
-    per = {sp: sum(1 for k in CHECK if d["gates"].get(sp, {}).get(k)) for sp in sports}
+    n_checks = len(GATES)
+    per = {sp: sum(1 for k, _, _ in GATES if d["gates"].get(sp, {}).get(k)) for sp in sports}
     agree = all(d["gates"].get(sports[0], {}).get(k) == d["gates"].get(sp, {}).get(k)
-                for k in CHECK for sp in sports)
-    if agree:
-        count_line = (f"{per[sports[0]]} of {n_checks} passed, "
-                      f"for {'either' if len(sports) == 2 else 'every'} sport")
-    else:
-        count_line = " &middot; ".join(
-            f"{SPORT_NAME.get(sp, sp.upper())} {per[sp]} of {n_checks}" for sp in sports)
+                for k, _, _ in GATES for sp in sports)
+    passed_hd = (f"{per[sports[0]]} of {n_checks}" if agree
+                 else " &middot; ".join(f"{SPORT_NAME.get(s, s)} {per[s]}/{n_checks}"
+                                        for s in sports))
 
-    rows = "".join(
-        f'<tr><th scope="row">{esc(CHECK[k])}</th>' +
-        "".join(f'<td class="{"ok" if d["gates"].get(s, {}).get(k) else "no"}">'
-                f'{"yes" if d["gates"].get(s, {}).get(k) else "not yet"}</td>'
-                for s in sports) + "</tr>"
-        for k in CHECK)
-    head = "".join(f"<th>{SPORT_NAME.get(s, s.upper())}</th>" for s in sports)
-    checks_tbl = (f'<table class="checks"><thead><tr><th scope="col">Check</th>'
-                  f'{head}</tr></thead><tbody>{rows}</tbody></table>')
+    # One row per gate, each with its own state - they are genuinely different
+    # and used to read "not yet" three times over.
+    gate_rows = ""
+    for i, (key, title, why) in enumerate(GATES, 1):
+        cells = ""
+        for sp in sports:
+            cls, label = gate_state(key, _status(sp))
+            cells += (f'<span class="pill {cls}"><i></i>{SPORT_NAME.get(sp, sp)}: '
+                      f'{esc(label)}</span>')
+        gate_rows += (f'<li class="gate"><div class="gate-n">{i}</div>'
+                      f'<div class="gate-b"><div class="gate-t">{esc(title)}</div>'
+                      f'<div class="gate-w">{esc(why)}</div>'
+                      f'<div class="pills">{cells}</div></div></li>')
 
     picks_svg, picks_tbl, n_games, n_lower = chart_picks(d["picks"])
-    imp_svg, imp_tbl, imp_order = chart_importance(d["coef"])
-
-    # Only the football model is graded against real bookmaker prices, so it is
-    # the only season chart on the page. The baseball one was scored against a
-    # placeholder - it proved nothing the page is asking about, and cost a
-    # heading, a stamp, two notes, a legend, an SVG, a bottom line and a table
-    # to say something that fits in one sentence.
+    imp_svg, imp_tbl, imp_scaled = chart_importance(d["coef"])
+    OPP = "bookmaker"
     nfl_rows = d["seasons"].get("nfl") or []
-    OPP = "the bookmakers"
     nfl_svg, nfl_tbl = chart_seasons(nfl_rows, OPP) if nfl_rows else ("", "")
-    # Setup, then chart, then the bottom line LAST in the section.
-    season_block = ('<p class="note">&ldquo;How wrong&rdquo; counts whether it '
-                    'picked the right side and how sure it was, so confident '
-                    'mistakes cost most.</p>'
-                    + legend("how wrong the program was", OPP) + nfl_svg
-                    + nfl_tbl + bl_seasons(nfl_rows, OPP)) if nfl_rows else ""
 
-    # 10,482 was printed in the hero and again in a tile. The tiles are gone;
-    # the one fact worth keeping moves to the section it describes.
-    priced_note = (f'<p class="note">{n_games} of today&rsquo;s {d["n_pred"]} '
-                   f'predicted games have a bookmaker price so far.</p>'
+    priced_note = (f'{n_games} of tonight&rsquo;s {d["n_pred"]} predicted '
+                   f'games have a bookmaker price so far.'
                    if d["n_pred"] > n_games else "")
-
-    seen, gloss = set(), []
-    for name, _ in d["coef"]:
-        k = feature_key(name)
-        if k in seen:
-            continue
-        seen.add(k)
-        gloss.append(f"<dt>{esc(GROUP_NAME[k])}</dt><dd>{esc(FEATURE_DEF[k])}</dd>")
-    gloss_html = ('<details class="gloss-d"><summary>What each of these actually '
-                  'measures</summary><dl class="gloss">' + "".join(gloss)
-                  + "</dl></details>") if gloss else ""
+    steps = ""
+    for label, when in ROADMAP:
+        steps += (f'<li class="step {when}"><span class="dot"></span>'
+                  f'<span class="st">{esc(label)}</span>'
+                  f'<span class="tag">{"happening now" if when == "now" else ("next up" if when == "next" else "")}</span></li>')
 
     acc = f'{d["accuracy"]:.1%}' if d.get("accuracy") else "&mdash;"
-    verdict = "READY TO BET" if cleared else "NOT READY TO BET"
     accent = "var(--good)" if cleared else "var(--crit)"
     css = lambda p: "".join(f"--{k}:{v};" for k, v in p.items())
 
@@ -467,167 +514,268 @@ def build(d):
   :root[data-theme="dark"] {{ color-scheme: dark; {css(DARK)} }}
   * {{ box-sizing:border-box; }}
   body {{ margin:0; background:var(--surface); color:var(--ink);
-    font:16px/1.6 ui-sans-serif,system-ui,"Segoe UI",sans-serif; }}
-  .wrap {{ max-width:880px; margin:0 auto; padding:32px 16px 56px; }}
-  h1 {{ font-size:26px; margin:0 0 6px; letter-spacing:-.02em; }}
-  h2 {{ font-size:20px; margin:44px 0 6px; letter-spacing:-.01em; }}
-  .lede {{ font-size:17px; margin:10px 0 4px; max-width:62ch; }}
-  .muted {{ color:var(--ink2); font-size:13px; margin:0; }}
-  .note {{ font-size:15px; color:var(--ink2); margin:8px 0 10px; max-width:64ch; }}
-  .note strong, .note b {{ color:var(--ink); }}
+    font:16px/1.65 ui-sans-serif,system-ui,"Segoe UI",sans-serif;
+    -webkit-font-smoothing:antialiased; }}
+  .wrap {{ max-width:1040px; margin:0 auto; padding:40px 24px 72px; }}
+  h1 {{ font-size:28px; margin:0 0 8px; letter-spacing:-.025em; }}
+  h2 {{ font-size:23px; margin:0 0 6px; letter-spacing:-.02em; }}
+  p {{ max-width:68ch; }}
+  .sub {{ color:var(--ink2); font-size:13px; margin:0; }}
+  .lede {{ font-size:18px; margin:8px 0 0; max-width:64ch; }}
+  .note {{ font-size:15px; color:var(--ink2); margin:6px 0 0; max-width:66ch; }}
+  section {{ margin-top:56px; }}
+  .eyebrow {{ font-size:12px; font-weight:700; letter-spacing:.09em;
+    text-transform:uppercase; color:var(--ink2); margin:0 0 4px; }}
 
-  .hero {{ margin:26px 0 10px; padding:22px; border-radius:14px;
+  /* 1 — can it bet */
+  .verdict {{ margin-top:28px; padding:28px; border-radius:16px;
     border:2px solid {accent};
     background:color-mix(in srgb, {accent} 6%, transparent); }}
-  .hero-v {{ font-size:40px; font-weight:750; line-height:1.05;
-    letter-spacing:-.03em; color:{accent}; }}
-  .hero-c {{ font-size:15px; font-weight:600; margin-top:6px; }}
-  .hero-s {{ font-size:15px; color:var(--ink2); margin:14px 0 0; max-width:62ch; }}
-  .hero-s strong {{ color:var(--ink); }}
+  .vv {{ font-size:clamp(30px,5vw,46px); font-weight:780; line-height:1.03;
+    letter-spacing:-.035em; color:{accent}; }}
+  .vc {{ font-size:16px; font-weight:650; margin-top:8px; }}
+  .vp {{ font-size:16px; color:var(--ink2); margin:12px 0 0; max-width:62ch; }}
+  ol.gates {{ list-style:none; margin:24px 0 0; padding:0; display:grid; gap:2px; }}
+  .gate {{ display:flex; gap:14px; padding:16px 2px;
+    border-top:1px solid color-mix(in srgb, var(--ink) 13%, transparent); }}
+  .gate-n {{ flex:0 0 28px; height:28px; border-radius:99px; font-size:13px;
+    font-weight:700; display:grid; place-items:center; color:var(--ink2);
+    border:1px solid color-mix(in srgb, var(--ink) 25%, transparent); }}
+  .gate-t {{ font-weight:650; font-size:16px; }}
+  .gate-w {{ font-size:14px; color:var(--ink2); margin-top:2px; max-width:60ch; }}
+  .pills {{ display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }}
+  .pill {{ display:inline-flex; align-items:center; gap:7px; font-size:13px;
+    font-weight:600; padding:4px 11px; border-radius:99px; color:var(--ink2);
+    border:1px solid color-mix(in srgb, var(--ink) 16%, transparent); }}
+  .pill i {{ width:8px; height:8px; border-radius:99px; background:currentColor; }}
+  .pill.passed {{ color:var(--good); border-color:color-mix(in srgb,var(--good) 45%,transparent); }}
+  .pill.failed {{ color:var(--crit); border-color:color-mix(in srgb,var(--crit) 45%,transparent); }}
+  .pill.untested, .pill.waiting {{ color:var(--ink2); }}
+  .pill.locked {{ color:var(--ink2); }}
+  .pill.locked i, .pill.waiting i {{ background:none; box-shadow:inset 0 0 0 1.5px currentColor; }}
 
-  table.checks {{ border-collapse:collapse; margin-top:16px; font-size:14px; width:100%; }}
-  table.checks th, table.checks td {{ text-align:left; padding:8px 10px;
-    border-bottom:1px solid color-mix(in srgb, var(--ink) 12%, transparent); }}
-  table.checks thead th {{ font-size:12px; color:var(--ink2);
-    text-transform:uppercase; letter-spacing:.05em; }}
-  table.checks td {{ text-align:center; font-weight:600; width:92px; }}
-  table.checks td.ok {{ color:var(--good); }} table.checks td.no {{ color:var(--crit); }}
+  /* 2 — scorecard */
+  .cards {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr));
+    gap:14px; margin-top:24px; }}
+  .card {{ padding:20px; border-radius:14px;
+    border:1px solid color-mix(in srgb, var(--ink) 13%, transparent); }}
+  .card-v {{ font-size:34px; font-weight:720; letter-spacing:-.03em; line-height:1; }}
+  .card-l {{ font-size:14px; font-weight:600; margin-top:8px; }}
+  .card-s {{ font-size:13px; color:var(--ink2); margin-top:3px; }}
+  .card.bad .card-v {{ color:var(--crit); }}
 
-  .primer {{ margin:30px 0 0; padding:16px 18px; border-radius:12px;
-    border-left:3px solid var(--s2);
-    background:color-mix(in srgb, var(--s2) 6%, transparent); }}
-  .primer p {{ font-size:15px; color:var(--ink2); margin:0; max-width:62ch; }}
-
-  .bl {{ font-size:16px; margin:14px 0 4px; padding:12px 14px; border-radius:10px;
-    background:var(--box); border:1px solid var(--boxline); max-width:64ch; }}
-  .bl strong {{ color:var(--ink); }}
-  /* Windows high-contrast strips backgrounds; keep the box readable as a box. */
-  @media (forced-colors: active) {{
-    .bl {{ border:1px solid CanvasText; background:Canvas; }}
-  }}
-
-  svg {{ width:100%; height:auto; display:block; margin-top:8px; overflow:visible; }}
-  .grid {{ stroke:color-mix(in srgb, var(--ink) 11%, transparent); stroke-width:1; }}
-  .conn {{ stroke:color-mix(in srgb, var(--ink) 26%, transparent); stroke-width:2; }}
+  /* charts */
+  svg {{ width:100%; height:auto; display:block; margin-top:14px; overflow:visible; }}
+  .grid {{ stroke:color-mix(in srgb, var(--ink) 10%, transparent); stroke-width:1; }}
+  .conn {{ stroke:color-mix(in srgb, var(--ink) 24%, transparent); stroke-width:2; }}
   .ring {{ fill:var(--surface); }}
   .mk1 {{ fill:var(--s1); }} .mk2 {{ fill:var(--s2); }}
   .bar {{ stroke:var(--surface); stroke-width:2; }}
   text {{ font:14px ui-sans-serif,system-ui,sans-serif; fill:var(--ink2); }}
-  .cat {{ fill:var(--ink); }} .cat.big {{ font-size:16px; font-weight:600; }}
-  .val {{ fill:var(--ink); font-variant-numeric:tabular-nums; }}
-  .tick, .axis {{ font-size:13px; }}
+  .cat {{ fill:var(--ink); font-weight:500; }}
+  .cat.big {{ font-size:16px; font-weight:600; }}
+  .val {{ fill:var(--ink); font-variant-numeric:tabular-nums; font-weight:600; }}
+  .barval {{ font-size:12px; font-variant-numeric:tabular-nums; }}
+  .tick {{ font-size:12px; }} .axis {{ font-size:12px; font-weight:600; }}
+  .axis.better {{ fill:var(--ink2); font-weight:500; }}
   rect.bar, circle {{ transition:opacity .12s; }}
-  svg:hover rect.bar, svg:hover circle {{ opacity:.82; }}
+  svg:hover rect.bar, svg:hover circle {{ opacity:.85; }}
   rect.bar:hover, circle:hover {{ opacity:1; }}
-
-  .legend {{ display:flex; flex-wrap:wrap; gap:16px; font-size:14px;
-    color:var(--ink2); margin-top:10px; }}
+  .legend {{ display:flex; flex-wrap:wrap; gap:18px; font-size:14px;
+    color:var(--ink2); margin-top:14px; }}
   .legend i {{ width:11px; height:11px; border-radius:99px; display:inline-block;
-    margin-right:6px; vertical-align:-1px; }}
+    margin-right:7px; vertical-align:-1px; }}
   .sw1 {{ background:var(--s1); }} .sw2 {{ background:var(--s2); }}
 
-  /* Checkbox toggle, not <details>: a media query cannot open a <details>,
-     and on a phone the table has to REPLACE the chart. */
+  .bl {{ font-size:17px; margin:18px 0 0; padding:15px 17px; border-radius:11px;
+    background:var(--box); border:1px solid var(--boxline); max-width:66ch; }}
+  .bl strong {{ color:var(--ink); }}
+  @media (forced-colors: active) {{ .bl {{ border:1px solid CanvasText; background:Canvas; }} }}
+
+  /* progressive disclosure */
+  details.tech {{ margin-top:14px; border-radius:10px;
+    border:1px solid color-mix(in srgb, var(--ink) 13%, transparent); }}
+  details.tech summary {{ cursor:pointer; padding:11px 15px; font-size:14px;
+    font-weight:600; color:var(--ink2); }}
+  details.tech[open] summary {{ border-bottom:1px solid color-mix(in srgb,var(--ink) 11%,transparent); }}
+  .tech-b {{ padding:14px 15px; font-size:14px; color:var(--ink2); }}
+  .tech-b p {{ margin:0 0 9px; max-width:70ch; }} .tech-b p:last-child {{ margin:0; }}
+  .tech-b code {{ font-size:13px; background:var(--box); padding:1px 5px; border-radius:4px; }}
+
   .tgl {{ position:absolute; opacity:0; width:0; height:0; }}
-  .tgl + label {{ display:inline-block; margin-top:12px; font-size:14px;
+  .tgl + label {{ display:inline-block; margin-top:14px; font-size:14px;
     color:var(--ink2); cursor:pointer; border-bottom:1px dotted currentColor; }}
   .tgl:focus-visible + label {{ outline:2px solid var(--s1); outline-offset:3px; }}
   .tblbox {{ display:none; }}
   .tgl:checked ~ .tblbox {{ display:block; }}
-  .tblbox table {{ border-collapse:collapse; width:100%; margin-top:10px;
-    font-size:14px; }}
-  .tblbox th, .tblbox td {{ text-align:left; padding:6px 9px;
+  .tblbox table {{ border-collapse:collapse; width:100%; margin-top:12px; font-size:14px; }}
+  .tblbox th, .tblbox td {{ text-align:left; padding:8px 10px;
     font-variant-numeric:tabular-nums;
-    border-bottom:1px solid color-mix(in srgb, var(--ink) 10%, transparent); }}
+    border-bottom:1px solid color-mix(in srgb, var(--ink) 11%, transparent); }}
+  .tblbox th {{ font-size:12px; text-transform:uppercase; letter-spacing:.05em;
+    color:var(--ink2); }}
 
-  .tiles {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
-    gap:12px; margin-top:14px; }}
-  .tile {{ padding:14px 16px; border-radius:11px;
-    border:1px solid color-mix(in srgb, var(--ink) 12%, transparent); }}
-  .tile-l {{ font-size:13px; color:var(--ink2); }}
-  .tile-v {{ font-size:26px; font-weight:650; letter-spacing:-.02em; margin:2px 0; }}
-  .tile-s {{ font-size:12px; color:var(--ink2); }}
-  .gloss-d {{ margin-top:12px; }}
-  .gloss-d summary {{ font-size:14px; color:var(--ink2); cursor:pointer; }}
-  .gloss {{ margin:10px 0 0; max-width:66ch; }}
-  .gloss dt {{ font-weight:600; font-size:14px; margin-top:14px; }}
-  .gloss dd {{ margin:2px 0 0; font-size:14px; color:var(--ink2); }}
-  h3.small {{ font-size:12px; color:var(--ink2); margin-top:30px;
-    text-transform:uppercase; letter-spacing:.06em; }}
+  /* 6 — roadmap */
+  ol.road {{ list-style:none; margin:24px 0 0; padding:0; }}
+  .step {{ display:flex; align-items:center; gap:14px; padding:11px 0 11px 4px;
+    position:relative; }}
+  .step .dot {{ flex:0 0 13px; height:13px; border-radius:99px;
+    background:var(--surface); box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--ink) 28%,transparent);
+    z-index:1; }}
+  .step::before {{ content:""; position:absolute; left:10px; top:0; bottom:0;
+    width:2px; background:color-mix(in srgb, var(--ink) 13%, transparent); }}
+  .step:first-child::before {{ top:50%; }} .step:last-child::before {{ bottom:50%; }}
+  .step .st {{ font-size:15px; color:var(--ink2); }}
+  .step.now .dot {{ background:var(--s1); box-shadow:inset 0 0 0 2px var(--s1),
+    0 0 0 4px color-mix(in srgb, var(--s1) 22%, transparent); }}
+  .step.now .st {{ color:var(--ink); font-weight:650; }}
+  .step.next .dot {{ box-shadow:inset 0 0 0 2px var(--s2); }}
+  .step.goal .dot {{ box-shadow:inset 0 0 0 2px var(--good); }}
+  .step.goal .st {{ color:var(--ink); font-weight:650; }}
+  .tag {{ font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
+    color:var(--s1); }}
+  .step.next .tag {{ color:var(--s2); }}
 
-  @media (max-width:560px) {{
+  @media (max-width:640px) {{
+    .wrap {{ padding:28px 16px 56px; }}
     body {{ font-size:15px; }}
-    svg, .legend, .chart-only {{ display:none; }}
+    svg, .legend {{ display:none; }}
+    .chart-only {{ display:none; }}
     .tgl + label {{ display:none; }}
     .tblbox {{ display:block; }}
-    .hero-v {{ font-size:30px; }}
-    .bl {{ font-size:15px; }}
+    .card-v {{ font-size:28px; }}
+    .gate {{ gap:11px; }}
   }}
 </style></head>
 <body><div class="wrap">
-
 <header>
   <h1>Sports Machine</h1>
-  <p class="lede">Predicts who wins baseball games. It will not place a bet until it
-  can prove it beats the bookmakers &mdash; three checks, enforced in code.</p>
-  <p class="muted">{esc(d["generated"])}</p>
+  <p class="lede">A program that predicts who wins baseball games — and refuses to
+  bet on itself until it can prove it beats the bookmakers.</p>
+  <p class="sub" style="margin-top:10px">{esc(d["generated"])}</p>
 </header>
 
-<section class="hero">
-  <div class="hero-v">{verdict}</div>
-  <div class="hero-c">{count_line}</div>
-  <p class="hero-s">It picks the winning side <strong>{acc}</strong> of the time,
-  over <strong>{d.get("n_train", 0):,}</strong> games it had never seen when it was
-  trained. Coin flipping is 50% and the home team wins about 53% for free.
-  Bookmakers beat both, and take a cut of every bet.</p>
-  {checks_tbl}
-  <p class="hero-s">A program can be tuned until it looks good on seasons it has
-  already seen, so the second check makes it predict games that have not happened
-  yet. The third is a manual switch, so nothing can start betting by accident.</p>
+<section style="margin-top:8px">
+  <div class="verdict">
+    <div class="vv">{"READY TO BET" if cleared else "NOT READY TO BET"}</div>
+    <div class="vc">{passed_hd} safety checks passed</div>
+    <p class="vp">Sports Machine is not allowed to place real bets until it proves
+    it can beat bookmaker prices on games it has never seen before. These three
+    checks are enforced in the code itself — the program will refuse a bet, not
+    just advise against one.</p>
+    <ol class="gates">{gate_rows}</ol>
+  </div>
 </section>
 
-<section class="primer">
-  <p>A betting line is a prediction: a bookmaker&rsquo;s price converts directly
-  into a percentage chance, which is all the orange numbers here are. Those
-  percentages are extremely hard to beat, because they absorb every injury report
-  and every dollar wagered within minutes.</p>
+<section>
+  <p class="eyebrow">Scorecard</p>
+  <h2>How it has done so far</h2>
+  <div class="cards">
+    <div class="card"><div class="card-v">{acc}</div>
+      <div class="card-l">Games picked correctly</div>
+      <div class="card-s">on games it had never seen</div></div>
+    <div class="card"><div class="card-v">{d.get("n_test", 0):,}</div>
+      <div class="card-l">Games tested</div>
+      <div class="card-s">seasons {d.get("test_seasons", ["—"])[0]}&ndash;{d.get("test_seasons", ["—"])[-1]}</div></div>
+    <div class="card bad"><div class="card-v">{passed_hd}</div>
+      <div class="card-l">Betting checks passed</div>
+      <div class="card-s">all three are required</div></div>
+  </div>
+  <p class="note">For scale: a coin flip gets 50%, and simply always picking the
+  home team gets about 53%.</p>
+  {tech("How was this measured?",
+        f'<p>The model is trained on past seasons only, then scored on the next '
+        f'season it has never seen, and that repeats forward. The {acc} figure is '
+        f'the average of those per-season scores, across '
+        f'{d.get("n_test", 0):,} games in {len(d.get("test_seasons", []))} seasons '
+        f'({", ".join(str(x) for x in d.get("test_seasons", []))}).</p>'
+        f'<p>It counts a game as correct when the side the model gave the higher '
+        f'chance to actually won. The full training table holds '
+        f'{d.get("n_train", 0):,} games, but the two earliest seasons are only ever '
+        f'used for training, so they are not part of the score.</p>')}
 </section>
 
-<h2>1 &mdash; Has it ever beaten a bookmaker?</h2>
-<p class="note">Baseball can&rsquo;t sit this test yet; its prices are only being
-collected now, three times a day. So here is the same program on American football,
-where years of real bookmaker prices are on public
-record.<span class="chart-only"> Shorter is better.</span></p>
-{season_block}
+<section>
+  <p class="eyebrow">The test that matters</p>
+  <h2>Has it ever beaten the bookmakers?</h2>
+  <p class="note">We compare Sports Machine's predictions against bookmaker
+  predictions for the same games. Lower prediction error is better.</p>
+  <p class="note">Baseball can't sit this test yet — its bookmaker prices are only
+  being collected now. So this is the same program on American football, where
+  years of real bookmaker prices are already on public record.</p>
+  {legend("Sports Machine", "Bookmakers")}
+  {nfl_svg}
+  {bl_seasons(nfl_rows, OPP)}
+  {nfl_tbl}
+  {tech("How is accuracy measured?",
+        '<p>The bars are <strong>log loss</strong>, also called cross-entropy — the '
+        'standard way to score a forecast that comes as a probability rather than a '
+        'yes or no. It rewards being right, and it punishes being confidently wrong '
+        'much harder than being unsure and wrong.</p>'
+        '<p>That matters here: a model that says 90% and loses should be penalised '
+        'far more than one that says 51% and loses, because you would have staked '
+        'more on the first. Plain accuracy cannot tell those apart. Lower is '
+        'better, and the bookmaker column is their own published price with the '
+        'built-in margin removed.</p>')}
+</section>
 
-<h2>2 &mdash; Tonight&rsquo;s games</h2>
-{priced_note}{legend("the program", "the bookmakers")}
-{picks_svg}
-{picks_tbl}
-{bl_picks(n_games, n_lower)}
+<section>
+  <p class="eyebrow">Today</p>
+  <h2>What does it think tonight?</h2>
+  <p class="note">Each number is the estimated chance that the <em>home</em> team
+  wins. {priced_note}</p>
+  {legend("Sports Machine", "Bookmakers")}
+  {picks_svg}
+  {bl_picks(n_games, n_lower)}
+  {picks_tbl}
+  {tech("Why is a disagreement not the same as an edge?",
+        '<p>A gap between the two numbers only becomes money if the model is the '
+        'more accurate of the two. Right now the section above shows the opposite, '
+        'so these differences are best read as disagreements, not opportunities.</p>'
+        '<p>Differences are shown in percentage <em>points</em>. A model at 46% '
+        'against a bookmaker at 56% is 10 points lower — not 18% lower, which is '
+        'the kind of arithmetic that makes a small gap sound dramatic.</p>')}
+</section>
 
-<h2>3 &mdash; What it pays attention to</h2>
-{imp_svg}
-{imp_tbl}
-{gloss_html}
-{bl_importance(imp_order)}
+<section>
+  <p class="eyebrow">Inside the model</p>
+  <h2>What the model pays attention to</h2>
+  <p class="note">Everything it knows about a game, scaled so the biggest
+  influence reads 100.</p>
+  {imp_svg}
+  {bl_importance(imp_scaled)}
+  {imp_tbl}
+  {tech("How is importance calculated?",
+        '<p>Each input is standardised, so a value of 100 means that factor moves '
+        'the predicted score margin more than any other when it shifts by a typical '
+        'amount. The home and away versions of each factor are added together, and '
+        'everything is then rescaled against the largest — a plain rescale, so the '
+        'ratios between factors are unchanged.</p>'
+        '<p>One honest limit: these describe what moves <em>this</em> model, not '
+        'what decides baseball games. A factor can matter enormously in reality and '
+        'score low here if the model has no good way to measure it.</p>')}
+  {tech("What does each of these actually measure?",
+        "".join(f"<p><strong>{esc(GROUP_NAME[k])}</strong> — {esc(FEATURE_DEF[k])}</p>"
+                for k, _, _ in (imp_scaled or [])))}
+</section>
 
-<h2>What happens next</h2>
-<p class="note">The program collects betting prices three times a day on its own.
-Once it has enough, the baseball model can be graded against real bookmaker prices
-&mdash; the test that decides whether it can bet. Until then it stays locked.</p>
+<section>
+  <p class="eyebrow">The road to betting</p>
+  <h2>What happens next?</h2>
+  <p class="note">Where the project actually is, and what it is waiting for.</p>
+  <ol class="road">{steps}</ol>
+  <p class="note">The program collects bookmaker prices three times a day on its
+  own. Once there are enough, baseball can sit the same test football just failed —
+  and until it passes, the code keeps the bet locked.</p>
+</section>
 
 </div>
 <!-- Generated from {esc(d["db"])} - rebuild with: python dashboard.py -->
 </body></html>"""
 
-
 # ----------------------------------------------------------------- picture
 PNG = ROOT / "dashboard.png"
 
-# Edge ships with Windows and Chrome is common; either can screenshot a local
-# file headlessly. That keeps this dependency-free - no playwright, no
-# selenium, nothing to install.
 BROWSERS = [
     r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
     r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
@@ -642,36 +790,31 @@ def find_browser():
         if Path(b).exists():
             return b
     for name in ("msedge", "chrome", "chromium", "google-chrome"):
-        found = shutil.which(name)
-        if found:
-            return found
+        f = shutil.which(name)
+        if f:
+            return f
     return None
 
 
-def to_png(width: int = 900, tall: int = 6000, pad: int = 28) -> Path | None:
-    """Screenshot the page, then trim the empty space below the content.
-
-    A headless shot is a fixed window, so it is rendered deliberately too tall
-    and cropped back to where the content actually ends - otherwise every image
-    carries a few thousand pixels of blank page.
-    """
+def to_png(width: int = 1080, tall: int = 8000, pad: int = 28):
+    """Screenshot the page, then trim the blank tail. Edge ships with Windows
+    and Chrome is usually there, so this needs nothing installed."""
     import subprocess
     browser = find_browser()
     if not browser:
         print("No Edge or Chrome found, so no PNG. The HTML still works.")
         return None
-    subprocess.run(
-        [browser, "--headless=new", "--disable-gpu", "--hide-scrollbars",
-         "--force-color-profile=srgb", f"--screenshot={PNG}",
-         f"--window-size={width},{tall}", OUT.as_uri()],
-        capture_output=True, timeout=120)
+    subprocess.run([browser, "--headless=new", "--disable-gpu", "--hide-scrollbars",
+                    "--force-color-profile=srgb", f"--screenshot={PNG}",
+                    f"--window-size={width},{tall}", OUT.as_uri()],
+                   capture_output=True, timeout=120)
     if not PNG.exists():
         print("The browser did not produce an image.")
         return None
     try:
         from PIL import Image
     except ImportError:
-        print(f"Wrote {PNG} (uncropped - install Pillow to trim the blank tail)")
+        print(f"Wrote {PNG} (uncropped - install Pillow to trim)")
         return PNG
     im = Image.open(PNG).convert("RGB")
     W, H = im.size
