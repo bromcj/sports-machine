@@ -11,3 +11,6 @@ __pycache__/
 
 # Trained models are rebuilt by the training scripts
 data/models/
+
+# Generated dashboard
+dashboard.html
