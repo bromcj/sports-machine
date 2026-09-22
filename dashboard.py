@@ -187,12 +187,19 @@ def table(headers, rows, caption):
             f'<tbody>{body}</tbody></table></div>')
 
 
-def margin_words(better, worse):
-    """Plain-language size of a win. The mobile table shows no scores, so
-    without this the reader cannot tell a hair from a mile. The winner has its
-    own column, so this one carries only the size."""
-    rel = abs(worse - better) / max(worse, better) if max(worse, better) else 0
-    return "clearly" if rel >= .03 else ("narrowly" if rel >= .01 else "barely")
+def gap_words(gaps):
+    """Rank each season's gap against the others. An absolute size word came out
+    as "clearly" in all four rows - no information at all, and on a phone this
+    table replaces the chart, so it was the only thing a mobile reader got."""
+    lo, hi = min(gaps), max(gaps)
+    if hi - lo < 1e-9:
+        return ["about the same each year"] * len(gaps)
+    out = []
+    for g in gaps:
+        n = (g - lo) / (hi - lo)
+        out.append(f"widest of the {len(gaps)}" if n > .99
+                   else ("narrowest" if n < .01 else "in between"))
+    return out
 
 
 # -------------------------------------------------------------------- charts
@@ -282,12 +289,14 @@ def chart_seasons(seasons, opponent):
                      f'{s["season"]} — {esc(who)}: {v:.4f} (lower is better)</title></rect>')
         o.append(f'<text class="cat" x="{cx:.1f}" y="{h-PAD_B+22}" text-anchor="middle">{s["season"]}</text>')
     o.append("</svg>")
-    rows = []
-    for s in seasons:
-        m, k = s["logloss_model"], s["logloss_market"]
-        winner = "the program" if m < k else opponent
-        rows.append((s["season"], winner, margin_words(min(m, k), max(m, k))))
-    tbl = table(["Season", "Who predicted it better", "By how much"], rows,
+    gaps = [abs(s["logloss_market"] - s["logloss_model"])
+            / max(s["logloss_model"], s["logloss_market"]) for s in seasons]
+    words = gap_words(gaps)
+    rows = [(s["season"],
+             "the program" if s["logloss_model"] < s["logloss_market"] else opponent,
+             w)
+            for s, w in zip(seasons, words)]
+    tbl = table(["Season", "Who predicted it better", "Size of the gap"], rows,
                 "Show these seasons as a table")
     return "".join(o), tbl
 
@@ -379,9 +388,20 @@ def legend(a, b):
 
 def build(d):
     sports = list(d["gates"]) or ["mlb", "nfl"]
-    passed = sum(1 for g in d["gates"].values() for ok in g.values() if ok)
-    total = sum(len(g) for g in d["gates"].values()) or 6
     cleared = any(all(g.values()) for g in d["gates"].values())
+    # The reader counts the rows in the table, so the headline has to count the
+    # same way: three checks, not three-times-two. Computed, so it still reads
+    # correctly if the sports ever diverge.
+    n_checks = len(CHECK)
+    per = {sp: sum(1 for k in CHECK if d["gates"].get(sp, {}).get(k)) for sp in sports}
+    agree = all(d["gates"].get(sports[0], {}).get(k) == d["gates"].get(sp, {}).get(k)
+                for k in CHECK for sp in sports)
+    if agree:
+        count_line = (f"{per[sports[0]]} of {n_checks} passed, "
+                      f"for {'either' if len(sports) == 2 else 'every'} sport")
+    else:
+        count_line = " &middot; ".join(
+            f"{SPORT_NAME.get(sp, sp.upper())} {per[sp]} of {n_checks}" for sp in sports)
 
     rows = "".join(
         f'<tr><th scope="row">{esc(CHECK[k])}</th>' +
@@ -404,22 +424,18 @@ def build(d):
     nfl_rows = d["seasons"].get("nfl") or []
     OPP = "the bookmakers"
     nfl_svg, nfl_tbl = chart_seasons(nfl_rows, OPP) if nfl_rows else ("", "")
-    season_block = (legend("how wrong the program was", OPP) + nfl_svg
-                    + '<p class="note">&ldquo;How wrong&rdquo; counts whether it '
-                      'picked the right side and how sure it was, so confident '
-                      'mistakes cost most.</p>'
-                    + bl_seasons(nfl_rows, OPP) + nfl_tbl) if nfl_rows else ""
+    # Setup, then chart, then the bottom line LAST in the section.
+    season_block = ('<p class="note">&ldquo;How wrong&rdquo; counts whether it '
+                    'picked the right side and how sure it was, so confident '
+                    'mistakes cost most.</p>'
+                    + legend("how wrong the program was", OPP) + nfl_svg
+                    + nfl_tbl + bl_seasons(nfl_rows, OPP)) if nfl_rows else ""
 
-    yrs = d.get("train_seasons") or []
-    tiles = [("Games studied", f'{d.get("n_train", 0):,}',
-              f'{yrs[0]}&ndash;{yrs[-1]}' if yrs else "not trained yet"),
-             ("Games priced today", f'{n_games:,}',
-              f'of {d["n_pred"]} predicted &mdash; the rest have no bookmaker '
-              f'price yet' if d["n_pred"] > n_games else "all of today's slate")]
-    tile_html = "".join(
-        f'<div class="tile"><div class="tile-l">{l}</div>'
-        f'<div class="tile-v">{v}</div><div class="tile-s">{s}</div></div>'
-        for l, v, s in tiles)
+    # 10,482 was printed in the hero and again in a tile. The tiles are gone;
+    # the one fact worth keeping moves to the section it describes.
+    priced_note = (f'<p class="note">{n_games} of today&rsquo;s {d["n_pred"]} '
+                   f'predicted games have a bookmaker price so far.</p>'
+                   if d["n_pred"] > n_games else "")
 
     seen, gloss = set(), []
     for name, _ in d["coef"]:
@@ -552,15 +568,15 @@ def build(d):
 
 <section class="hero">
   <div class="hero-v">{verdict}</div>
-  <div class="hero-c">{passed} of {total} safety checks passed</div>
+  <div class="hero-c">{count_line}</div>
   <p class="hero-s">It picks the winning side <strong>{acc}</strong> of the time,
   over <strong>{d.get("n_train", 0):,}</strong> games it had never seen when it was
   trained. Coin flipping is 50% and the home team wins about 53% for free.
   Bookmakers beat both, and take a cut of every bet.</p>
   {checks_tbl}
-  <p class="hero-s">Past seasons can be over-fitted, so the second check re-tests on
-  games that had not happened yet. The third is a manual switch, so nothing can start
-  betting by accident.</p>
+  <p class="hero-s">A program can be tuned until it looks good on seasons it has
+  already seen, so the second check makes it predict games that have not happened
+  yet. The third is a manual switch, so nothing can start betting by accident.</p>
 </section>
 
 <section class="primer">
@@ -571,33 +587,28 @@ def build(d):
 </section>
 
 <h2>1 &mdash; Has it ever beaten a bookmaker?</h2>
-<p class="note">Four seasons of American football, each one graded against the
-prices bookmakers actually offered &mdash; football has years of those on public
+<p class="note">Baseball can&rsquo;t sit this test yet; its prices are only being
+collected now, three times a day. So here is the same program on American football,
+where years of real bookmaker prices are on public
 record.<span class="chart-only"> Shorter is better.</span></p>
 {season_block}
-<p class="note">Baseball can&rsquo;t sit this test yet: its prices are only being
-collected now, three times a day, starting from when the program was switched on.</p>
 
 <h2>2 &mdash; Tonight&rsquo;s games</h2>
-{legend("the program", "the bookmakers")}
+{priced_note}{legend("the program", "the bookmakers")}
 {picks_svg}
-{bl_picks(n_games, n_lower)}
 {picks_tbl}
+{bl_picks(n_games, n_lower)}
 
 <h2>3 &mdash; What it pays attention to</h2>
 {imp_svg}
-{bl_importance(imp_order)}
 {imp_tbl}
 {gloss_html}
+{bl_importance(imp_order)}
 
 <h2>What happens next</h2>
 <p class="note">The program collects betting prices three times a day on its own.
 Once it has enough, the baseball model can be graded against real bookmaker prices
-&mdash; the test that decides whether any of this is worth anything. Until then it
-stays locked.</p>
-
-<h3 class="small">By the numbers</h3>
-<div class="tiles">{tile_html}</div>
+&mdash; the test that decides whether it can bet. Until then it stays locked.</p>
 
 </div>
 <!-- Generated from {esc(d["db"])} - rebuild with: python dashboard.py -->
