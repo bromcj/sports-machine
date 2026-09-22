@@ -1,32 +1,10 @@
 name: daily-pipeline
 on:
   schedule:
-    # Times are UTC. GitHub cron has no timezone and no DST awareness, so the
-    # local times noted below are Eastern DAYLIGHT time, which covers the whole
-    # MLB season (Mar-Nov). In winter each one fires an hour earlier locally.
-    #
-    # BUDGET: the free Odds API tier is 500 credits/month, and one pull costs
-    # 1 credit PER IN-SEASON SPORT. All four sports are live in October, so
-    # 3 pulls/day = 12/day = ~360/month. A 4th daily pull would be ~480 and a
-    # 5th would blow the cap. Do not add a cron without redoing that math.
-    #
-    # The close pulls are deliberately EARLY: GitHub queues scheduled runs and
-    # routinely starts them 5-30 min late, so aiming at first pitch would often
-    # land after it. Landing slightly early is recoverable; landing late is not.
-    - cron: '0 14 * * *'    # 10:00 am ET - opening lines, probables are up
-    - cron: '40 22 * * *'   #  6:40 pm ET - ~25 min before the 7:05 pm main slate
-    - cron: '20 1 * * *'    #  9:20 pm ET - ~20 min before 9:40 pm west-coast games
-  workflow_dispatch:
-    inputs:
-      mode:
-        description: 'Which pull to run'
-        required: true
-        default: morning
-        type: choice
-        options:
-          - morning   # opening lines   (costs 1 credit per in-season sport)
-          - close     # closing lines   (costs 1 credit per in-season sport)
-          - grade     # finals + review (free: ESPN and MLB APIs, no odds pull)
+    - cron: '0 14 * * *'
+    - cron: '0 22 * * *'
+    - cron: '30 0 * * *'
+  workflow_dispatch: {}
 permissions:
   contents: write
 jobs:
@@ -40,27 +18,29 @@ jobs:
       - run: pip install -r requirements.txt
       - run: python db.py
       - name: pull
-        # Inputs go through env, never interpolated straight into the script.
+        run: |
+          if [ "${{ github.event.schedule }}" = "0 14 * * *" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            python run_daily.py morning
+          else
+            python run_daily.py close
+          fi
         env:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
-          SCHEDULE: ${{ github.event.schedule }}
-          DISPATCH_MODE: ${{ github.event.inputs.mode }}
-        run: |
-          # An empty SCHEDULE means this was triggered by hand, so honour the
-          # dropdown; fall back to morning if it is somehow unset.
-          case "$SCHEDULE" in
-            '0 14 * * *') MODE=morning ;;
-            '')           MODE="${DISPATCH_MODE:-morning}" ;;
-            *)            MODE=close   ;;
-          esac
-          echo "mode=$MODE  (schedule='$SCHEDULE' dispatch='$DISPATCH_MODE')"
-          python run_daily.py "$MODE"
       - run: python export_snapshots.py
-      - name: commit archive
+      - name: healthcheck
+        id: health
+        run: python healthcheck.py
+        continue-on-error: true
+      - name: commit archive and status
         run: |
           git config user.name "machine-bot"
           git config user.email "actions@github.com"
-          git add archive/
+          git add archive/ STATUS.md
           git diff --staged --quiet || git commit -m "archive: $(date -u +%Y-%m-%d-%H%M)"
           git pull --rebase origin main
           git push
+      - name: fail loudly if unhealthy
+        if: steps.health.outcome == 'failure'
+        run: |
+          echo "Healthcheck failed — see STATUS.md. Failing run so GitHub emails the owner."
+          exit 1
