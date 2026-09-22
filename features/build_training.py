@@ -32,6 +32,7 @@ from features.sports.mlb_features import (
     starter_table, park_factor_table, venue_id, TEAM_ABBR)
 from model.train import walk_forward
 from model.validation import record, explain, PLACEHOLDER
+from model.persist import save as save_model, describe
 
 HOME_BASELINE = 0.54
 OUT = ROOT / "data" / "training_mlb.parquet"
@@ -40,8 +41,11 @@ OUT = ROOT / "data" / "training_mlb.parquet"
 def load_games() -> pd.DataFrame:
     con = connect()
     g = pd.read_sql(
+        # 'mlb-espn-401817028' also matches 'mlb-%'. Those rows come from the
+        # ESPN scoreboard fallback and carry no gamePk, so they cannot join to
+        # Statcast; excluding them here keeps game_pk parseable as an int.
         "SELECT * FROM games WHERE sport='mlb' AND status='final'"
-        " AND game_id LIKE 'mlb-%'", con)
+        " AND game_id LIKE 'mlb-%' AND game_id NOT LIKE 'mlb-espn-%'", con)
     con.close()
     g["game_pk"] = g["game_id"].str.replace("mlb-", "").astype(int)
     g["game_date"] = pd.to_datetime(g["game_date"])
@@ -133,6 +137,15 @@ if __name__ == "__main__":
                results.rename(columns={"test_season": "season"}).to_dict("records"))
         print()
         print(explain("mlb"))
+        # Fit one final model on EVERY season and save it, so the daily run
+        # can score games that have not been played. The alpha is the one the
+        # most recent fold chose; k stays the config prior (k_fit says the
+        # data has no better answer - see model/train.py).
+        alpha = float(results.iloc[-1]["alpha"])
+        path = save_model("mlb", df, feats, "run_diff", alpha)
+        print(f"Saved model -> {path.relative_to(ROOT)}")
+        print("  " + describe("mlb"))
+        print()
         print("Bar: logloss_model < logloss_market on REAL de-vigged closing"
               " lines. The archive is collecting them now.")
     else:

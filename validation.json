@@ -1,9 +1,10 @@
 {
   "mlb": {
+    "armed": false,
     "baseline_kind": "placeholder",
     "cleared": false,
     "reason": "baseline is a placeholder, not a real market - beating it proves the model learned something, not that it has edge",
-    "recorded_at": "2026-09-22T00:34:04+00:00",
+    "recorded_at": "2026-09-22T04:30:53+00:00",
     "seasons": [
       {
         "beat_market": true,

@@ -8,3 +8,6 @@ logs/
 __pycache__/
 *.pyc
 .venv/
+
+# Trained models are rebuilt by the training scripts
+data/models/

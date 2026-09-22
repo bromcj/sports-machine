@@ -25,22 +25,27 @@ def pull_day(date: str | None = None):
             gid = f"mlb-{g['gamePk']}"
             away = g["teams"]["away"]["team"]["name"]
             home = g["teams"]["home"]["team"]["name"]
-            away_sp = (g["teams"]["away"].get("probablePitcher") or {}).get("fullName")
-            home_sp = (g["teams"]["home"].get("probablePitcher") or {}).get("fullName")
+            away_pp = g["teams"]["away"].get("probablePitcher") or {}
+            home_pp = g["teams"]["home"].get("probablePitcher") or {}
+            away_sp, away_sp_id = away_pp.get("fullName"), away_pp.get("id")
+            home_sp, home_sp_id = home_pp.get("fullName"), home_pp.get("id")
             away_score = g["teams"]["away"].get("score")
             home_score = g["teams"]["home"].get("score")
             status = g["status"]["abstractGameState"].lower()  # preview/live/final
             con.execute(
                 """INSERT INTO games (game_id, sport, game_date, away, home,
                                       away_starter, home_starter,
+                                      away_starter_id, home_starter_id,
                                       away_score, home_score, status)
-                   VALUES (?,?,?,?,?,?,?,?,?,?)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
                    ON CONFLICT(game_id) DO UPDATE SET
                      away_starter=excluded.away_starter, home_starter=excluded.home_starter,
+                     away_starter_id=excluded.away_starter_id,
+                     home_starter_id=excluded.home_starter_id,
                      away_score=excluded.away_score, home_score=excluded.home_score,
                      status=excluded.status""",
                 (gid, "mlb", date, away, home, away_sp, home_sp,
-                 away_score, home_score, status),
+                 away_sp_id, home_sp_id, away_score, home_score, status),
             )
             n += 1
     con.commit()

@@ -86,6 +86,11 @@ def connect():
 # missing, so `python db.py` is safe to re-run and upgrades in place.
 MIGRATIONS = [
     ("odds_snapshots", "commence_time", "TEXT"),
+    # MLBAM player ids for the probable starters. The names alone cannot be
+    # joined to Statcast, which keys pitchers by id - so without these there is
+    # no way to look up a probable starter's recent form before a game.
+    ("games", "away_starter_id", "INTEGER"),
+    ("games", "home_starter_id", "INTEGER"),
 ]
 
 
