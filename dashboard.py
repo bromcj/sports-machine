@@ -570,19 +570,19 @@ def build(d):
   and every dollar wagered within minutes.</p>
 </section>
 
-<h2>1 &mdash; Tonight&rsquo;s games</h2>
-{legend("the program", "the bookmakers")}
-{picks_svg}
-{bl_picks(n_games, n_lower)}
-{picks_tbl}
-
-<h2>2 &mdash; Has it ever beaten a bookmaker?</h2>
+<h2>1 &mdash; Has it ever beaten a bookmaker?</h2>
 <p class="note">Four seasons of American football, each one graded against the
 prices bookmakers actually offered &mdash; football has years of those on public
 record.<span class="chart-only"> Shorter is better.</span></p>
 {season_block}
 <p class="note">Baseball can&rsquo;t sit this test yet: its prices are only being
 collected now, three times a day, starting from when the program was switched on.</p>
+
+<h2>2 &mdash; Tonight&rsquo;s games</h2>
+{legend("the program", "the bookmakers")}
+{picks_svg}
+{bl_picks(n_games, n_lower)}
+{picks_tbl}
 
 <h2>3 &mdash; What it pays attention to</h2>
 {imp_svg}
