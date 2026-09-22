@@ -184,6 +184,45 @@ def chart_seasons(seasons):
     return "".join(out)
 
 
+# A short label fits the chart; the real definition goes in the glossary and the
+# hover tooltip. "Recent form" on its own is hand-waving - a reader should be
+# able to find out exactly what was counted, over exactly what window.
+FEATURE_DEF = {
+    "sp": ("Strikeouts minus walks, as a share of the batters they faced, over "
+           "their last 5 starts. It is the cleanest single read on how well a "
+           "pitcher is throwing right now - it ignores luck on balls in play."),
+    "off": ("Every plate appearance in the last 30 days, weighted by how many "
+            "runs that outcome is typically worth. A home run counts far more "
+            "than a walk, so it beats batting average as a measure of hitting."),
+    "pen_q": ("The same strikeouts-minus-walks measure, but for every pitcher "
+              "who appears after the starter, over the last 30 days."),
+    "pen_t": ("How many pitches the relief pitchers have thrown in the last "
+              "3 days. A worn-out bullpen gives up more runs."),
+    "rest": "Days since that team last played a game.",
+    "park": ("How much more, or less, scoring happens at this stadium than at "
+             "an average one - worked out from what actually happened there in "
+             "previous seasons, not from its dimensions."),
+}
+
+
+def feature_key(name):
+    if "_sp_" in name:
+        return "sp"
+    if "_off_" in name:
+        return "off"
+    if "pen_kbb" in name:
+        return "pen_q"
+    if "pen_pitches" in name:
+        return "pen_t"
+    if "rest" in name:
+        return "rest"
+    return "park"
+
+
+def feature_def(name):
+    return FEATURE_DEF[feature_key(name)]
+
+
 # "away_sp_kbb_5s" is meaningless to anyone who did not write it.
 PLAIN_FEATURE = {
     "home_sp_kbb_5s": "Home starting pitcher, recent form",
@@ -224,7 +263,8 @@ def chart_coef(coef):
         label = PLAIN_FEATURE.get(name, name)
         out.append(f'<text class="cat" x="{LBL_R}" y="{y+15}" text-anchor="end">{esc(label)}</text>')
         out.append(f'<rect class="{cls} bar" x="{x:.1f}" y="{y+4}" width="{max(w,1):.1f}" '
-                   f'height="14" rx="4"><title>{esc(label)}: {c:+.3f}</title></rect>')
+                   f'height="14" rx="4"><title>{esc(label)} — {esc(feature_def(name))}'
+                   f'</title></rect>')
         out.append(f'<text class="val" x="{VAL_X}" y="{y+15}">{c:+.3f}</text>')
     out.append(f'<text class="axis" x="{mid}" y="{h-10}" text-anchor="middle">'
                f'← helps away team · helps home team →</text>')
@@ -237,7 +277,7 @@ def build(d):
     cleared = any(all(g.values()) for g in d["gates"].values())
     # Gate names a stranger can read. "walk_forward" means nothing to a friend.
     PLAIN = {"walk_forward": "Beats the bookmakers on past seasons",
-             "paper_trading": "Proven on 50+ pretend bets",
+             "paper_trading": "Tracked through 50+ bets made on paper, no money",
              "armed": "A human has switched it on"}
     chips = []
     for sport, g in d["gates"].items():
@@ -268,7 +308,7 @@ def build(d):
     legend = ('<div class="legend"><span><i class="sw1"></i>the program</span>'
               '<span><i class="sw2"></i>the bookmakers</span></div>')
     legend2 = ('<div class="legend"><span><i class="sw1"></i>the program was this wrong</span>'
-               '<span><i class="sw2"></i>what it is competing against</span></div>')
+               '<span><i class="sw2"></i>what it is measured against</span></div>')
 
     # Each sport gets a one-line verdict in words, not a log-loss number.
     VERDICTS = {
@@ -288,6 +328,24 @@ def build(d):
         title, blurb = VERDICTS.get(sport, (sport.upper(), esc(d["reasons"][sport])))
         seasons_html += (f'<h3>{esc(title)}</h3><p class="note">{blurb}</p>'
                          + legend2 + chart_seasons(d["seasons"][sport]))
+
+    # Explicit headings: deriving them from the chart labels produced things like
+    # "Visitors have been hitting" and two entries both called "Relief pitchers".
+    GLOSS_HEAD = {"sp": "Starting pitcher form",
+                  "off": "Team hitting",
+                  "pen_q": "Bullpen quality",
+                  "pen_t": "Bullpen tiredness",
+                  "rest": "Days off",
+                  "park": "Ballpark"}
+    seen, glossary = set(), []
+    for name, _ in d["coef"]:
+        key = feature_key(name)
+        if key in seen:
+            continue
+        seen.add(key)
+        glossary.append(f"<dt>{esc(GLOSS_HEAD[key])}</dt>"
+                        f"<dd>{esc(FEATURE_DEF[key])}</dd>")
+    glossary_html = "<dl class='gloss'>" + "".join(glossary) + "</dl>" if glossary else ""
 
     generated = esc(d["generated"])
     acc = f'{d["accuracy"]:.1%}' if d.get("accuracy") else "—"
@@ -338,6 +396,11 @@ def build(d):
   .verdict.ok .v-h {{ color:var(--good); }}
   .note {{ font-size:14px; color:var(--ink2); margin:6px 0 10px; max-width:64ch; }}
   .note strong {{ color:var(--ink); }}
+  .gloss {{ margin:8px 0 0; max-width:66ch; }}
+  .gloss dt {{ font-weight:600; font-size:13px; margin-top:12px; }}
+  .gloss dd {{ margin:2px 0 0; font-size:13px; color:var(--ink2); line-height:1.5; }}
+  h3.small {{ font-size:13px; color:var(--ink2); margin-top:22px;
+    text-transform:uppercase; letter-spacing:.05em; }}
   .c1 {{ color:var(--s1); }} .c2 {{ color:var(--s2); }}
   .chips {{ display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }}
   .chip {{ font-size:12px; padding:3px 9px; border-radius:99px; display:flex;
@@ -389,6 +452,7 @@ def build(d):
 <section class="hero">
   <div class="hero-n">{acc}</div>
   <div class="hero-t">of games called correctly</div>
+  <p class="hero-s">"Called correctly" means it picked the side that went on to win.</p>
   <p class="hero-s">Tested the honest way: trained on past seasons only, then graded on a
   season it had never seen, over <strong>{n_train}</strong> real games. Coin-flipping
   would be 50%. The home team wins about 53% of the time on its own, so the model is
@@ -435,6 +499,9 @@ visitors.</p>
 followed by how well each team has been hitting recently, then the bullpen. That
 ordering came out of the data on its own — nobody told it what mattered.</p>
 {coef_chart}
+
+<h3 class="small">What each of these actually measures</h3>
+{glossary_html}
 
 <h2>What happens next</h2>
 <p class="note">The program collects betting prices three times a day on its own and
