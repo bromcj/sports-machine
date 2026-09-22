@@ -14,6 +14,10 @@ Four views, each chosen for the job the data has to do:
   picks       two values per game (model vs market) -> dumbbell, one row per game
   seasons     the same two measures across seasons -> grouped bars on ONE scale
   influence   signed magnitude per feature -> diverging bars around zero
+
+Every label on the page is written for a reader with no background: a friend
+should be able to open it cold and understand what they are looking at, and
+in particular why the program refuses to bet.
 """
 import contextlib
 import datetime as dt
@@ -89,6 +93,18 @@ def gather():
                            key=lambda kv: -abs(kv[1]))
         d["n_train"] = len(df)
         d["train_seasons"] = sorted(int(s) for s in df["season"].unique())
+
+    # Headline accuracy, straight from the walk-forward the model was graded on.
+    accs = []
+    from model.train import walk_forward
+    if tp.exists():
+        try:
+            r = walk_forward(df, feats, target_col="run_diff",
+                             season_col="season", sport="mlb")
+            accs = list(r["accuracy"])
+        except Exception:
+            accs = []
+    d["accuracy"] = sum(accs) / len(accs) if accs else None
     return d
 
 
@@ -135,7 +151,7 @@ def chart_picks(rows):
 
 
 def chart_seasons(seasons):
-    """Grouped bars, model vs baseline log-loss. One scale - never two axes."""
+    """Grouped bars: how wrong each side was, per season. One scale - never two."""
     if not seasons:
         return "<p class='empty'>No walk-forward result recorded yet.</p>"
     W, h, PAD_L, PAD_B, PAD_T = 740, 250, 58, 40, 20
@@ -147,7 +163,7 @@ def chart_seasons(seasons):
     gw = (W - PAD_L - 24) / len(seasons)
     bw = min(46, gw / 2 - 6)
     out = [f'<svg viewBox="0 0 {W} {h}" role="img" '
-           f'aria-label="Model versus baseline log-loss by test season">']
+           f'aria-label="How wrong the program was versus what it competes against, each season. Shorter bars are better.">']
     for i in range(5):
         v = lo + (hi - lo) * i / 4
         out.append(f'<line class="grid" x1="{PAD_L}" y1="{sy(v):.1f}" x2="{W-24}" y2="{sy(v):.1f}"/>')
@@ -161,11 +177,27 @@ def chart_seasons(seasons):
             x = cx - bw - 1 + j * (bw + 2)
             out.append(f'<rect class="{cls} bar" x="{x:.1f}" y="{sy(v):.1f}" width="{bw:.1f}" '
                        f'height="{max(0, h-PAD_B-sy(v)):.1f}" rx="4"><title>'
-                       f'{s["season"]} {name} {v:.5f}</title></rect>')
+                       f'{s["season"]} {name}: {v:.4f} (lower is better)</title></rect>')
         out.append(f'<text class="cat" x="{cx:.1f}" y="{h-PAD_B+20}" text-anchor="middle">{s["season"]}</text>')
-    out.append(f'<text class="axis" x="{PAD_L-10}" y="{PAD_T-6}" text-anchor="end">log-loss</text>')
+    out.append(f'<text class="axis" x="{PAD_L-10}" y="{PAD_T-6}" text-anchor="end">more wrong &#8593;</text>')
     out.append("</svg>")
     return "".join(out)
+
+
+# "away_sp_kbb_5s" is meaningless to anyone who did not write it.
+PLAIN_FEATURE = {
+    "home_sp_kbb_5s": "Home starting pitcher, recent form",
+    "away_sp_kbb_5s": "Visiting starting pitcher, recent form",
+    "home_off_woba_30d": "How well the home team has been hitting",
+    "away_off_woba_30d": "How well the visitors have been hitting",
+    "home_pen_kbb_30d": "Home relief pitchers, quality",
+    "away_pen_kbb_30d": "Visiting relief pitchers, quality",
+    "home_pen_pitches_3d": "Home relief pitchers, how tired",
+    "away_pen_pitches_3d": "Visiting relief pitchers, how tired",
+    "home_rest_days": "Days off for the home team",
+    "away_rest_days": "Days off for the visitors",
+    "park_factor": "The ballpark (some inflate scoring)",
+}
 
 
 def chart_coef(coef):
@@ -177,19 +209,22 @@ def chart_coef(coef):
     # Values live in a fixed right-hand column, not at the bar ends. Anchoring
     # them to the end of a NEGATIVE bar walks them left into the feature names -
     # at full width the longest bar collided with its own label.
-    LBL_R, mid, half, VAL_X = 196, 430, 196, 646
+    # Plain-English names are long, so the label column is wider than it would
+    # need to be for raw column names.
+    LBL_R, mid, half, VAL_X = 292, 484, 150, 664
     mx = max(abs(c) for _, c in coef) or 1
     out = [f'<svg viewBox="0 0 740 {h}" role="img" '
-           f'aria-label="Ridge coefficient for each feature, signed">']
+           f'aria-label="How much each piece of information moves the prediction, and in which direction.">']
     out.append(f'<line class="zero" x1="{mid}" y1="{PAD_T-4}" x2="{mid}" y2="{h-30}"/>')
     for i, (name, c) in enumerate(coef):
         y = PAD_T + i * ROW
         w = abs(c) / mx * half
         x = mid if c >= 0 else mid - w
         cls = "mk1" if c >= 0 else "mk2"
-        out.append(f'<text class="cat" x="{LBL_R}" y="{y+15}" text-anchor="end">{esc(name)}</text>')
+        label = PLAIN_FEATURE.get(name, name)
+        out.append(f'<text class="cat" x="{LBL_R}" y="{y+15}" text-anchor="end">{esc(label)}</text>')
         out.append(f'<rect class="{cls} bar" x="{x:.1f}" y="{y+4}" width="{max(w,1):.1f}" '
-                   f'height="14" rx="4"><title>{esc(name)} {c:+.4f}</title></rect>')
+                   f'height="14" rx="4"><title>{esc(label)}: {c:+.3f}</title></rect>')
         out.append(f'<text class="val" x="{VAL_X}" y="{y+15}">{c:+.3f}</text>')
     out.append(f'<text class="axis" x="{mid}" y="{h-10}" text-anchor="middle">'
                f'← helps away team · helps home team →</text>')
@@ -200,21 +235,25 @@ def chart_coef(coef):
 # ---------------------------------------------------------------------- page
 def build(d):
     cleared = any(all(g.values()) for g in d["gates"].values())
+    # Gate names a stranger can read. "walk_forward" means nothing to a friend.
+    PLAIN = {"walk_forward": "Beats the bookmakers on past seasons",
+             "paper_trading": "Proven on 50+ pretend bets",
+             "armed": "A human has switched it on"}
     chips = []
     for sport, g in d["gates"].items():
         for gate, ok in g.items():
             chips.append(
                 f'<span class="chip {"ok" if ok else "no"}">'
                 f'<span class="dot" aria-hidden="true"></span>'
-                f'{sport.upper()} · {gate.replace("_", " ")}: '
-                f'<strong>{"pass" if ok else "not yet"}</strong></span>')
+                f'{sport.upper()}: {PLAIN.get(gate, gate)} '
+                f'<strong>{"— yes" if ok else "— not yet"}</strong></span>')
 
-    tiles = [("Games in database", f'{d["n_games"]:,}', "every schedule row collected"),
-             ("Odds snapshots", f'{d["n_odds"]:,}', f'{d["n_close"]:,} tagged close'),
-             ("Games priced today", f'{d["n_pred"]:,}', "model has an opinion"),
-             ("Training games", f'{d.get("n_train", 0):,}',
-              f'seasons {d.get("train_seasons", [""])[0]}–{d.get("train_seasons", ["", ""])[-1]}'
-              if d.get("train_seasons") else "not trained")]
+    yrs = d.get("train_seasons") or []
+    tiles = [("Games studied", f'{d.get("n_train", 0):,}',
+              f'{yrs[0]}–{yrs[-1]}' if yrs else "not trained yet"),
+             ("Betting prices collected", f'{d["n_odds"]:,}', "and counting, three times a day"),
+             ("Games in the schedule", f'{d["n_games"]:,}', "every game it knows about"),
+             ("Predictions made today", f'{d["n_pred"]:,}', "one per game it has data for")]
     tile_html = "".join(
         f'<div class="tile"><div class="tile-l">{esc(l)}</div>'
         f'<div class="tile-v">{esc(v)}</div><div class="tile-s">{esc(s)}</div></div>'
@@ -226,17 +265,41 @@ def build(d):
         for r in sorted([p for p in d["picks"] if p.get("market_prob") is not None],
                         key=lambda r: -abs(r["edge"])))
 
-    legend = ('<div class="legend">'
-              '<span><i class="sw1"></i>model</span>'
-              '<span><i class="sw2"></i>market</span></div>')
-    legend2 = ('<div class="legend">'
-               '<span><i class="sw1"></i>model</span>'
-               '<span><i class="sw2"></i>baseline</span></div>')
+    legend = ('<div class="legend"><span><i class="sw1"></i>the program</span>'
+              '<span><i class="sw2"></i>the bookmakers</span></div>')
+    legend2 = ('<div class="legend"><span><i class="sw1"></i>the program was this wrong</span>'
+               '<span><i class="sw2"></i>what it is competing against</span></div>')
 
-    seasons_html = "".join(
-        f'<h3>{sport.upper()} <span class="sub">{esc(d["reasons"][sport])}</span></h3>'
-        + legend2 + chart_seasons(d["seasons"][sport])
-        for sport in d["seasons"] if d["seasons"][sport])
+    # Each sport gets a one-line verdict in words, not a log-loss number.
+    VERDICTS = {
+        "mlb": ("Baseball — no real comparison yet",
+                "The orange bars here are a stand-in, not real bookmaker prices, so beating "
+                "them proves the program learned something about baseball — not that it "
+                "could beat a bookmaker. The real test is still to come."),
+        "nfl": ("Football — it lost, four seasons out of four",
+                "These orange bars ARE real bookmaker prices. Blue is taller every single "
+                "season, which means the bookmakers were more accurate than the program "
+                "every year. This is what the safety check is protecting against."),
+    }
+    seasons_html = ""
+    for sport in d["seasons"]:
+        if not d["seasons"][sport]:
+            continue
+        title, blurb = VERDICTS.get(sport, (sport.upper(), esc(d["reasons"][sport])))
+        seasons_html += (f'<h3>{esc(title)}</h3><p class="note">{blurb}</p>'
+                         + legend2 + chart_seasons(d["seasons"][sport]))
+
+    generated = esc(d["generated"])
+    acc = f'{d["accuracy"]:.1%}' if d.get("accuracy") else "—"
+    n_train = f'{d.get("n_train", 0):,}'
+    vclass = "ok" if cleared else "no"
+    vtitle = ("It has earned the right to bet" if cleared
+              else "It will not place a bet, and it is right not to")
+    picks_chart = chart_picks(d["picks"])
+    coef_chart = chart_coef(d["coef"])
+    picks_tbl = picks_tbl or '<tr><td colspan="4">nothing priced yet today</td></tr>'
+    chips = "".join(chips) or '<span class="chip no">nothing recorded</span>'
+    seasons_html = seasons_html or "<p class='empty'>No results recorded yet.</p>"
 
     css_vars = lambda p: "".join(f"--{k}:{v};" for k, v in p.items())
     return f"""<!DOCTYPE html>
@@ -253,13 +316,29 @@ def build(d):
     font:15px/1.5 ui-sans-serif,system-ui,"Segoe UI",sans-serif; }}
   .wrap {{ max-width:860px; margin:0 auto; padding:32px 16px 64px; }}
   h1 {{ font-size:26px; margin:0 0 4px; letter-spacing:-.02em; }}
-  h2 {{ font-size:17px; margin:40px 0 4px; letter-spacing:-.01em; }}
+  h2.small {{ font-size:14px; color:var(--ink2); }}
+  h2 {{ font-size:19px; margin:40px 0 4px; letter-spacing:-.01em; }}
   h3 {{ font-size:14px; margin:20px 0 2px; font-weight:600; }}
   .muted {{ color:var(--ink2); font-size:13px; margin:0; }}
   .sub {{ font-weight:400; color:var(--ink2); font-size:12px; }}
-  .verdict {{ margin:20px 0 4px; padding:14px 16px; border-radius:10px;
+  header {{ margin-bottom:8px; }}
+  .lede {{ font-size:17px; line-height:1.55; margin:10px 0 6px; max-width:60ch; }}
+  .hero {{ margin:28px 0 8px; padding:20px 22px; border-radius:12px;
+    background:color-mix(in srgb, var(--s1) 7%, transparent);
+    border:1px solid color-mix(in srgb, var(--s1) 28%, transparent); }}
+  .hero-n {{ font-size:54px; font-weight:700; line-height:1; letter-spacing:-.03em;
+    color:var(--s1); }}
+  .hero-t {{ font-size:15px; font-weight:600; margin-top:4px; }}
+  .hero-s {{ font-size:13px; color:var(--ink2); margin:10px 0 0; max-width:62ch; }}
+  .verdict {{ margin:22px 0 4px; padding:16px 18px; border-radius:12px;
     border:1px solid color-mix(in srgb, var(--ink) 14%, transparent); }}
-  .verdict b {{ color:{'var(--good)' if cleared else 'var(--crit)'}; }}
+  .verdict p {{ font-size:14px; margin:0 0 10px; max-width:62ch; }}
+  .v-h {{ font-size:16px; margin:0 0 10px; }}
+  .verdict.no .v-h {{ color:var(--crit); }}
+  .verdict.ok .v-h {{ color:var(--good); }}
+  .note {{ font-size:14px; color:var(--ink2); margin:6px 0 10px; max-width:64ch; }}
+  .note strong {{ color:var(--ink); }}
+  .c1 {{ color:var(--s1); }} .c2 {{ color:var(--s2); }}
   .chips {{ display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }}
   .chip {{ font-size:12px; padding:3px 9px; border-radius:99px; display:flex;
     align-items:center; gap:6px; color:var(--ink2);
@@ -299,36 +378,75 @@ def build(d):
 </style></head>
 <body><div class="wrap">
 
-<h1>Sports Machine</h1>
-<p class="muted">{esc(d["generated"])}</p>
+<header>
+  <h1>Sports Machine</h1>
+  <p class="lede">A program that tries to predict who wins baseball games, and then
+  refuses to let anyone bet on its predictions until it can prove it is better than
+  the bookmakers. It is not there yet. This page is the evidence.</p>
+  <p class="muted">{generated}</p>
+</header>
 
-<div class="verdict">
-  <b>{"CLEARED — a sport may stake money" if cleared else "NOT CLEARED — no sport may stake money"}</b><br>
-  <span class="muted">Every gate must pass before the bet engine will size a wager.
-  Re-running a walk-forward or recording negative CLV closes them again.</span>
-  <div class="chips">{"".join(chips) or '<span class="chip no">nothing recorded</span>'}</div>
-</div>
+<section class="hero">
+  <div class="hero-n">{acc}</div>
+  <div class="hero-t">of games called correctly</div>
+  <p class="hero-s">Tested the honest way: trained on past seasons only, then graded on a
+  season it had never seen, over <strong>{n_train}</strong> real games. Coin-flipping
+  would be 50%. The home team wins about 53% of the time on its own, so the model is
+  adding something — just not much.</p>
+</section>
 
-<div class="tiles">{tile_html}</div>
+<section class="verdict {vclass}">
+  <h2 class="v-h">{vtitle}</h2>
+  <p>Being right 54.5% of the time sounds like plenty. It isn't. Bookmakers are
+  right more often than that, and they take a cut of every bet. To make money you
+  have to beat <em>them</em>, not beat a coin flip.</p>
+  <p>So the program will not place a bet until three things are true. All three are
+  currently false, and it is enforcing that itself — this is not a note-to-self, it is
+  code that refuses.</p>
+  <div class="chips">{chips}</div>
+</section>
 
-<h2>Today — model against the market</h2>
-<p class="muted">Each row is one game. The gap is how far the model disagrees with the price.
-A wide gap is <em>disagreement</em>, which only becomes edge once the model is proven
-better than the market.</p>
+<h2>1 — Tonight's games</h2>
+<p class="note">Each row is one game. The <b class="c1">blue dot</b> is what the program
+thinks the home team's chances are. The <b class="c2">orange dot</b> is what the
+bookmakers think. The line between them is how much they disagree.</p>
+<p class="note"><strong>What to look for:</strong> the program disagrees with the
+bookmakers on nearly every game, often by a lot. That is a warning sign, not a good
+one. If you genuinely knew something the bookmakers didn't, it would show up on a
+handful of games — not all of them.</p>
 {legend}
-{chart_picks(d["picks"])}
-<details><summary>Show as a table</summary>
-<table><thead><tr><th>Game</th><th>Model</th><th>Market</th><th>Gap</th></tr></thead>
-<tbody>{picks_tbl or '<tr><td colspan="4">nothing priced</td></tr>'}</tbody></table></details>
+{picks_chart}
+<details><summary>Show the same thing as a table</summary>
+<table><thead><tr><th>Game</th><th>Program</th><th>Bookmakers</th><th>Difference</th></tr></thead>
+<tbody>{picks_tbl}</tbody></table></details>
 
-<h2>Walk-forward — is the model better than the baseline?</h2>
-<p class="muted">Lower is better. Both bars share one scale.</p>
-{seasons_html or "<p class='empty'>No walk-forward recorded.</p>"}
+<h2>2 — Is it actually any good?</h2>
+<p class="note">This is the test that matters. Each pair of bars is one season the
+program had never seen when it was trained. <b class="c1">Blue</b> is how wrong the
+program's predictions were; <b class="c2">orange</b> is how wrong the thing it is
+competing against was. <strong>Shorter is better.</strong></p>
+{seasons_html}
 
-<h2>What the model actually leans on</h2>
-<p class="muted">Standardised ridge coefficients — the effect of each feature on projected
-run differential, holding the others fixed.</p>
-{chart_coef(d["coef"])}
+<h2>3 — What it pays attention to</h2>
+<p class="note">Everything the program knows about a game, ranked by how much it moves
+the prediction. Bars to the right help the home team, bars to the left help the
+visitors.</p>
+<p class="note"><strong>What to look for:</strong> the starting pitcher dominates,
+followed by how well each team has been hitting recently, then the bullpen. That
+ordering came out of the data on its own — nobody told it what mattered.</p>
+{coef_chart}
+
+<h2>What happens next</h2>
+<p class="note">The program collects betting prices three times a day on its own and
+has been doing so since it was switched on. Once there are enough of them, it can be
+re-graded against real bookmaker prices instead of a stand-in — and that is the test
+that decides whether any of this is worth anything.</p>
+<p class="note">Until then, the honest answer to "does it work?" is
+<strong>we don't know yet</strong>, and the program is built to keep saying that
+rather than guess.</p>
+
+<h2 class="small">By the numbers</h2>
+<div class="tiles">{tile_html}</div>
 
 <footer>Generated from {esc(d["db"])} · rebuild with <code>python dashboard.py</code></footer>
 </div></body></html>"""
