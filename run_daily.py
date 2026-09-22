@@ -3,6 +3,7 @@
   python run_daily.py morning  -> schedules + odds + features + predictions
   python run_daily.py close    -> closing odds (CLV anchor)
   python run_daily.py picks    -> today's model vs market, no pulls, free
+  python run_daily.py refresh  -> top up Statcast + retrain (slow, weekly)
   python run_daily.py grade    -> finals + review
 """
 import sys
@@ -21,8 +22,14 @@ def morning():
     scores.pull_all()           # schedules/finals for everything else
     odds.pull("open")
     if "mlb" in live:
-        # Features and predictions need no API credits - they read data already
-        # on disk. Skipped quietly if the model has not been trained yet.
+        # Free steps: no API credits, all from data already on disk.
+        # The Statcast top-up matters most - the rolling windows are only as
+        # current as that file, and it is the one input nothing else refreshes.
+        try:
+            from backfill import topup_statcast
+            topup_statcast(allow_full_download=False)
+        except Exception as e:                      # never let this kill the run
+            print(f"(statcast top-up skipped: {e})")
         try:
             from features.build import build_for_date
             from model.predict import predict_for_date
@@ -36,6 +43,20 @@ def morning():
 def close():
     odds.pull("close")
     print("Closing snapshots captured (CLV anchor).")
+
+
+def refresh():
+    """Top up Statcast and retrain from scratch. Slow; weekly is plenty.
+
+    The rolling features must be current or they are not really 30-day windows.
+    The model itself drifts far more slowly - it is a ridge fit over 10k games,
+    so a few more days barely moves it - which is why morning tops up the data
+    every day but retraining is a separate, deliberate step.
+    """
+    from backfill import topup_statcast
+    topup_statcast()
+    import subprocess, sys as _s
+    subprocess.run([_s.executable, "features/build_training.py"], check=False)
 
 
 def show_picks():
@@ -54,4 +75,4 @@ def grade():
 if __name__ == "__main__":
     mode = sys.argv[1] if len(sys.argv) > 1 else "morning"
     {"morning": morning, "close": close, "picks": show_picks,
-     "grade": grade}[mode]()
+     "refresh": refresh, "grade": grade}[mode]()

@@ -84,7 +84,83 @@ def backfill_statcast(year: int):
     print(f"[{year}] statcast: saved {len(df):,} pitches -> {out.name}")
 
 
+KEEP_COLS = ["game_pk", "game_date", "home_team", "away_team", "inning",
+             "inning_topbot", "at_bat_number", "pitch_number", "pitcher",
+             "batter", "events", "woba_value", "woba_denom"]
+
+
+def topup_statcast(year: int | None = None, today: str | None = None,
+                   allow_full_download: bool = True) -> int:
+    """Append only the days the current season's parquet is missing.
+
+    backfill_statcast() skips any season already on disk, which is right for
+    finished seasons and wrong for the live one: the file would sit at whatever
+    date it was first written while the rolling windows silently aged. A
+    30-day window over data that stops a month ago is not a 30-day window, and
+    it produces confident features from nothing recent.
+
+    Returns the number of new pitches appended.
+    """
+    import pandas as pd
+    year = year or dt.date.today().year
+    if year not in SEASON_DATES:
+        print(f"[{year}] no season dates configured; skipping top-up.")
+        return 0
+    out = STATCAST_DIR / f"{year}.parquet"
+    if not out.exists():
+        if not allow_full_download:
+            # The cloud runner has no data/ directory (it is gitignored), and a
+            # full season is hundreds of MB over 30-60 minutes. Never start one
+            # from inside the daily pipeline.
+            print(f"[{year}] no parquet on disk and full download not allowed; "
+                  f"skipping.")
+            return 0
+        backfill_statcast(year)
+        return 0
+
+    df = pd.read_parquet(out)
+    last = pd.to_datetime(df["game_date"]).max().date()
+    target = dt.date.fromisoformat(today) if today else dt.date.today()
+    season_end = dt.date.fromisoformat(SEASON_DATES[year][1])
+    if year == dt.date.today().year:
+        # The current season's end date in SEASON_DATES is a frozen "today"
+        # from whenever backfill was written, so it caps the top-up at a date
+        # already in the past. Statcast returns nothing for days with no games,
+        # so asking past the real season end is harmless.
+        season_end = max(season_end, target)
+    end = min(target, season_end)
+    start = last + dt.timedelta(days=1)
+    if start > end:
+        print(f"[{year}] statcast current through {last}; nothing to add.")
+        return 0
+
+    from pybaseball import statcast, cache
+    cache.enable()
+    print(f"[{year}] statcast top-up: {start} .. {end}")
+    new = statcast(start_dt=str(start), end_dt=str(end))
+    if new is None or new.empty:
+        print(f"[{year}] no new pitches returned (off day, or not posted yet).")
+        return 0
+    new = new[[c for c in KEEP_COLS if c in new.columns]]
+
+    combined = pd.concat([df, new], ignore_index=True)
+    before = len(combined)
+    combined = combined.drop_duplicates(
+        subset=["game_pk", "at_bat_number", "pitch_number"], keep="last")
+    combined["game_date"] = pd.to_datetime(combined["game_date"])
+    combined = combined.sort_values(["game_date", "game_pk", "at_bat_number",
+                                     "pitch_number"])
+    added = len(combined) - len(df)
+    combined.to_parquet(out)
+    print(f"[{year}] +{added:,} pitches ({before - len(combined):,} duplicates "
+          f"dropped). Now through "
+          f"{pd.to_datetime(combined['game_date']).max().date()}.")
+    return added
+
+
 if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "topup":
+        raise SystemExit(0 if topup_statcast() >= 0 else 1)
     years = (range(int(sys.argv[1]), int(sys.argv[2]) + 1)
              if len(sys.argv) == 3 else SEASON_DATES.keys())
     for y in years:
