@@ -1,0 +1,384 @@
+# Pre-registered experiments
+
+**Written 2026-09-23, before any model in it was fit and before any price in it
+was downloaded.** That is the whole point of the file. Anything added later is
+dated and labelled as such, and anything found that is not written here is
+**exploration**, not a result.
+
+Why this exists: Phase 5 showed the MLB moneyline model loses to the real
+de-vigged close in all three test seasons (pooled −0.0099 log loss, t = −5.5,
+n = 6,519) and loses to the morning price almost as badly. NFL sides are worse
+(−0.037, t = −4.8). Read plainly, every feature these models use is already in
+the price. The plan now is to test specific named places where a small
+operation might still be ahead of a book. The failure mode we are guarding
+against is obvious: run enough tests on 6,519 games and something clears t > 2
+by luck. Writing the direction down first is what separates a finding from a
+coincidence.
+
+---
+
+## Common rules (apply to every entry unless it says otherwise)
+
+**Metric.** Pooled paired per-game log loss against the de-vigged market
+probability. Paired, because the question is always "does A beat B *on the same
+games*", and the per-game difference has far less variance than the difference
+of two averages.
+
+**Uncertainty.** Block bootstrap, 10,000 resamples, blocked **by day** for
+sides (all games on one date move together — weather, a national narrative, a
+bad number that every book copies) and **by game** for props (two receivers in
+the same game are correlated). Report the 95% interval, not just a t.
+
+**Pass rule.** All three, or it is "no edge found":
+
+1. better than the market by **more than 2 pooled standard errors**;
+2. better in **every** test season, not on average;
+3. survives **leave-one-season-out** — drop each season in turn, and the
+   remaining pooled result still beats the market.
+
+**What will not happen after seeing a test result.** No adding or removing
+features, no changing window lengths, no retuning hyperparameters, no swapping
+the metric, no dropping a season that "had something weird going on". A failure
+is recorded as a failure in this file, with the number. If a genuinely new idea
+comes out of a failed test, it gets a new pre-registered entry and a fresh test
+set — it does not get scored on the data that suggested it.
+
+**Alpha and the multiplicity problem.** Part E runs six hypotheses across
+several subgroups each. A t > 2 screen on that many tests will produce false
+positives by construction; that is *expected and accepted*, because screening
+is deliberately generous. The protection is not a Bonferroni correction, it is
+the **two-stage design**: nothing is believed until it repeats out of sample on
+2022–2023, which has to be bought. Any hypothesis reported as "passed
+screening" is explicitly **not yet a finding**.
+
+**Detectable is not bettable.** Every result is reported twice: the raw gap,
+and the gap after the vig at the best price actually available to us. At −110
+the break-even is 52.38%. A 1-point calibration error on a coin-flip game is
+real and worth nothing.
+
+---
+
+## What the data actually is (verified 2026-09-23, before any test)
+
+Stating this here because two entries below are weaker than the brief assumed,
+and it is better to say so now than to discover it while reporting.
+
+| thing | what we have |
+|---|---|
+| seasons with a real de-vigged market | **2024, 2025, 2026** (6,519 games with a model prediction) |
+| seasons without one | 2022, 2023 — the market column is a home-rate placeholder. Confirmation requires buying these. |
+| books | **four**: Pinnacle, DraftKings, FanDuel, BetMGM. "NJ books" below means DK / FD / MGM. |
+| "close" | latest snapshot before first pitch; median **45 min** out, Pinnacle on 7,020 of 7,032 games |
+| "open" | the **10:00 ET game-day morning** snapshot — median **8.8 hours** before first pitch, not a true opener (a true opener posts days earlier, and we never captured it) |
+| Statcast | full pitch-level, 2022–2026, **3.55 M pitches with all 119 columns** available offline in the local pybaseball cache, including release speed, pitch type, pitcher handedness and xwOBA. The trimmed 13-column extract on disk does not have these; the enriched one is rebuilt from cache at no cost. |
+
+**Consequence for A1 and E3:** wherever this file says "open" it means the
+game-day morning price. The movement being tested is morning → close, which is
+a real and substantial window (8.8 hours, and the lineup/weather news lands
+inside it), but it is **not** the classic "beat the opener" test, and it will
+not be reported as one.
+
+---
+
+## Part A — does either existing model carry information the market lacks?
+
+### A1. MLB moneyline, market-anchored (free, runs now)
+
+**Question.** The model loses to the close outright. Does it nevertheless carry
+*any* information the price does not already have?
+
+**Data.** 2024–2026, every MLB game with a de-vigged morning and closing price
+and an out-of-sample model prediction. Walk-forward exactly as the model is
+trained: never fit on a season it is scored on.
+
+**Models compared.**
+
+- **Baseline:** `p = p_open_novig`.
+- **Disagreement:** `logit(p) = logit(p_open) + b0 + b1 · (logit(p_model) − logit(p_open))`,
+  with `logit(p_open)` entered as a **fixed offset** (coefficient pinned at 1,
+  not estimated). `p_model` includes the out-of-fold home intercept from
+  `docs-calibration.md`.
+- **Features:** the same offset plus the 11 standardized features, ridge, alpha
+  tuned on training seasons only. *(Superseded — see E1. The feature-level
+  version of this question is answered once, properly, in E1's residual
+  regression, with real starter and bullpen measures instead of the current
+  noisy ones. Running it twice would be two shots at the same target.)*
+- **Movement test:** regress `logit(p_close) − logit(p_open)` on
+  `logit(p_model) − logit(p_open)`.
+
+**Predicted direction, written before fitting.** `b1 ≈ 0`, or negative. The
+Phase 5 result makes b1 > 0 unlikely: if the model's disagreements with the
+price were informative, it would not be losing by 5.5 SE. The honest prior is
+that b1 lands near zero with a tight interval, and the value of the test is the
+**interval**, not the point — a tight interval around zero is a real answer
+("there is nothing here"), where a wide one would only mean the test was
+underpowered.
+
+**Movement slope:** predicted ≈ 0. A positive, significant slope would mean the
+model sees something the market later agrees with, i.e. an edge available in
+the morning that is gone by the close. This is the one result in A1 that would
+change what we do, so it is the one to be most suspicious of.
+
+**Pass rule.** As above. For the movement test specifically: slope > 0 with
+t > 2 pooled *and* positive in each of the three seasons, *and* the implied
+morning-price EV clears the vig at a NJ book. A slope that is positive but
+worth less than the vig is reported as "real, not bettable".
+
+**Reported:** b1 with CI, per-season and pooled log loss with CIs,
+leave-one-season-out, movement slope with CI.
+
+### A2. NFL sides, same tests (~1–2k credits — NOT AUTHORIZED, checkpoint first)
+
+**Question.** Same as A1, for the NFL EPA model. NFL is the one market where
+beating the *opener* is the classic sharp play, and nflverse gives us closing
+moneylines but no openers, so an opener has to be bought.
+
+**Cost.** One historical h2h snapshot per week, Tuesday ~noon ET, 2020–2025:
+about 18 weeks × 6 seasons × 10 credits ≈ **1,080 credits**, plus events-list
+calls. To be dry-run and confirmed before anything is pulled.
+
+**Predicted direction.** Same as A1: b1 ≈ 0. NFL sides lost by more than MLB
+(−0.037), so the prior here is worse, not better.
+
+**Status: not started. Nothing is pulled without an explicit OK.**
+
+---
+
+## Part E — where is the market itself wrong? (free, runs now)
+
+"The market is efficient" is a summary, not a law. Phase 5 said our *model*
+cannot beat the price; it said nothing about whether the price has structural
+biases. Each hypothesis below names a mechanism and a **direction** before
+anything is looked at.
+
+**Two-stage design.** Screen on **2024–2026** (6,519 games, real market).
+Confirm on **2022–2023**, which must be bought (~28k credits), **one shot, no
+re-tuning**, and only for hypotheses that pass screening. A hypothesis that
+passes screening and fails confirmation is dead, and gets written up as dead.
+
+**Power, stated up front.** The standard error of a win rate is about 0.5/√n.
+With 2,500 games in a subgroup we can see a 2-point bias; a 1-point bias needs
+about 10,000 games and we will never have it. So E2, E3 and E5 can only find
+**large** effects, and a null from them means "no large effect", not "no
+effect". E4 is exempt from this: it compares prices to prices, and prices are
+not noisy.
+
+**Screening threshold for every hypothesis: t > 2 in the pre-registered
+direction.** Wrong-signed results, however large, are failures — not
+"interesting reversals".
+
+### E1. The market's recipe vs reality's recipe
+
+**Mechanism.** Starters now average a little over five innings, down from
+six-plus fifteen years ago, and bullpens throw roughly 40% of innings. If the
+price still weights the starting pitcher the way it did in 2010, the market's
+coefficient on starter quality will be larger than reality's, and its
+coefficient on bullpen quality smaller.
+
+**Inputs must be built properly first.** 5-start K-BB% is a noisy results stat
+and would fail this test through measurement error alone, which would be
+indistinguishable from "no bias". Before any regression is run:
+
+- **Starter quality:** projection-style blend of prior-season and
+  current-season K-BB% and xwOBA-against, shrunk toward the league mean by
+  batters faced, plus a process measure from Statcast (average four-seam
+  velocity and its change against the prior season). All as-of the game, all
+  `shift(1)`-ed at source.
+- **Bullpen quality:** 30-day K-BB% of relievers, weighted by each reliever's
+  share of high-leverage work.
+- **Bullpen fatigue:** pitches thrown by the top three leverage arms in the
+  prior two days, and whether each is on a third consecutive day.
+- **Offense** and **park** as currently built.
+
+**Test.** Two regressions on the *same* feature matrix:
+
+1. `logit(p_close) ~ features` → the **market's** weights;
+2. `outcome ~ features`, logistic → **reality's** weights.
+
+Compare coefficient by coefficient with CIs. Then the decisive one:
+`outcome ~ offset(logit p_close) + features` — any coefficient clearing the
+threshold there is information the closing price does not contain.
+
+**Predicted direction (the actual pre-registration).**
+
+| coefficient | predicted |
+|---|---|
+| starter quality, market vs reality | **market larger** (overvalued) |
+| bullpen quality, market vs reality | **market smaller** (undervalued) |
+| bullpen fatigue, market vs reality | **market smaller** (undervalued) |
+| residual regression, starter terms | **negative** (fading the starter edge is +EV) |
+| residual regression, bullpen terms | **positive** |
+
+**Bettable requires:** a residual coefficient large enough that the top decile
+of its fitted residual implies a probability more than 2.4 points from the
+close at −110, after vig, at a NJ book.
+
+### E2. Subgroup calibration
+
+**Mechanism.** If E1's bias is real it should show as miscalibration in the
+subgroups where the relevant gap is largest.
+
+**Test.** Bucket by starter-quality gap (ace vs replacement), bullpen-fatigue
+gap, and favorite size. Per bucket: actual home win rate vs market-implied,
+with CI, and EV at the best NJ price after vig.
+
+**Predicted direction.** Home teams with a **large starter-quality edge** are
+**overpriced** (actual win rate below implied); teams facing a **tired**
+bullpen are **underpriced**. Favorite-size buckets are E5's job, reported here
+without a direction.
+
+### E3. Does public money push lines the wrong way?
+
+**Mechanism.** Where the public has a loud opinion, line movement can be driven
+by money rather than information, and the later price can be *worse* than the
+earlier one.
+
+**Test.** For subgroups with a public opinion — marquee starters, big-market
+teams, heavy favorites, teams on a 5+ game winning streak — compare the log
+loss of the **morning** price against the **close**. Also report overall
+morning-vs-close accuracy as the baseline.
+
+**Predicted direction.** Overall, the **close is more accurate** than the
+morning price (this is close to a law, and a failure here means the pipeline is
+broken, so it doubles as a sanity check). Within public subgroups, the gap
+**narrows**, and the pre-registered hypothesis is that in at least one such
+subgroup the **morning price is more accurate** — i.e. the move was noise and
+the play is against it at the close.
+
+**Bettable requires:** the reversal to exceed the vig, measured as EV from
+betting against the move at the closing NJ price.
+
+### E4. A price-only map of where NJ books sit off the sharp line
+
+**Mechanism.** DraftKings, FanDuel and BetMGM shade prices toward the public
+side and toward their own risk; Pinnacle does not. This needs **no outcomes**,
+so it is by far the highest-powered thing available here.
+
+**Test.** For every game and every NJ book, de-vigged probability minus
+Pinnacle's, broken out by team (popular vs not), favorite size, starter fame,
+day of week, and hours to first pitch. Output a table per book.
+
+**Predicted direction.** Each NJ book is systematically **short on popular
+teams** (Yankees, Dodgers, Red Sox, Cubs, Braves, Mets, Phillies) — i.e. it
+prices them higher than Pinnacle does — and the gap is **larger on weekends and
+larger further from first pitch**, when recreational money dominates and the
+book has not yet been arbitraged.
+
+**Bettable requires:** gap > that book's own vig on the game. Where it is, that
+is a bet with no model at all, and it feeds Part C directly.
+
+### E5. Favorite–longshot bias
+
+**Mechanism.** The classic one: bettors overpay for longshots, so heavy
+favorites are underpriced. Well documented in most betting markets, mostly
+arbitraged out of major ones.
+
+**Test.** Do heavy favorites (−200 and beyond) win more often than implied, at
+Pinnacle and at each NJ book separately?
+
+**Predicted direction.** Heavy favorites win **more** often than implied.
+Effect predicted to be **near zero at Pinnacle** and **small but positive at
+the NJ books**.
+
+**Why it is here even though it is probably dead:** it is a known effect with a
+known sign, so it calibrates whether these tests can find anything at all. If
+E5 finds nothing anywhere, that is evidence about our power, not just about the
+market. Expected n at −200+ is small; the power note above applies hardest
+here.
+
+### E6. Early-season slowness
+
+**Mechanism.** Projections lean on prior-season results and are slow to update
+in April and May. Statcast process data — velocity, pitch mix — moves before
+results do. A pitcher throwing 2 mph slower than last year is a different
+pitcher before his ERA says so.
+
+**Test.** Is the market residual (`outcome − p_close`) more predictable in
+April–May than in July–August? Does a process change — four-seam velocity down
+1+ mph against the prior season, or a materially changed pitch mix — predict
+the residual?
+
+**Predicted direction.** Residual predictability is **higher in April–May**;
+a velocity **drop** predicts that pitcher's team **underperforming** its
+closing price.
+
+**Bettable requires:** the April–May effect to clear the vig on its own, in
+that window only. A seasonal effect that only works for six weeks a year is
+still a real edge, but the bet count is small and that will be stated.
+
+---
+
+## Part B — props
+
+### B1. Shared framework (no credits)
+
+Not a hypothesis; the machinery every prop test runs on. **Opportunity × rate**,
+with a count or skewed-continuous distribution on top. Negative binomial for
+counts, gamma or lognormal for yards. Props where the listed player did not play
+are **dropped, not scored**, because the book voids them. Bootstrap **by game**.
+At most one prop per team per market until correlation is modeled.
+
+### B2. Preflight and costing (free / 1-credit calls — checkpoint before B3/B4)
+
+Confirm which books post each market and whether Pinnacle posts any of them
+(expected: no — when Pinnacle is absent, "fair" is the de-vigged consensus
+across all US books, recorded per row). Dry-run costs. **Nothing spent without
+an OK.**
+
+### B3. NFL receiving props
+
+**Question.** Does an opportunity × rate model beat the de-vigged consensus on
+`player_receptions` and `player_reception_yds`?
+
+**Predicted direction, written now.** The single most plausible edge is
+**target redistribution when a WR1 is out** — the share of vacated targets is
+an explicit feature, and the pre-registered claim is that the model beats the
+market **specifically on games where a team's top target is inactive**, and is
+at best neutral elsewhere. Props are softer than sides, so unlike A1 the prior
+here is genuinely uncertain rather than pessimistic.
+
+**Pass rule:** the common rule, bootstrapped by game, plus the
+market-anchored and movement versions. Break out by market, line size and book
+— **descriptive only**, never as a filter chosen after the fact.
+
+### B4. MLB pitcher strikeouts
+
+**Question.** Does batters-faced × K%-per-batter, with the opposing lineup's K%
+versus the pitcher's handedness and the park, beat the de-vigged consensus on
+`pitcher_strikeouts`?
+
+**Predicted direction.** The model beats the market on the **opportunity** half
+(batters faced is game-script driven and books are slow on it) and not on the
+rate half. Also flagged now, before testing: `h2h_1st_5_innings` is where our
+starter features should matter most and the nine-inning line least — a separate
+10 credits per game, dry-run first.
+
+---
+
+## Part C — sharp-vs-soft line engine
+
+Not a hypothesis. `bets/sharp_line.py` flags any NJ book whose de-vigged price
+beats Pinnacle's by more than a threshold (start at 1.5% EV), logged as
+`mode='shop'` paper bets, graded on `ev_fair_close`, **kept separate from model
+bets in every report**.
+
+**It is +EV by construction, which makes it a test of our code rather than of
+the market.** If it shows negative EV, the fair-line or grading path is broken
+and every other number in this file is suspect. That is its main job. It never
+stakes money on its own.
+
+---
+
+## Results log
+
+Filled in as each experiment completes. Failures stay in the file.
+
+| experiment | run on | verdict | number |
+|---|---|---|---|
+| A1 | | | |
+| E1 | | | |
+| E2 | | | |
+| E3 | | | |
+| E4 | | | |
+| E5 | | | |
+| E6 | | | |
