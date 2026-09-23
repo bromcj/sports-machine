@@ -206,3 +206,10 @@ def espn_status(status_type: dict) -> str:
     if state == "post":
         return "final"
     return "scheduled"
+
+
+def slot_or_none(value):
+    """ET slate slot for a first-pitch instant, or None if unusable."""
+    from model.validation import slot_of
+    when = parse_utc(value)
+    return slot_of(when.astimezone(ET).hour) if when else None
