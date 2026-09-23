@@ -6,7 +6,7 @@ Kill criterion enforced in review(): rolling 50-bet average CLV < 0
 import datetime as dt
 import sys
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
-from db import connect
+from db import connect, utc_now
 from bets.engine import clv_pct, american_to_decimal
 
 
@@ -17,7 +17,7 @@ def record_bet(game_id, sport, side, book, line_taken, stake, model_prob,
         """INSERT INTO bets (ts, game_id, sport, side, book, line_taken, stake, model_prob,
                              novig_market_prob, edge, kelly_fraction, model_version)
            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-        (dt.datetime.utcnow().isoformat(), game_id, sport, side, book, line_taken, stake,
+        (utc_now(), game_id, sport, side, book, line_taken, stake,
          model_prob, novig_market_prob, edge, kelly_fraction, model_version))
     con.commit()
     con.close()
@@ -87,10 +87,14 @@ def closing_snapshot(game_id: str, book: str | None = None):
     rows = con.execute(q, args).fetchall()
     con.close()
 
-    # Compare real datetimes, not strings. ts is naive UTC (utcnow().isoformat())
-    # while commence_time carries a 'Z', and a raw string compare gets that wrong:
-    # '...T23:20:00.000001' sorts BEFORE '...T23:20:00Z' because '.' < 'Z', so a
+    # Compare real datetimes, not strings. ts now carries '+00:00' and
+    # commence_time carries 'Z', so a raw string compare still gets it wrong:
+    # '...T23:20:00+00:00' sorts BEFORE '...T23:20:00Z' because '+' < 'Z', and a
     # snapshot taken just after first pitch would pass as a closing line.
+    #
+    # The naive-ts handling below stays for rows written before db.utc_now().
+    # They are normalised by db.normalize_timestamps(), but a restored backup
+    # or an old copy of the file can still hand this function one.
     best = None
     for row in rows:
         try:

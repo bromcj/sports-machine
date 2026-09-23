@@ -23,7 +23,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from db import connect
+from db import as_utc, connect
 
 ARCHIVE = Path(__file__).parent / "archive"
 
@@ -46,7 +46,10 @@ GAME_SQL = """INSERT INTO games (game_id, sport, game_date, away, home,
 
 
 def _snapshots(f):
-    return [(r["game_id"], r["sport"], r["ts"], r["book"],
+    # Archived before utc_now(), ts may be naive. Normalise on the way
+    # in so a fresh checkout rebuilding from archive/ agrees with a DB
+    # that has been running all along.
+    return [(r["game_id"], r["sport"], as_utc(r["ts"]), r["book"],
              r["away_ml"] or None, r["home_ml"] or None, r["snapshot_type"],
              # absent from CSVs archived before commence_time was added
              r.get("commence_time") or None)

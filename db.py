@@ -1,6 +1,7 @@
 """SQLite storage layer. Single source of truth for the machine.
 Every table carries a `sport` column — one DB, all leagues.
 """
+import datetime as dt
 import sqlite3
 from pathlib import Path
 
@@ -80,6 +81,84 @@ CREATE TABLE IF NOT EXISTS bets (
     model_version TEXT
 );
 """
+
+
+def utc_now() -> str:
+    """The timestamp format that goes into this database.
+
+    Timezone-AWARE UTC, e.g. 2026-09-23T03:38:43+00:00.
+
+    Before this, odds_snapshots.ts and bets.ts were written with
+    datetime.utcnow() - naive, no offset - while predictions.ts and
+    features.asof_ts used now(timezone.utc) and carried one. Comparing a naive
+    datetime with an aware one raises TypeError, so every read site that
+    touched both had to normalise defensively, and bets/log.py still carries a
+    four-line comment explaining the trap. The site that forgot would not be a
+    wrong answer, it would be a crash.
+
+    Fixing it at the write side means there is nothing to remember at the read
+    side. utcnow() is also deprecated and scheduled for removal.
+    """
+    return dt.datetime.now(dt.timezone.utc).isoformat()
+
+
+def as_utc(value: str | None) -> str | None:
+    """Normalise any stored timestamp to aware UTC ISO. Idempotent.
+
+    Accepts naive (assumed UTC, which is what utcnow() produced), 'Z'-suffixed,
+    and already-offset strings. Anything unparseable is returned untouched
+    rather than discarded - a weird timestamp is a thing to investigate, not to
+    silently drop.
+    """
+    if not value:
+        return value
+    text = value.strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        when = dt.datetime.fromisoformat(text)
+    except ValueError:
+        return value
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=dt.timezone.utc)
+    return when.astimezone(dt.timezone.utc).isoformat()
+
+
+# Columns holding a timestamp this project writes. Rows predating utc_now()
+# are naive; normalize_timestamps() rewrites them once so the column holds one
+# format. commence_time is NOT here - that is the odds API's value, already
+# 'Z'-suffixed, and normalising it would rewrite upstream data.
+TS_COLUMNS = [("odds_snapshots", "id", "ts"), ("bets", "bet_id", "ts")]
+
+
+def normalize_timestamps(con):
+    """One-time rewrite of naive timestamps to aware UTC. Idempotent."""
+    fixed = []
+    for table, key, col in TS_COLUMNS:
+        cols = {r["name"] for r in con.execute(f"PRAGMA table_info({table})")}
+        if col not in cols:
+            continue
+        rows = con.execute(
+            f"SELECT {key} k, {col} v FROM {table}"
+            f" WHERE {col} IS NOT NULL AND {col} NOT LIKE '%+00:00'").fetchall()
+        n = 0
+        for r in rows:
+            new = as_utc(r["v"])
+            if new == r["v"]:
+                continue
+            try:
+                con.execute(f"UPDATE {table} SET {col}=? WHERE {key}=?",
+                            (new, r["k"]))
+            except sqlite3.IntegrityError as e:
+                raise SystemExit(
+                    f"Normalising {table}.{col} on row {r['k']} collides with an "
+                    f"existing row: {e}\n"
+                    "That means the same observation is stored twice in two "
+                    "timestamp formats. Inspect before rerunning.")
+            n += 1
+        if n:
+            fixed.append(f"{table}.{col} x{n}")
+    return fixed
 
 
 def connect():
@@ -172,12 +251,15 @@ def init():
     con.executescript(SCHEMA)
     applied = migrate(con)
     indexed = index(con)
+    fixed = normalize_timestamps(con)
     con.commit()
     con.close()
     if applied:
         print(f"Migrated: added {', '.join(applied)}")
     if indexed:
         print(f"Indexed: created {', '.join(indexed)}")
+    if fixed:
+        print(f"Normalized timestamps: {', '.join(fixed)}")
     print(f"DB initialized at {DB_PATH}")
 
 

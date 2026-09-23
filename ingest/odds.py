@@ -13,7 +13,7 @@ import datetime as dt
 import requests
 import sys
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
-from db import connect
+from db import connect, utc_now
 from ingest import http
 from config import SPORTS, active_sports
 
@@ -28,7 +28,7 @@ def pull_sport(sport: str, snapshot_type: str) -> int:
         "apiKey": API_KEY, "regions": "us", "markets": "h2h",
         "oddsFormat": "american", "bookmakers": BOOKS,
     }, label=sport)
-    ts = dt.datetime.utcnow().isoformat()
+    ts = utc_now()
     con = connect()
     n = 0
     for ev in r.json():

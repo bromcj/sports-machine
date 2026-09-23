@@ -17,7 +17,8 @@ ARCHIVE = Path(__file__).parent / "archive"
 
 def export():
     ARCHIVE.mkdir(exist_ok=True)
-    stamp = dt.datetime.utcnow().strftime("%Y-%m-%d-%H%M")
+    # Filename stamp, not a stored value - but utcnow() is deprecated.
+    stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d-%H%M")
     con = connect()
 
     snaps = con.execute("SELECT * FROM odds_snapshots").fetchall()
