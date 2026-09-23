@@ -115,6 +115,51 @@ def main() -> int:
             skip("odds_twin bridges predictions to prices", "no predictions stored yet")
         con.close()
 
+    # --------------------------------------------------------- feed matching
+    section("FEED MATCHING")
+    from feeds import SQL_STATS_API, et_date, odds_twin as _twin, parse_utc
+    con2 = connect()
+    tbl = {r[0] for r in con2.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'")}
+    if "games" in tbl:
+        # game_date means the LOCAL date. The odds feed and ESPN both hand out
+        # UTC dates, which are a day ahead for anything after 8pm ET, and that
+        # is what gave late games the previous night's prices.
+        wrong = [r["game_id"] for r in con2.execute(
+            "SELECT game_id, game_date, start_time_utc FROM games"
+            " WHERE start_time_utc IS NOT NULL")
+            if et_date(r["start_time_utc"]) != r["game_date"]]
+        check("game_date is the LOCAL date of first pitch, never UTC",
+              not wrong, "all agree" if not wrong
+              else f"{len(wrong)} row(s) dated by UTC, e.g. {wrong[0]}")
+
+        # Matching is on time, so a match whose start times disagree is a
+        # mismatch that got through.
+        pairs, bad_gap = 0, []
+        for r in con2.execute(
+                f"SELECT game_id, start_time_utc FROM games WHERE sport='mlb'"
+                f" AND ({SQL_STATS_API}) AND start_time_utc IS NOT NULL"
+                f" ORDER BY game_date DESC LIMIT 60"):
+            tw, _ = _twin(con2, r["game_id"])
+            if tw is None:
+                continue
+            o = con2.execute("SELECT start_time_utc FROM games WHERE game_id=?",
+                             (tw,)).fetchone()
+            a, b = parse_utc(r["start_time_utc"]), parse_utc(o["start_time_utc"])
+            if a and b:
+                pairs += 1
+                if abs((a - b).total_seconds()) / 60 > 5:
+                    bad_gap.append(r["game_id"])
+        if pairs:
+            check("every feed match agrees on first pitch",
+                  not bad_gap, f"{pairs} matched, {len(bad_gap)} disagree by >5 min")
+        else:
+            skip("every feed match agrees on first pitch", "no matched pairs yet")
+    else:
+        skip("game_date is the LOCAL date of first pitch, never UTC", "no tables")
+        skip("every feed match agrees on first pitch", "no tables")
+    con2.close()
+
     # ------------------------------------------------------------ staleness
     section("STALENESS & REFRESH")
     import pandas as pd

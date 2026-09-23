@@ -11,7 +11,9 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS games (
     game_id TEXT PRIMARY KEY,
     sport TEXT NOT NULL,
-    game_date TEXT NOT NULL,
+    game_date TEXT NOT NULL,       -- LOCAL (ET) calendar date, never UTC
+    start_time_utc TEXT,           -- true first pitch; what feeds are matched on
+    venue_id TEXT,                 -- MLB Stats API venue.id, for park factors
     away TEXT NOT NULL,
     home TEXT NOT NULL,
     away_starter TEXT,             -- SP (MLB) / QB or goalie if tracked
@@ -74,6 +76,7 @@ CREATE TABLE IF NOT EXISTS bets (
     novig_market_prob REAL NOT NULL,
     edge REAL NOT NULL,
     kelly_fraction REAL NOT NULL,
+    odds_snapshot_id INTEGER,      -- the exact price row this bet was taken at
     closing_line INTEGER,
     novig_closing_prob REAL,
     clv_pct REAL,
@@ -184,6 +187,19 @@ MIGRATIONS = [
     # written before this column existed is read as 'real', which is the
     # fail-closed direction: an unlabelled bet cannot help pass a gate.
     ("bets", "mode", "TEXT"),
+    # The true first-pitch instant, from whichever feed minted the row.
+    # game_date alone cannot identify a game: the odds API and ESPN both date
+    # rows by UTC while the MLB Stats API dates them locally, so every game
+    # starting after 8pm ET carries a date one day ahead. Matching on
+    # (date, away, home) then hands a late game the PREVIOUS night's prices.
+    ("games", "start_time_utc", "TEXT"),
+    # MLB Stats API venue.id. VENUES was a hand-maintained map that knew only
+    # about the Athletics, so Tampa Bay's 2025 home games at Steinbrenner Field
+    # were given Tropicana's park factor.
+    ("games", "venue_id", "TEXT"),
+    # Exactly which price a bet was taken at, so "was this bet placeable?" is
+    # answerable later rather than inferred.
+    ("bets", "odds_snapshot_id", "INTEGER"),
 ]
 
 

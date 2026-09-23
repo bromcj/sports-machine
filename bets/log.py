@@ -66,37 +66,9 @@ def record_bet(game_id, sport, side, book, line_taken, stake, model_prob,
 CLOSING_WINDOW_MIN = 60
 
 
-def odds_twin(con, game_id: str) -> tuple[str | None, str | None]:
-    """Find the odds-feed row for the same real game. Returns (game_id, note).
-
-    The three feeds never share an identifier. The MLB Stats API calls a game
-    'mlb-823494', The Odds API calls the same game 'mlb-394e1e2b849c...', and
-    ESPN calls it 'mlb-espn-401817028'. Nothing maps between them, so a row
-    with a final score has no odds and a row with odds has no final score -
-    measured on the live database: 12,051 scored games, 36 games with odds,
-    and ZERO with both.
-
-    Bets carry one game_id, so without this resolution either the closing line
-    or the result is unreachable and CLV can never be computed. Matching is on
-    (game_date, away, home), which holds because all three feeds spell the 30
-    clubs identically. A doubleheader makes that ambiguous, and those return
-    None rather than a guess - a CLV number attached to the wrong game of a
-    doubleheader is worse than no number.
-    """
-    g = con.execute("SELECT game_date, away, home FROM games WHERE game_id=?",
-                    (game_id,)).fetchone()
-    if g is None:
-        return None, "no such game_id"
-    rows = con.execute(
-        "SELECT DISTINCT o.game_id FROM odds_snapshots o JOIN games gg"
-        " ON gg.game_id = o.game_id"
-        " WHERE gg.game_date=? AND gg.away=? AND gg.home=?",
-        (g["game_date"], g["away"], g["home"])).fetchall()
-    if not rows:
-        return None, "no odds feed row for this matchup"
-    if len(rows) > 1:
-        return None, f"ambiguous: {len(rows)} odds rows (doubleheader?)"
-    return rows[0]["game_id"], None
+# Matching lives in feeds.py now: same teams, first pitch within a window,
+# never date strings. Re-exported so callers do not all have to change.
+from feeds import odds_twin, pregame_books           # noqa: E402,F401
 
 
 def closing_snapshot(game_id: str, book: str | None = None):

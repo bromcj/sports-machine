@@ -9,14 +9,18 @@ Two joins have to happen and only one of them is trivial.
   prediction -> odds     NOT keyed on anything shared. The MLB Stats API calls
                          tonight's game 'mlb-823494'; the Odds API calls the
                          same game 'mlb-394e1e2b849c...'. Nothing links them.
-                         They are matched on (date, away team, home team),
-                         which works because both sources spell all 30 clubs
-                         identically - verified, 15 of 15 on a full slate.
+                         feeds.py matches them on teams plus first-pitch time.
 
-That match is ambiguous for a doubleheader: two games, same date, same two
-clubs. Rather than guess which price belongs to which game, those are reported
-as ambiguous and skipped. A pick attached to the wrong game of a doubleheader
-is worse than no pick, and the CLV it produces would be fiction.
+That match used to be on (date, away, home), and the note here claimed it was
+"verified, 15 of 15 on a full slate". It was verified on a day that happened
+not to expose the bug: the odds feed dates a game by its UTC date, so anything
+starting after 8pm ET carries a date one day ahead, and in a series Wednesday's
+game took TUESDAY's prices. Measured before the fix, 5 of 20 matched games were
+wrong - all late west-coast starts, which are exactly the games whose closes
+qualify for CLV grading.
+
+Matching on time also resolves doubleheaders, which date matching could only
+refuse.
 """
 import datetime as dt
 import json
@@ -29,6 +33,7 @@ ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 from bets.engine import evaluate, novig_probs
 from db import connect
+from feeds import SQL_STATS_API, pregame_books
 from model.persist import load as load_model, predict_margin, win_prob
 
 
@@ -76,52 +81,21 @@ def predict_for_date(date: str | None = None, sport: str = "mlb",
     return len(rows)
 
 
-def _odds_for(con, date: str, away: str, home: str):
-    """Latest PREGAME price per book for the odds-API twin of this game.
+def _odds_for(con, date, away, home, game_id=None):
+    """Kept for callers that pass (date, away, home). Prefer feeds.pregame_books.
 
-    The odds API keeps serving a market after first pitch, switching to in-play
-    prices. Taking the newest snapshot per book therefore grabs a live line once
-    a game is under way: a real pull at 12:24am returned Giants -10000, a 97.1%
-    "market probability", because they were already winning. Only snapshots
-    taken strictly before commence_time are pregame prices.
-
-    Timestamps are compared as datetimes, not strings - ts is naive UTC and
-    commence_time carries a 'Z', so a string compare mis-orders them.
-
-    Returns (list_of_book_rows, note). note is set when the match is unsafe.
+    Date-and-teams is exactly the matching that handed late games the previous
+    night's prices, so this now resolves the game_id first and matches on time.
     """
-    twins = con.execute(
-        "SELECT DISTINCT game_id FROM games WHERE sport='mlb' AND game_date=?"
-        " AND away=? AND home=? AND SUBSTR(game_id,5) GLOB '*[^0-9]*'"
-        " AND game_id NOT LIKE 'mlb-espn-%'", (date, away, home)).fetchall()
-    if not twins:
-        return [], "no odds for this game"
-    if len(twins) > 1:
-        return [], f"ambiguous: {len(twins)} odds records (doubleheader?)"
-
-    rows = con.execute(
-        "SELECT * FROM odds_snapshots WHERE game_id=? AND away_ml IS NOT NULL",
-        (twins[0]["game_id"],)).fetchall()
-    latest = {}
-    for r in rows:
-        if not r["commence_time"]:
-            continue
-        try:
-            start = dt.datetime.fromisoformat(r["commence_time"].replace("Z", "+00:00"))
-            taken = dt.datetime.fromisoformat(r["ts"])
-        except (ValueError, AttributeError):
-            continue
-        if taken.tzinfo is None:
-            taken = taken.replace(tzinfo=dt.timezone.utc)
-        if taken >= start:
-            continue                      # in-play price, not a market opinion
-        prev = latest.get(r["book"])
-        if prev is None or taken > prev[0]:
-            latest[r["book"]] = (taken, r)
-    books = [r for _, r in latest.values()]
-    if not books:
-        return [], "only in-play prices (game already started)"
-    return books, None
+    if game_id is None:
+        row = con.execute(
+            "SELECT game_id FROM games WHERE sport='mlb' AND game_date=?"
+            f" AND away=? AND home=? AND ({SQL_STATS_API})",
+            (date, away, home)).fetchone()
+        if row is None:
+            return [], "no scheduled game for this matchup"
+        game_id = row["game_id"]
+    return pregame_books(con, game_id)
 
 
 def picks(date: str | None = None, bankroll: float = 1000.0,

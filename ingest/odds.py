@@ -15,6 +15,7 @@ import sys
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
 from db import connect, utc_now
 from ingest import http, quality
+from feeds import et_date
 from config import SPORTS, active_sports
 
 API_KEY = os.environ.get("ODDS_API_KEY", "")
@@ -36,12 +37,20 @@ def pull_sport(sport: str, snapshot_type: str) -> int:
         gid = f"{sport}-{ev['id']}"
         home, away = ev["home_team"], ev["away_team"]
         commence = ev["commence_time"]          # full ISO timestamp, not just the date
-        if not bad.check(quality.game(away, home, commence[:10])):
+        # commence[:10] is the UTC date. A 10:11pm ET first pitch is 02:11 UTC
+        # the NEXT day, so dating by UTC pushed every late game forward a day
+        # and matched it to the previous night's game. game_date is local.
+        local_date = et_date(commence) or commence[:10]
+        if not bad.check(quality.game(away, home, local_date)):
             continue
         con.execute(
-            "INSERT OR IGNORE INTO games (game_id, sport, game_date, away, home)"
-            " VALUES (?,?,?,?,?)",
-            (gid, sport, commence[:10], away, home))
+            "INSERT INTO games (game_id, sport, game_date, start_time_utc, away, home)"
+            " VALUES (?,?,?,?,?,?)"
+            " ON CONFLICT(game_id) DO UPDATE SET"
+            "   start_time_utc=excluded.start_time_utc,"
+            "   game_date=CASE WHEN games.status='final' THEN games.game_date"
+            "                  ELSE excluded.game_date END",
+            (gid, sport, local_date, commence, away, home))
         for bk in ev.get("bookmakers", []):
             for mkt in bk.get("markets", []):
                 if mkt["key"] != "h2h":
