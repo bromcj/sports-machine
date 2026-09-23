@@ -5,6 +5,7 @@
   python run_daily.py picks    -> today's model vs market, no pulls, free
   python run_daily.py refresh  -> top up Statcast + retrain (slow, weekly)
   python run_daily.py grade    -> finals + review
+  python run_daily.py cronstatus -> did the cloud fire, and on time? free
 """
 import sys
 import datetime as dt
@@ -74,5 +75,8 @@ def grade():
 
 if __name__ == "__main__":
     mode = sys.argv[1] if len(sys.argv) > 1 else "morning"
+    if mode == "cronstatus":
+        from cronstatus import report
+        raise SystemExit(report())
     {"morning": morning, "close": close, "picks": show_picks,
      "refresh": refresh, "grade": grade}[mode]()

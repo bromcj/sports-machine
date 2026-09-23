@@ -47,6 +47,34 @@ python db.py                    create or upgrade the database (safe to re-run)
 ## Checking on the cloud robot
 
 ```
+python run_daily.py cronstatus
+```
+
+Free, reads only. Answers both questions at once: **did the crons fire, how
+late were they,** and **did the pull catch prices before first pitch.**
+
+What good looks like — runs a few minutes late, and every pull at 100%
+pregame:
+
+```
+Recent scheduled runs
+  fired                  was due           late  result
+  Wed 10:19 AM ET        10:13 AM ET         6m  success
+
+Pregame capture - did the pull beat first pitch?
+  Wed 5:14 PM ET         14/14 pregame (100%)
+```
+
+A pull that lands after first pitch returns **in-play** prices — a market that
+already knows part of the score. Those are worthless as a betting benchmark,
+so anything under 100% is real signal that the schedule needs moving earlier.
+
+Runs that fired before you last edited the crons show `(old schedule)` instead
+of a made-up lateness.
+
+The raw version, if you want it:
+
+```
 gh run list --limit 5
 ```
 
