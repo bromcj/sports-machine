@@ -6,7 +6,7 @@ import datetime as dt
 import sys
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
 from db import connect
-from ingest import http
+from ingest import http, quality
 
 SCHED = "https://statsapi.mlb.com/api/v1/schedule"
 
@@ -19,6 +19,7 @@ def pull_day(date: str | None = None):
     }, label="mlb")
     con = connect()
     n = 0
+    bad = quality.Rejects("mlb")
     for day in r.json().get("dates", []):
         for g in day.get("games", []):
             gid = f"mlb-{g['gamePk']}"
@@ -31,6 +32,9 @@ def pull_day(date: str | None = None):
             away_score = g["teams"]["away"].get("score")
             home_score = g["teams"]["home"].get("score")
             status = g["status"]["abstractGameState"].lower()  # preview/live/final
+            if not bad.check(quality.game(away, home, date,
+                                          away_score, home_score)):
+                continue
             con.execute(
                 """INSERT INTO games (game_id, sport, game_date, away, home,
                                       away_starter, home_starter,
@@ -63,6 +67,7 @@ def pull_day(date: str | None = None):
     con.commit()
     con.close()
     print(f"Upserted {n} games for {date}.")
+    bad.report()
 
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@ import requests
 import sys
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
 from db import connect
-from ingest import http
+from ingest import http, quality
 from config import SPORTS, active_sports
 
 URL = "https://site.api.espn.com/apis/site/v2/sports/{path}/scoreboard"
@@ -20,12 +20,20 @@ def pull_sport(sport: str, date: str | None = None) -> int:
     r = http.get(URL.format(path=cfg["espn"]), params=params, label=sport)
     con = connect()
     n = 0
+    bad = quality.Rejects(sport)
     for ev in r.json().get("events", []):
         comp = ev["competitions"][0]
         teams = {c["homeAway"]: c for c in comp["competitors"]}
         home, away = teams["home"], teams["away"]
         gid = f"{sport}-espn-{ev['id']}"
         status = comp["status"]["type"]["state"]  # pre | in | post
+        away_name = away["team"]["displayName"]
+        home_name = home["team"]["displayName"]
+        away_pts = int(away.get("score") or 0) if status != "pre" else None
+        home_pts = int(home.get("score") or 0) if status != "pre" else None
+        if not bad.check(quality.game(away_name, home_name, ev["date"][:10],
+                                      away_pts, home_pts)):
+            continue
         con.execute(
             # 'final' is terminal, and a NULL never overwrites a real score.
             #
@@ -45,15 +53,14 @@ def pull_sport(sport: str, date: str | None = None) -> int:
                             ELSE COALESCE(excluded.home_score, games.home_score) END,
                  status=CASE WHEN games.status='final' THEN 'final'
                              ELSE excluded.status END""",
-            (gid, sport, ev["date"][:10],
-             away["team"]["displayName"], home["team"]["displayName"],
-             int(away.get("score") or 0) if status != "pre" else None,
-             int(home.get("score") or 0) if status != "pre" else None,
+            (gid, sport, ev["date"][:10], away_name, home_name,
+             away_pts, home_pts,
              {"pre": "scheduled", "in": "live", "post": "final"}[status]))
         n += 1
     con.commit()
     con.close()
     print(f"[{sport}] upserted {n} games.")
+    bad.report()
     return n
 
 

@@ -14,7 +14,7 @@ import requests
 import sys
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
 from db import connect, utc_now
-from ingest import http
+from ingest import http, quality
 from config import SPORTS, active_sports
 
 API_KEY = os.environ.get("ODDS_API_KEY", "")
@@ -31,10 +31,13 @@ def pull_sport(sport: str, snapshot_type: str) -> int:
     ts = utc_now()
     con = connect()
     n = 0
+    bad = quality.Rejects(sport)
     for ev in r.json():
         gid = f"{sport}-{ev['id']}"
         home, away = ev["home_team"], ev["away_team"]
         commence = ev["commence_time"]          # full ISO timestamp, not just the date
+        if not bad.check(quality.game(away, home, commence[:10])):
+            continue
         con.execute(
             "INSERT OR IGNORE INTO games (game_id, sport, game_date, away, home)"
             " VALUES (?,?,?,?,?)",
@@ -44,6 +47,9 @@ def pull_sport(sport: str, snapshot_type: str) -> int:
                 if mkt["key"] != "h2h":
                     continue
                 prices = {o["name"]: o["price"] for o in mkt["outcomes"]}
+                if not bad.check(quality.snapshot(prices.get(away),
+                                                  prices.get(home))):
+                    continue
                 # OR IGNORE: ux_snap_dedupe makes a repeat of the same price
                 # from the same book in the same pull a no-op rather than an
                 # IntegrityError that would abort the run.
@@ -58,6 +64,7 @@ def pull_sport(sport: str, snapshot_type: str) -> int:
     con.close()
     remaining = r.headers.get("x-requests-remaining", "?")
     print(f"[{sport}] {n} {snapshot_type} snapshots. Credits left: {remaining}")
+    bad.report()
     return n
 
 

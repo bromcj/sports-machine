@@ -215,6 +215,67 @@ def main() -> int:
         skip("NFL ties dropped, not scored as away wins", "no NFL training table")
 
     # --------------------------------------------------------------- guard
+    # -------------------------------------------------------- ingest quality
+    section("INGEST QUALITY")
+    from ingest import quality as q
+    # Each of these is something that cannot be true, so a validator that lets
+    # it through is not being cautious, it is being useless.
+    impossible = [
+        ("moneyline 0", q.moneyline(0)),
+        ("moneyline -50 (between -100 and +100)", q.moneyline(-50)),
+        ("moneyline +99", q.moneyline(99)),
+        ("moneyline 500000", q.moneyline(500_000)),
+        ("non-numeric moneyline", q.moneyline("abc")),
+        ("a team playing itself", q.teams("NYY", "NYY")),
+        ("an empty team name", q.teams("", "BOS")),
+        ("a negative score", q.score(-1)),
+        ("a row with no price on either side", q.snapshot(None, None)),
+        ("a game with no date", q.game("NYY", "BOS", None)),
+    ]
+    missed = [name for name, reason in impossible if reason is None]
+    check(f"ingest rejects all {len(impossible)} impossible values", not missed,
+          "all caught" if not missed else "let through: " + ", ".join(missed))
+
+    legitimate = [
+        ("-110 / -110", q.snapshot(-110, -110)),
+        ("a heavy favourite (-750 / +460)", q.snapshot(-750, 460)),
+        ("exactly -100 / +100", q.snapshot(-100, 100)),
+        ("one side unpriced", q.snapshot(-110, None)),
+        ("a 0-0 final", q.game("NYY", "BOS", "2026-09-22", 0, 0)),
+        ("a scheduled game with no score", q.game("NYY", "BOS", "2026-09-22")),
+    ]
+    wrong = [f"{name} ({why})" for name, why in legitimate if why is not None]
+    check("ingest keeps every legitimate value", not wrong,
+          "all kept" if not wrong else "rejected: " + "; ".join(wrong))
+
+    # The rules must also agree with everything already collected. A validator
+    # that would have discarded real history is too aggressive, and this is the
+    # only way to find that out without waiting for a quiet night.
+    dbp = ROOT / "data" / "machine.db"
+    if dbp.exists():
+        c2 = sqlite3.connect(dbp)
+        c2.row_factory = sqlite3.Row
+        tbls = {r[0] for r in c2.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+        if {"odds_snapshots", "games"} <= tbls:
+            bad_s = sum(1 for r in c2.execute(
+                "SELECT away_ml, home_ml FROM odds_snapshots")
+                if q.snapshot(r["away_ml"], r["home_ml"]))
+            bad_g = sum(1 for r in c2.execute(
+                "SELECT away, home, game_date, away_score, home_score FROM games")
+                if q.game(r["away"], r["home"], r["game_date"],
+                          r["away_score"], r["home_score"]))
+            tot = c2.execute("SELECT (SELECT COUNT(*) FROM odds_snapshots)"
+                             " + (SELECT COUNT(*) FROM games)").fetchone()[0]
+            check("the rules reject nothing already collected",
+                  bad_s == 0 and bad_g == 0,
+                  f"{tot:,} stored rows, {bad_s + bad_g} would be rejected")
+        else:
+            skip("the rules reject nothing already collected", "no tables yet")
+        c2.close()
+    else:
+        skip("the rules reject nothing already collected", "no database yet")
+
     # ----------------------------------------------------------- durability
     section("DURABILITY")
     # `backup` is rebound below as validation.json's saved text, so alias it.
