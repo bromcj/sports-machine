@@ -1,42 +1,102 @@
-# The Machine — Multi-Sport Betting Model
+# Sports Machine
 
-Ridge-on-margin models (one per sport) with walk-forward validation,
-per-sport calibration, quarter-Kelly staking, and CLV-first tracking.
-Sports on by default: MLB, NFL, NBA, NHL (config.py; NCAA stubs off).
+Predicts who wins baseball games, and refuses to bet on itself until it can
+prove it beats the bookmakers. Three checks, enforced in `bets/engine.py` — the
+program returns `bet: False`, it does not merely advise against one.
+
+**Status: not cleared to bet.** MLB has never been measured against a real
+market (its baseline is a 0.54 constant). NFL has, and lost to the closing line
+in all four test seasons. `python model/validation.py` prints the current state.
+
+- **Running it:** see [COMMANDS.md](COMMANDS.md)
+- **Looking at it:** `python dashboard.py`
+- **Checking it:** `python audit.py` — 21 checks against live data
 
 ## Setup (once)
+
 1. `pip install -r requirements.txt`
 2. `python db.py`
-3. Key from the-odds-api.com -> `export ODDS_API_KEY=...`
-   (4 sports x 2 pulls/day fits the $30/mo tier; free tier for testing)
-4. Optional: GitHub repo + ODDS_API_KEY secret -> Actions runs it daily.
-   Scheduled workflows need a public repo or GitHub Pro on private.
+3. Key from the-odds-api.com → `ODDS_API_KEY` env var.
+   The free tier is 500 credits/month; one pull costs one credit **per
+   in-season sport**. Three pulls/day is ~360 in October when all four
+   overlap, which is the tightest month.
+4. Optional: push to GitHub with `ODDS_API_KEY` as a repo secret, and Actions
+   collects odds three times a day whether your machine is on or not.
+   Scheduled workflows need a public repo, or Pro on a private one.
 
-## Daily use
-- `python run_daily.py morning` - schedules + odds + features (in-season sports only)
-- `python run_daily.py close`   - closing lines (CLV anchor)
-- `python run_daily.py grade`   - finals + review (kill criterion enforced)
+## The three gates
 
-## Architecture
-- config.py            sport registry: odds keys, ESPN paths, per-sport k + edge thresholds
-- ingest/odds.py       The Odds API, loops active sports
-- ingest/scores.py     ESPN scoreboard (keyless) - schedules/finals all sports
-- ingest/mlb.py        MLB Stats API - probable pitchers
-- features/sports/     per-sport feature contracts (wire real data at TODOs):
-    mlb: bullpen quality/fatigue, team-aggregate offense, SP tails
-    nfl: rolling EPA/play (nfl_data_py), QB status, rest, weather
-    nba: net rating, back-to-backs, star availability, travel
-    nhl: 5v5 xG share, goalie GSAx + confirmation (MoneyPuck/NHL API)
-- model/train.py       generic ridge-on-margin + walk-forward CV per sport
-- model/calibrate.py   fit margin->win-prob k per sport, reliability, Brier
-- bets/engine.py       no-vig, per-sport min edge (NFL/NBA 4%, MLB/NHL 3.5%),
-                       quarter Kelly, 3% cap, per-sport guardrails
-                       (SP/QB/goalie unconfirmed, openers, star scratches)
-- bets/log.py          bet log + CLV grading + kill criterion (neg CLV over 50 -> stop)
+Recorded in `validation.json`, enforced by `bets/engine.py:evaluate()`:
+
+| Gate | Passes when | Recorded by |
+|---|---|---|
+| `walk_forward` | model beats a **real** de-vigged market in every test season | `model/validation.py:record()` |
+| `paper_trading` | 50+ graded paper bets at positive CLV | `record_paper()` |
+| `armed` | a human calls `arm()`, which refuses until the first two pass | `arm()` |
+
+Beating a **placeholder** baseline clears nothing, however large the margin —
+that rule is why MLB is still blocked despite beating its constant 3 seasons
+out of 3. No record means not cleared, so a fresh checkout or a cloud runner
+refuses by default.
+
+`evaluate(allow_unvalidated=True)` exists for backtests that must score an
+uncleared model deliberately. It is never set on a path that stakes money.
+
+## Why the gates exist
+
+The NFL model beats a home-team baseline decisively and picks 62–66% of games
+correctly. Run its picks through the 4% edge threshold and it fires on **74% of
+all games**, claims a mean **+12.5%** edge, and returns **−9.3%** over 808
+simulated bets.
+
+`min_edge` measures *disagreement* with the price. That is only worth money
+when the model forecasts better than the price does. When it forecasts worse,
+the disagreement is noise and the threshold sells it back as confidence.
+
+## Pipeline
+
+```
+ingest/      odds (The Odds API) · scores (ESPN) · probables (MLB Stats API)
+backfill.py  5 seasons of Statcast + schedules; `topup` keeps the live season current
+features/    build_training.py (history) · build.py (today's unplayed games)
+model/       train.py (walk-forward) · persist.py (saves the fitted model)
+             predict.py (scores today) · validation.py (the gates)
+bets/        engine.py (no-vig, Kelly, guardrails) · log.py (CLV grading)
+dashboard.py one-page visual summary → dashboard.html / .png
+audit.py     21 checks: leakage, identity, staleness, de-vig, the gates
+healthcheck.py  writes STATUS.md, fails the cloud run if something is wrong
+```
+
+Only MLB is wired end to end. NFL has a trained model
+(`features/sports/nfl_features_v1.py`) built to have something real to test
+against, since football has years of public closing lines and baseball does
+not yet. NBA and NHL are feature contracts only — `build_row()` returns all
+`None`.
+
+## Three things that are easy to get wrong
+
+**The feeds mint incompatible game ids.** The MLB Stats API calls a game
+`mlb-823494`; The Odds API calls the same game `mlb-394e1e2b…`; ESPN calls it
+`mlb-espn-401817028`. Measured on the live database: 12,000+ games carry a final
+score, a few dozen carry odds, and **zero carry both**. `bets/log.py:odds_twin()` resolves
+them on `(date, away, home)`. Doubleheaders are ambiguous and are refused
+rather than guessed.
+
+**Rolling features must exclude the game they describe.** Every window is
+`shift(1)`-ed at source. `audit.py` re-derives one from raw Statcast every run
+rather than trusting the code.
+
+**Never assign a merge result back positionally.** `pandas.sort_values`
+defaults to a non-stable quicksort, so re-sorting an already-date-sorted frame
+reshuffles same-day games. That once scrambled 98% of the bullpen and offense
+features. Join on explicit keys.
 
 ## Build order per sport (do not skip ahead)
-1. Backfill 3-5 seasons; wire the sport's feature module.
-2. Walk-forward CV must beat the no-vig market baseline out of sample.
-3. Calibrate. 4. Paper-trade 50+ picks to positive CLV. 5. Then money.
-Validate ONE sport end-to-end (start MLB) before wiring the next -
-four half-validated models are worse than one proven one.
+
+1. Backfill 3–5 seasons; wire the sport's feature module.
+2. Walk-forward must beat the **real** no-vig market out of sample.
+3. Paper-trade 50+ picks to positive CLV.
+4. Call `arm()`. Then money.
+
+Validate one sport end to end before wiring the next. Four half-validated
+models are worse than one proven one.

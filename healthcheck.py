@@ -17,7 +17,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from db import connect
-from config import SPORTS, active_sports
+from config import active_sports
 
 ROOT = Path(__file__).parent
 STATUS = ROOT / "STATUS.md"

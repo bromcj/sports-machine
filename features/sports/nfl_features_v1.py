@@ -83,6 +83,14 @@ def build_table() -> pd.DataFrame:
     return out
 
 
+# Ideas carried over from the earlier nfl_features.py stub, which this module
+# replaced. None are implemented here, and each would need a new data source:
+#   QB1 confirmed vs backup     (moves an NFL line more than anything else)
+#   travel / time-zone crossing
+#   dome and wind over 15mph    (dome is in, wind is not)
+#   late-season elimination     (a team with nothing to play for)
+
+
 def build_row(game) -> dict:
     """Live-slate hook (daily predictions); training uses build_table()."""
     return {c: None for c in FEATURE_COLUMNS}

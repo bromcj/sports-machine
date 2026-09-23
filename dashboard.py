@@ -31,7 +31,6 @@ import contextlib
 import datetime as dt
 import io
 import json
-import sqlite3
 import sys
 import webbrowser
 from pathlib import Path
@@ -59,7 +58,6 @@ def esc(s):
 
 # --------------------------------------------------------------------- data
 def gather():
-    from bets.engine import novig_probs          # noqa: F401  (used via picks)
     from db import DB_PATH, connect
     from model import validation as v
     from model.predict import picks

@@ -3,7 +3,6 @@
 Walk-forward: train seasons [1..k], test season k+1, roll forward.
 Alpha tuned only on past folds. Compared against no-vig market baseline.
 """
-import json
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import Ridge
