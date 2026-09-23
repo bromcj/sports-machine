@@ -34,6 +34,22 @@ def record_bet(game_id, sport, side, book, line_taken, stake, model_prob,
 # Snapshots outside the window are not errors - they are perfectly good prices,
 # just not closing ones - so they are kept and reported, and simply do not
 # count toward gate 2.
+#
+# KNOWN AND DELIBERATE, reviewed 2026-09-23: the current collection schedule
+# cannot reliably meet this. Only 7 of 64 recent MLB games qualified. GitHub
+# starts scheduled runs hours late, so the 5:09pm pull is either ~2h early (too
+# soon) or lands in-play (rejected), and the queue decides which.
+#
+# Left as-is on purpose. It blocks nothing today - MLB cannot pass gate 1
+# either, because its baseline is still a placeholder - and the standard is
+# right even when the schedule cannot meet it.
+#
+# Do NOT widen this to make the schedule look adequate. That would make gate 2
+# measure an afternoon of drift and call it closing-line value, which is the
+# exact failure the gate exists to prevent. If the window has to change, the
+# collection schedule is what changes: a locally scheduled pull ~45 min before
+# first pitch hits it precisely, at no extra API cost, and was the runner-up
+# option. Revisit when gate 1 is actually within reach.
 CLOSING_WINDOW_MIN = 60
 
 
