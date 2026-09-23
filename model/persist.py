@@ -62,6 +62,17 @@ def save(sport: str, df: pd.DataFrame, feature_cols: list[str],
     }
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
     joblib.dump(bundle, model_path(sport))
+    # Register it HERE, not only when it first predicts. A retrain
+    # writes a new file with a new hash, and between the retrain and
+    # the next prediction the saved model was a stranger to its own
+    # lineage table.
+    try:
+        from db import connect as _c
+        _con = _c()
+        register_model(_con, sport, bundle)
+        _con.close()
+    except Exception:
+        pass          # never let bookkeeping lose a trained model
     return model_path(sport)
 
 

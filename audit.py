@@ -337,7 +337,8 @@ def main() -> int:
 
     # --------------------------------------------------------- feed matching
     section("FEED MATCHING")
-    from feeds import SQL_STATS_API, et_date, odds_twin as _twin, parse_utc
+    from feeds import (SQL_ODDS_FEED, SQL_STATS_API, canon_team, et_date,
+                       odds_twin as _twin, parse_utc)
     con2 = connect()
     tbl = {r[0] for r in con2.execute(
         "SELECT name FROM sqlite_master WHERE type='table'")}
@@ -357,7 +358,7 @@ def main() -> int:
         # mismatch that got through.
         pairs, bad_gap, gaps = 0, [], []
         for r in con2.execute(
-                f"SELECT game_id, start_time_utc FROM games WHERE sport='mlb'"
+                f"SELECT game_id, away, home, start_time_utc FROM games WHERE sport='mlb'"
                 f" AND ({SQL_STATS_API}) AND start_time_utc IS NOT NULL"
                 f" ORDER BY game_date DESC LIMIT 60"):
             tw, _ = _twin(con2, r["game_id"])
@@ -369,24 +370,50 @@ def main() -> int:
             if a and b:
                 pairs += 1
                 gaps.append(abs((a - b).total_seconds()) / 60)
-                # 60 min, not 5. Feeds genuinely disagree when a game is
-                # delayed - TOR @ BAL 2026-09-21 is scheduled 22:35Z by the
-                # Stats API and 23:20Z by the odds feed, 45 minutes apart and
-                # unmistakably one game. The failure this guards against is a
-                # DAY offset, which is what the old date matching produced and
-                # which shows up here as ~1440 minutes.
-                if gaps[-1] > 60:
-                    bad_gap.append(r["game_id"])
+                # Not a threshold. Two thresholds have now been wrong: 5
+                # minutes missed a 45-minute rain delay, and 60 missed a
+                # 126-minute one (Athletics @ Cleveland, 2026-09-20, started
+                # over two hours late). A delayed game is still one game, and
+                # guessing how late a delay can be is not a test.
+                #
+                # The real contract is that odds_twin picks the CLOSEST
+                # candidate. So check that: no other odds-feed row for the
+                # same teams may be nearer in time than the one it chose.
+                # The SAME candidate set odds_twin considers: odds-feed rows
+                # that actually carry prices. Including the Stats API row
+                # itself, or ESPN's, compares the game against copies of
+                # itself and fails every time.
+                # The SAME candidate set odds_twin considers: odds-feed rows
+                # for the SAME TEAMS that actually carry prices. Teams are
+                # compared canonically, because the Athletics are spelled two
+                # ways depending on the season and the feed.
+                want = (canon_team(r["away"]), canon_team(r["home"]))
+                others = [
+                    o2 for o2 in con2.execute(
+                        f"SELECT g.game_id, g.away, g.home, g.start_time_utc"
+                        f" FROM games g WHERE g.sport='mlb'"
+                        f" AND ({SQL_ODDS_FEED.replace('game_id', 'g.game_id')})"
+                        f" AND g.game_id<>? AND g.start_time_utc IS NOT NULL"
+                        f" AND EXISTS (SELECT 1 FROM odds_snapshots o"
+                        f"             WHERE o.game_id=g.game_id)", (tw,))
+                    if (canon_team(o2["away"]), canon_team(o2["home"])) == want]
+                mine = abs((a - b).total_seconds())
+                for o2 in others:
+                    c2 = parse_utc(o2["start_time_utc"])
+                    if c2 and abs((a - c2).total_seconds()) < mine:
+                        bad_gap.append(r["game_id"])
+                        break
         if pairs:
-            check("no feed match is a different game",
+            check("every feed match is the CLOSEST candidate in time",
                   not bad_gap,
-                  f"{pairs} matched, worst gap {max(gaps):.0f} min"
+                  f"{pairs} matched, worst gap {max(gaps):.0f} min "
+                  f"(delays are real; a wrong match is not)"
                   if gaps else f"{pairs} matched")
         else:
-            skip("no feed match is a different game", "no matched pairs yet")
+            skip("every feed match is the CLOSEST candidate in time", "no matched pairs yet")
     else:
         skip("game_date is the LOCAL date of first pitch, never UTC", "no tables")
-        skip("no feed match is a different game", "no tables")
+        skip("every feed match is the CLOSEST candidate in time", "no tables")
     con2.close()
 
     # ------------------------------------------------------------ staleness
