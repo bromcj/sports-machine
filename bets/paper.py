@@ -28,7 +28,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from db import connect
 from bets.engine import evaluate, novig_probs
-from bets.log import CLOSING_WINDOW_MIN, closing_snapshot, grade, record_bet
+from bets.engine import american_to_decimal
+from bets.log import (CLOSING_WINDOW_MIN, closing_snapshot, fair_prob,
+                      grade, record_bet)
 from feeds import parse_utc, pregame_books
 from model.validation import record_paper
 
@@ -142,6 +144,7 @@ def settle(sport: str = "mlb") -> dict:
         if usable:
             grade(b["bet_id"], int(close_ml), won,
                   minutes_before_start=snap["minutes_before_start"])
+            _decompose_bet(con, b, snap)
             tally["graded"] += 1
         else:
             # Settle for P&L, but pass no closing time, so grade() records no
@@ -150,6 +153,58 @@ def settle(sport: str = "mlb") -> dict:
             tally["no_close" if snap is not None else "settled_no_clv"] += 1
     con.close()
     return tally
+
+
+def _decompose_bet(con, bet, close_snap) -> bool:
+    """Split this bet into line-shopping value and model-information value.
+
+    clv_pct compares the price taken to the same book's CLOSING price with the
+    vig still in it. That is not expected value - a bet can beat it and still
+    lose money - and it cannot tell a good price from a good forecast. place()
+    takes the BEST of four books, and outlier prices regress toward consensus,
+    so shopping alone produces positive CLV. A model with no forecasting skill
+    could pass gate 2 on shopping skill.
+
+    Against the FAIR (de-vigged) line, the two separate exactly:
+
+        shop = decimal_taken * p_fair_at_bet - 1
+            how good the price was against the fair line AT THE MOMENT OF THE
+            BET. Real money, but it is not evidence the model forecasts
+            anything.
+
+        info = p_fair_close / p_fair_at_bet - 1
+            did the fair line move toward the side the model picked. This does
+            not depend on which book was shopped, so a zero-skill model has an
+            expected value of about 0 here however good the shopping.
+
+        (1 + shop) * (1 + info) = 1 + ev_fair_close
+
+    Gate 2 tests `info`. shop and ev are recorded beside it for reporting.
+    """
+    snap_id = bet["odds_snapshot_id"]
+    if snap_id is None:
+        return False
+    at = con.execute("SELECT game_id, ts FROM odds_snapshots WHERE id=?",
+                     (snap_id,)).fetchone()
+    if at is None:
+        return False
+    p_bet, src_bet = fair_prob(con, at["game_id"], at["ts"], bet["side"])
+    p_close, src_close = fair_prob(con, close_snap["game_id"],
+                                   close_snap["ts"], bet["side"])
+    if not p_bet or not p_close:
+        return False
+    dec = american_to_decimal(bet["line_taken"])
+    shop = dec * p_bet - 1
+    info = p_close / p_bet - 1
+    ev = dec * p_close - 1
+    con.execute(
+        "UPDATE bets SET ev_fair_close=?, shop_pct=?, info_pct=?, fair_source=?"
+        " WHERE bet_id=?",
+        (round(ev * 100, 4), round(shop * 100, 4), round(info * 100, 4),
+         src_close if src_close == src_bet else f"{src_bet}->{src_close}",
+         bet["bet_id"]))
+    con.commit()
+    return True
 
 
 def score(sport: str = "mlb") -> dict | None:
@@ -162,8 +217,9 @@ def score(sport: str = "mlb") -> dict | None:
     """
     con = connect()
     rows = con.execute(
-        "SELECT bet_id, game_id, clv_pct FROM bets WHERE mode='paper' AND sport=?"
-        " AND clv_pct IS NOT NULL", (sport,)).fetchall()
+        "SELECT bet_id, game_id, info_pct, shop_pct, ev_fair_close FROM bets"
+        " WHERE mode='paper' AND sport=? AND info_pct IS NOT NULL",
+        (sport,)).fetchall()
     con.close()
     if not rows:
         print("  no paper bets with a usable closing line yet - gate 2 untouched")
@@ -174,7 +230,8 @@ def score(sport: str = "mlb") -> dict | None:
         ct = snap["commence_time"] if snap else None
         if not ct or len(ct) < 14:
             continue                    # cannot place it in a bucket; drop it
-        clvs.append(r["clv_pct"])
+        # info, not clv_pct: the part of the result the model earned.
+        clvs.append(r["info_pct"])
         hours.append(int(ct[11:13]))
     if not clvs:
         print("  graded bets exist but none carry a first-pitch time - "
@@ -183,52 +240,30 @@ def score(sport: str = "mlb") -> dict | None:
     return record_paper(sport, clvs, start_hours=hours)
 
 
-def decompose(sport: str = "mlb") -> dict | None:
-    """Split measured CLV into line-shopping and market-movement components.
+def summary(sport: str = "mlb") -> dict | None:
+    """Mean shop / info / ev across graded paper bets, for reporting.
 
-    place() takes the BEST price across four books. The maximum of four noisy
-    prices is biased upward, and if outlier books regress toward consensus then
-    shopping alone produces positive CLV - which would let a model with no
-    forecasting skill pass gate 2 on shopping skill.
-
-    Measured on the archive as it stands: best-book CLV +0.344% (SE 0.557,
-    t=0.62) against a randomly chosen book's -0.138%. n=32. That settles
-    nothing in either direction - separating a gap that size from noise needs
-    roughly 340 paired games.
-
-    So this is a diagnostic, not a gate. It needs no new columns: everything
-    it uses is already in odds_snapshots. Run it once there is enough data,
-    BEFORE trusting gate 2, because gate 2 currently measures forecasting and
-    shopping together and cannot tell you which one earned the CLV.
+    Replaces an earlier decompose() that measured the wrong thing twice over:
+    it averaged AMERICAN odds across books, which is meaningless across the
+    +/-100 boundary (taking +104 against -105/+100/-102/+104 reported a
+    "premium" of 104.75 where the real advantage is about 2.3%), and it
+    compared against peers at the CLOSING snapshot rather than the one the bet
+    was placed from, mixing line movement into "shopping".
     """
     con = connect()
     rows = con.execute(
-        "SELECT bet_id, game_id, side, book, line_taken, clv_pct FROM bets"
-        " WHERE mode='paper' AND sport=? AND clv_pct IS NOT NULL",
+        "SELECT shop_pct, info_pct, ev_fair_close, fair_source FROM bets"
+        " WHERE mode='paper' AND sport=? AND info_pct IS NOT NULL",
         (sport,)).fetchall()
-    if not rows:
-        con.close()
-        return None
-    shop = []
-    for r in rows:
-        snap = closing_snapshot(r["game_id"])
-        if snap is None:
-            continue
-        peers = con.execute(
-            "SELECT away_ml, home_ml FROM odds_snapshots WHERE game_id=?"
-            " AND ts=? AND away_ml IS NOT NULL", (snap["game_id"], snap["ts"])
-        ).fetchall()
-        prices = [(p["home_ml"] if r["side"] == "home" else p["away_ml"])
-                  for p in peers]
-        prices = [p for p in prices if p is not None]
-        if len(prices) < 2:
-            continue
-        # How much better was the price taken than the average book's?
-        shop.append(r["line_taken"] - sum(prices) / len(prices))
     con.close()
-    if not shop:
+    if not rows:
         return None
-    return {"n": len(shop), "mean_shopping_premium": sum(shop) / len(shop)}
+    n = len(rows)
+    return {"n": n,
+            "shop": sum(r["shop_pct"] for r in rows) / n,
+            "info": sum(r["info_pct"] for r in rows) / n,
+            "ev": sum(r["ev_fair_close"] for r in rows) / n,
+            "sources": sorted({r["fair_source"] for r in rows})}
 
 
 def run(sport: str = "mlb", date: str | None = None):

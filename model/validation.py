@@ -291,12 +291,17 @@ def record(sport: str, baseline_kind: str, seasons: list[dict]) -> dict:
     return new_entry
 
 def record_paper(sport: str, clvs, start_hours=None) -> dict:
-    """Gate 2: paper-traded picks held closing-line value that is not noise.
+    """Gate 2: the model moved the fair line its way, by more than noise.
 
-    CLV is the honest scoreboard - it says you got a better price than the
-    market settled at, which is what edge looks like before variance buries
-    it. Win rate over 50 bets is mostly noise; CLV is less noisy, but it is
-    NOT noise-free, and the previous version of this gate ignored that.
+    `clvs` is the per-bet INFO component, not raw CLV. CLV against the same
+    book's close has the vig in it, so a bet can beat it and still lose money,
+    and it cannot separate a good price from a good forecast - place() shops
+    four books, and outlier prices regress toward consensus, so shopping alone
+    produces positive CLV. bets/paper.py:_decompose_bet splits every bet into
+    `shop` (the price) and `info` (the fair line moving the model's way), and
+    this gate tests info. Win rate over 50 bets is mostly noise; info is less
+    noisy, but it is NOT noise-free, which the first version of this gate
+    ignored.
 
     It passed on `n >= 50 and avg_clv > 0`. Measured on this project's own
     archive, per-bet CLV between the first and last pregame price has a
@@ -360,21 +365,21 @@ def record_paper(sport: str, clvs, start_hours=None) -> dict:
     if not enough:
         reason = f"only {n_bets} graded paper bets, need {MIN_PAPER_BETS}"
     elif avg_clv <= 0:
-        reason = f"avg CLV {avg_clv:+.2f}% over {n_bets} bets is not positive"
+        reason = f"mean info {avg_clv:+.2f}% over {n_bets} bets is not positive"
     elif not convincing:
-        reason = (f"avg CLV {avg_clv:+.2f}% over {n_bets} bets is within noise "
+        reason = (f"mean info {avg_clv:+.2f}% over {n_bets} bets is within noise "
                   f"(SE {se:.2f}%, needs to clear {PAPER_CLV_SIGMA:g} SE; t={t:.2f})")
     elif start_hours is None:
-        reason = (f"avg CLV {avg_clv:+.2f}% over {n_bets} bets clears the noise, "
+        reason = (f"mean info {avg_clv:+.2f}% over {n_bets} bets clears the noise, "
                   f"but no first-pitch times were supplied, so the sample cannot "
                   f"be shown to span more than one start-time bucket")
     elif not varied:
-        reason = (f"avg CLV {avg_clv:+.2f}% over {n_bets} bets clears the noise, "
+        reason = (f"mean info {avg_clv:+.2f}% over {n_bets} bets clears the noise, "
                   f"but every bet falls in {spread} start-time bucket(s) "
                   f"(need {MIN_START_HOUR_SPREAD}) - that validates a slice, "
                   f"not the model")
     else:
-        reason = (f"avg CLV {avg_clv:+.2f}% over {n_bets} bets, "
+        reason = (f"mean info {avg_clv:+.2f}% over {n_bets} bets, "
                   f"{t:.1f} SE above zero, across {spread} start-time buckets")
 
     data = _load()

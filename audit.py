@@ -460,6 +460,74 @@ def main() -> int:
     check("the higher bar still detects a real +1% edge",
           pw >= 0.80, f"{pw:.0%} of the time within 200 days")
 
+    # ------------------------------------------------ EV decomposition
+    section("SHOPPING vs FORECASTING")
+    import db as dbmod6
+    from bets import log as bl6, paper as bp6
+    from bets.engine import american_to_decimal as _a2d
+    real6 = dbmod6.DB_PATH
+    try:
+        tmp6 = pathlib.Path(tempfile.mkdtemp())
+        dbmod6.DB_PATH = tmp6 / "ev.db"
+        dbmod6.init()
+        bl6.connect = dbmod6.connect
+        bp6.connect = dbmod6.connect
+        c6 = dbmod6.connect()
+
+        def snap(gid, ts, book, a, h):
+            c6.execute(
+                "INSERT INTO odds_snapshots (game_id, sport, ts, book, away_ml,"
+                " home_ml, snapshot_type, commence_time) VALUES (?,?,?,?,?,?,?,?)",
+                (gid, "mlb", ts, book, a, h, "open", "2026-09-22T23:00:00Z"))
+
+        # Pinnacle is the fair reference when present, consensus otherwise.
+        snap("g1", "T1", "pinnacle", +100, -100)
+        snap("g1", "T1", "fanduel", +120, -140)
+        c6.commit()
+        pp, src = bl6.fair_prob(c6, "g1", "T1", "home")
+        check("the fair line is Pinnacle's when Pinnacle priced the pull",
+              src == "pinnacle" and abs(pp - 0.5) < 1e-9, f"{src} p={pp:.4f}")
+        snap("g2", "T1", "fanduel", +100, -100)
+        snap("g2", "T1", "betmgm", +100, -100)
+        c6.commit()
+        _, src2 = bl6.fair_prob(c6, "g2", "T1", "home")
+        check("the fair line falls back to consensus without Pinnacle",
+              src2 == "consensus", src2)
+
+        # A pure LINE SHOPPER: got a better price than fair, but the fair line
+        # never moved. shop > 0, info == 0. Gate 2 must see nothing here.
+        snap("g3", "BET", "pinnacle", +100, -100)      # fair home = 0.500
+        snap("g3", "CLOSE", "pinnacle", +100, -100)    # unchanged
+        c6.commit()
+        p_bet, _ = bl6.fair_prob(c6, "g3", "BET", "home")
+        p_cls, _ = bl6.fair_prob(c6, "g3", "CLOSE", "home")
+        dec = _a2d(+120)                                # shopped a better price
+        shop, info = dec * p_bet - 1, p_cls / p_bet - 1
+        ev = dec * p_cls - 1
+        check("pure line shopping scores on shop and NOT on info",
+              shop > 0.05 and abs(info) < 1e-9,
+              f"shop {shop:+.3f}, info {info:+.3f}")
+        check("the decomposition is exact: (1+shop)(1+info) = 1+ev",
+              abs((1 + shop) * (1 + info) - (1 + ev)) < 1e-12,
+              f"residual {abs((1+shop)*(1+info)-(1+ev)):.2e}")
+
+        # A FORECASTER: fair price at the bet, but the line moved their way.
+        snap("g4", "BET", "pinnacle", +100, -100)      # fair home 0.500
+        # snap(gid, ts, book, AWAY_ml, HOME_ml): home shortening means the
+        # HOME price goes to -150 and the away price lengthens.
+        snap("g4", "CLOSE", "pinnacle", +130, -150)
+        c6.commit()
+        pb, _ = bl6.fair_prob(c6, "g4", "BET", "home")
+        pc, _ = bl6.fair_prob(c6, "g4", "CLOSE", "home")
+        info2 = pc / pb - 1
+        check("a line that moves the model's way scores on info",
+              info2 > 0.1, f"info {info2:+.3f}")
+        c6.close()
+    finally:
+        dbmod6.DB_PATH = real6
+        bl6.connect = dbmod6.connect
+        bp6.connect = dbmod6.connect
+
     # ------------------------------------------------------- pregame guard
     section("PREGAME GUARD")
     import db as dbmod5

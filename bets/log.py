@@ -7,7 +7,7 @@ import datetime as dt
 import sys
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
 from db import connect, utc_now
-from bets.engine import clv_pct, american_to_decimal
+from bets.engine import clv_pct, american_to_decimal, novig_probs
 
 
 def record_bet(game_id, sport, side, book, line_taken, stake, model_prob,
@@ -134,6 +134,37 @@ def closing_snapshot(game_id: str, book: str | None = None):
     # close we got. is_closing is what decides whether CLV may be computed.
     out["is_closing"] = mins <= CLOSING_WINDOW_MIN
     return out
+
+
+# Which book's price is treated as the fair line. Pinnacle runs the lowest
+# margin and is the usual reference; the consensus of whatever books we have is
+# the fallback, and which one was used is recorded per bet rather than assumed.
+FAIR_BOOK = "pinnacle"
+
+
+def fair_prob(con, odds_game_id: str, ts: str, side: str):
+    """No-vig probability for `side` at that exact snapshot. (prob, source).
+
+    De-vigged, because a price with the margin still in it is not a
+    probability and cannot be used to compute expected value. Pinnacle if it
+    priced that pull, otherwise the mean of the de-vigged probabilities across
+    whatever books did.
+    """
+    rows = con.execute(
+        "SELECT book, away_ml, home_ml FROM odds_snapshots"
+        " WHERE game_id=? AND ts=? AND away_ml IS NOT NULL AND home_ml IS NOT NULL",
+        (odds_game_id, ts)).fetchall()
+    if not rows:
+        return None, None
+    pick = [r for r in rows if r["book"] == FAIR_BOOK]
+    if pick:
+        a, h = novig_probs(pick[0]["away_ml"], pick[0]["home_ml"])
+        return (h if side == "home" else a), FAIR_BOOK
+    probs = []
+    for r in rows:
+        a, h = novig_probs(r["away_ml"], r["home_ml"])
+        probs.append(h if side == "home" else a)
+    return sum(probs) / len(probs), "consensus"
 
 
 def grade(bet_id: int, closing_line: int | None, won: bool | None,

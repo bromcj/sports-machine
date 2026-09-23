@@ -200,6 +200,18 @@ MIGRATIONS = [
     # Exactly which price a bet was taken at, so "was this bet placeable?" is
     # answerable later rather than inferred.
     ("bets", "odds_snapshot_id", "INTEGER"),
+    # Gate 2's real measurements. clv_pct compares to the same book's close
+    # WITH the vig in it, so a bet can beat it and still lose money, and it
+    # cannot separate a good price from a good forecast.
+    #   ev_fair_close  decimal_taken * p_fair_close - 1   (the money)
+    #   shop_pct       decimal_taken * p_fair_at_bet - 1  (line shopping)
+    #   info_pct       p_fair_close / p_fair_at_bet - 1   (model skill)
+    # (1+shop)(1+info) = 1+ev. Gate 2 tests info, because shop is real money
+    # but is not evidence the model forecasts anything.
+    ("bets", "ev_fair_close", "REAL"),
+    ("bets", "shop_pct", "REAL"),
+    ("bets", "info_pct", "REAL"),
+    ("bets", "fair_source", "TEXT"),        # 'pinnacle' | 'consensus'
 ]
 
 
