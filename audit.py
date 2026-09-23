@@ -477,9 +477,11 @@ def main() -> int:
                  "n_games": 2000, "ll_diff_sd": 0.30}]
         v.record(probe, v.REAL_MARKET, rows)
         check("beating the market alone does not clear", not v.is_cleared(probe))
-        # 60 bets averaging +1.4% with modest spread: comfortably real.
+        # 60 bets averaging +1.4% with modest spread: comfortably real, and
+        # spread across six first-pitch hours so the coverage rule is met.
         strong = [1.4 + (i % 7 - 3) * 0.4 for i in range(60)]
-        v.record_paper(probe, strong)
+        varied = [17 + (i % 6) for i in range(60)]
+        v.record_paper(probe, strong, start_hours=varied)
         check("adding positive CLV alone does not clear", not v.is_cleared(probe))
         v.arm(probe)
         check("all three gates open the tap", v.is_cleared(probe))
@@ -491,15 +493,27 @@ def main() -> int:
         # model lands above zero about half the time. "Average is positive"
         # was therefore not a test of anything.
         noisy = [(2.97 if i % 2 else -2.85) for i in range(60)]   # mean +0.06%
-        r = v.record_paper(probe, noisy)
+        r = v.record_paper(probe, noisy, start_hours=varied)
         check("gate 2 rejects a positive average that is inside the noise",
               not r["passed"], r["reason"])
-        r = v.record_paper(probe, strong)
+        r = v.record_paper(probe, strong, start_hours=varied)
         check("gate 2 accepts an average clear of the noise",
               r["passed"], r["reason"])
-        r = v.record_paper(probe, strong[:40])
+        r = v.record_paper(probe, strong[:40], start_hours=varied[:40])
         check("gate 2 still enforces the 50-bet floor independently",
               not r["passed"], r["reason"])
+
+        # Which games get a gradeable close is decided by cron timing, not at
+        # random: every game that qualified in this archive started at 01:00
+        # UTC. Fifty bets from one bucket validate a slice, not a model.
+        one_bucket = [1] * 60
+        r = v.record_paper(probe, strong, start_hours=one_bucket)
+        check("gate 2 rejects a sample from a single start-time bucket",
+              not r["passed"], r["reason"])
+        r = v.record_paper(probe, strong)
+        check("gate 2 refuses when start times are unknown",
+              not r["passed"], r["reason"])
+        v.record_paper(probe, strong, start_hours=varied)   # restore for below
 
         # Gate 1 must do the same job. MLB beats its baseline in all three
         # test seasons, but two of those margins are ~0.6 SE - a rule that

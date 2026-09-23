@@ -45,6 +45,21 @@ REAL_MARKET = "market"          # de-vigged closing lines
 PLACEHOLDER = "placeholder"     # home-constant or any other stand-in
 MIN_PAPER_BETS = 50
 
+# Graded paper bets must span at least this many distinct first-pitch hours.
+#
+# Which games get a gradeable closing line is decided by cron timing, not at
+# random. Measured on this archive: of 51 MLB games with any pregame price, the
+# 7 that had one inside the window ALL started at 01:00 UTC - west-coast night
+# games - while the games that missed had a median start of 22:00 UTC. One pull
+# happened to land near one start-time bucket, so that bucket is the entire
+# sample.
+#
+# Fifty bets drawn from a single bucket do not validate a model, they validate
+# it on late west-coast games. The spread requirement is a blunt instrument
+# and deliberately so: it cannot make the sample random, but it stops the most
+# obvious way for gate 2 to look satisfied while measuring one narrow slice.
+MIN_START_HOUR_SPREAD = 3
+
 # How many standard errors a result must clear before it counts as evidence
 # rather than noise.
 #
@@ -230,7 +245,7 @@ def record(sport: str, baseline_kind: str, seasons: list[dict]) -> dict:
     _save(data)
     return new_entry
 
-def record_paper(sport: str, clvs) -> dict:
+def record_paper(sport: str, clvs, start_hours=None) -> dict:
     """Gate 2: paper-traded picks held closing-line value that is not noise.
 
     CLV is the honest scoreboard - it says you got a better price than the
@@ -291,7 +306,12 @@ def record_paper(sport: str, clvs) -> dict:
 
     enough = n_bets >= MIN_PAPER_BETS
     convincing = margin > 0
-    passed = enough and convincing
+    # Unknown coverage fails closed, the same way gate 1 treats a missing
+    # per-game spread. A caller that cannot say when its games started cannot
+    # show the sample is not one narrow slice.
+    spread = len(set(start_hours)) if start_hours is not None else 0
+    varied = spread >= MIN_START_HOUR_SPREAD
+    passed = enough and convincing and varied
     if not enough:
         reason = f"only {n_bets} graded paper bets, need {MIN_PAPER_BETS}"
     elif avg_clv <= 0:
@@ -299,9 +319,18 @@ def record_paper(sport: str, clvs) -> dict:
     elif not convincing:
         reason = (f"avg CLV {avg_clv:+.2f}% over {n_bets} bets is within noise "
                   f"(SE {se:.2f}%, needs to clear {PAPER_CLV_SIGMA:g} SE; t={t:.2f})")
+    elif start_hours is None:
+        reason = (f"avg CLV {avg_clv:+.2f}% over {n_bets} bets clears the noise, "
+                  f"but no first-pitch times were supplied, so the sample cannot "
+                  f"be shown to span more than one start-time bucket")
+    elif not varied:
+        reason = (f"avg CLV {avg_clv:+.2f}% over {n_bets} bets clears the noise, "
+                  f"but every bet falls in {spread} start-time bucket(s) "
+                  f"(need {MIN_START_HOUR_SPREAD}) - that validates a slice, "
+                  f"not the model")
     else:
         reason = (f"avg CLV {avg_clv:+.2f}% over {n_bets} bets, "
-                  f"{t:.1f} SE above zero")
+                  f"{t:.1f} SE above zero, across {spread} start-time buckets")
 
     data = _load()
     entry = data.setdefault(sport, {})
@@ -309,6 +338,7 @@ def record_paper(sport: str, clvs) -> dict:
                  "avg_clv": round(float(avg_clv), 3),
                  "sd_clv": round(sd, 3), "se_clv": round(se, 4),
                  "t_stat": round(t, 3) if t != float("inf") else None,
+                 "start_hour_spread": spread,
                  "reason": reason, "recorded_at": _now()}
     old_paper = entry.get("paper_trading") or {}
     if old_paper and _same_except_time(old_paper, new_paper):

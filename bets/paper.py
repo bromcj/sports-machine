@@ -122,16 +122,82 @@ def settle(sport: str = "mlb") -> dict:
 
 
 def score(sport: str = "mlb") -> dict | None:
-    """Feed the graded paper CLVs into gate 2."""
+    """Feed the graded paper CLVs into gate 2, with their first-pitch hours.
+
+    The hours matter because which games get a gradeable close is decided by
+    cron timing rather than at random - measured on this archive, every game
+    that qualified started at 01:00 UTC. Gate 2 refuses a sample drawn from
+    one start-time bucket, so it needs to be told the buckets.
+    """
     con = connect()
-    clvs = [r["clv_pct"] for r in con.execute(
-        "SELECT clv_pct FROM bets WHERE mode='paper' AND sport=?"
-        " AND clv_pct IS NOT NULL", (sport,)).fetchall()]
+    rows = con.execute(
+        "SELECT bet_id, game_id, clv_pct FROM bets WHERE mode='paper' AND sport=?"
+        " AND clv_pct IS NOT NULL", (sport,)).fetchall()
     con.close()
-    if not clvs:
-        print(f"  no paper bets with a usable closing line yet - gate 2 untouched")
+    if not rows:
+        print("  no paper bets with a usable closing line yet - gate 2 untouched")
         return None
-    return record_paper(sport, clvs)
+    clvs, hours = [], []
+    for r in rows:
+        snap = closing_snapshot(r["game_id"])
+        ct = snap["commence_time"] if snap else None
+        if not ct or len(ct) < 14:
+            continue                    # cannot place it in a bucket; drop it
+        clvs.append(r["clv_pct"])
+        hours.append(int(ct[11:13]))
+    if not clvs:
+        print("  graded bets exist but none carry a first-pitch time - "
+              "gate 2 untouched")
+        return None
+    return record_paper(sport, clvs, start_hours=hours)
+
+
+def decompose(sport: str = "mlb") -> dict | None:
+    """Split measured CLV into line-shopping and market-movement components.
+
+    place() takes the BEST price across four books. The maximum of four noisy
+    prices is biased upward, and if outlier books regress toward consensus then
+    shopping alone produces positive CLV - which would let a model with no
+    forecasting skill pass gate 2 on shopping skill.
+
+    Measured on the archive as it stands: best-book CLV +0.344% (SE 0.557,
+    t=0.62) against a randomly chosen book's -0.138%. n=32. That settles
+    nothing in either direction - separating a gap that size from noise needs
+    roughly 340 paired games.
+
+    So this is a diagnostic, not a gate. It needs no new columns: everything
+    it uses is already in odds_snapshots. Run it once there is enough data,
+    BEFORE trusting gate 2, because gate 2 currently measures forecasting and
+    shopping together and cannot tell you which one earned the CLV.
+    """
+    con = connect()
+    rows = con.execute(
+        "SELECT bet_id, game_id, side, book, line_taken, clv_pct FROM bets"
+        " WHERE mode='paper' AND sport=? AND clv_pct IS NOT NULL",
+        (sport,)).fetchall()
+    if not rows:
+        con.close()
+        return None
+    shop = []
+    for r in rows:
+        snap = closing_snapshot(r["game_id"])
+        if snap is None:
+            continue
+        peers = con.execute(
+            "SELECT away_ml, home_ml FROM odds_snapshots WHERE game_id=?"
+            " AND ts=? AND away_ml IS NOT NULL", (snap["game_id"], snap["ts"])
+        ).fetchall()
+        prices = [(p["home_ml"] if r["side"] == "home" else p["away_ml"])
+                  for p in peers]
+        prices = [p for p in prices if p is not None]
+        if len(prices) < 2:
+            continue
+        # How much better was the price taken than the average book's?
+        shop.append(r["line_taken"] - sum(prices) / len(prices))
+    con.close()
+    if not shop:
+        return None
+    return {"n": len(shop), "mean_shopping_premium": sum(shop) / len(shop)}
 
 
 def run(sport: str = "mlb", date: str | None = None):
