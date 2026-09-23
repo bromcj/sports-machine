@@ -147,9 +147,11 @@ def _pooled_diff(rows: list[dict]) -> dict | None:
     the between-season variation of the means.
 
     Why pooled rather than per-season: a model can beat the market in every
-    season by a margin that is noise in every season, which is exactly what
-    MLB does here (2025: 0.64 SE, 2026: 0.61 SE). Pooling uses all the games
-    at once and is the honest test of "is there anything here at all".
+    season by a margin that is noise in every season, which is what MLB does -
+    at the time of writing 2025 is 0.75 SE and 2026 is 0.89 SE. Pooling uses
+    all the games at once and is the honest test of "is there anything here at
+    all". Those per-season figures move whenever the model or the baseline
+    changes; audit.py recomputes them rather than trusting this note.
     """
     usable = [r for r in rows if r.get("n_games") and "ll_diff_sd" in r]
     if len(usable) != len(rows) or not usable:
@@ -168,6 +170,30 @@ def _pooled_diff(rows: list[dict]) -> dict | None:
     se = (var / total) ** 0.5
     return {"n_games": total, "mean": mean, "se": se,
             "t": (mean / se) if se > 0 else 0.0}
+
+
+def leave_one_season_out(rows: list[dict]) -> dict | None:
+    """Pooled margin with each season dropped in turn. None if not computable.
+
+    Pooling answers "is there anything here", but not "does it rest on one
+    season". MLB's pooled margin clears 2 SE almost entirely on 2024: drop
+    that season and t falls from 2.37 to 1.16, which is nothing. A model whose
+    whole case is one year out of three has not shown an edge, it has shown a
+    year.
+
+    Returns {"worst_season": s, "worst_t": t, "all": {season: t}}.
+    """
+    if len(rows) < 3:
+        return None                     # dropping one leaves too little
+    out = {}
+    for drop in rows:
+        kept = [r for r in rows if r is not drop]
+        pooled = _pooled_diff(kept)
+        if pooled is None:
+            return None
+        out[drop["season"]] = pooled["t"]
+    worst = min(out, key=out.get)
+    return {"worst_season": worst, "worst_t": out[worst], "all": out}
 
 
 def record(sport: str, baseline_kind: str, seasons: list[dict]) -> dict:
@@ -219,15 +245,34 @@ def record(sport: str, baseline_kind: str, seasons: list[dict]) -> dict:
                   f"margin {pooled['mean']:+.5f} is only {pooled['t']:.2f} SE "
                   f"above zero (needs {WALK_FORWARD_SIGMA:g}) - inside the noise")
     else:
-        cleared = True
-        reason = (f"beat market in all {len(rows)} test seasons; pooled margin "
-                  f"{pooled['mean']:+.5f}, {pooled['t']:.2f} SE above zero")
+        loso = leave_one_season_out(rows)
+        if loso is not None and loso["worst_t"] <= 0:
+            cleared = False
+            reason = (f"beat market in all {len(rows)} seasons and pooled at "
+                      f"{pooled['t']:.2f} SE, but dropping {loso['worst_season']} "
+                      f"turns the margin NEGATIVE (t={loso['worst_t']:.2f}) - the "
+                      f"result rests on one season")
+        elif loso is not None and loso["worst_t"] < 1.0:
+            cleared = False
+            reason = (f"beat market in all {len(rows)} seasons and pooled at "
+                      f"{pooled['t']:.2f} SE, but without {loso['worst_season']} "
+                      f"only {loso['worst_t']:.2f} SE remains - too concentrated "
+                      f"in one season to call an edge")
+        else:
+            cleared = True
+            reason = (f"beat market in all {len(rows)} test seasons; pooled "
+                      f"margin {pooled['mean']:+.5f}, {pooled['t']:.2f} SE above "
+                      f"zero" + ("" if loso is None else
+                                 f", {loso['worst_t']:.2f} SE with "
+                                 f"{loso['worst_season']} dropped"))
 
     data = _load()
     entry = data.setdefault(sport, {})
     new_entry = dict(entry)
     new_entry.update({"recorded_at": _now(), "baseline_kind": baseline_kind,
                       "cleared": cleared, "reason": reason, "seasons": rows,
+                      "leave_one_season_out": None if not rows else (
+                          leave_one_season_out(rows) or None),
                       "pooled": None if pooled is None else {
                           "n_games": pooled["n_games"],
                           "mean_ll_diff": round(pooled["mean"], 6),

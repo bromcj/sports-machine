@@ -3,6 +3,15 @@
     "armed": false,
     "baseline_kind": "placeholder",
     "cleared": false,
+    "leave_one_season_out": {
+      "all": {
+        "2024": 1.155833304676664,
+        "2025": 2.347856976208495,
+        "2026": 2.226018949189814
+      },
+      "worst_season": 2024,
+      "worst_t": 1.155833304676664
+    },
     "pooled": {
       "mean_ll_diff": 0.003754,
       "n_games": 6456,
@@ -10,7 +19,7 @@
       "t_stat": 2.372
     },
     "reason": "baseline is a placeholder, not a real market - beating it proves the model learned something, not that it has edge",
-    "recorded_at": "2026-09-23T06:37:16+00:00",
+    "recorded_at": "2026-09-23T06:41:13+00:00",
     "seasons": [
       {
         "beat_market": true,

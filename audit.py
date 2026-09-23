@@ -798,6 +798,26 @@ def main() -> int:
         check("gate 1 accepts a pooled margin clear of the noise",
               e["cleared"], e["reason"])
 
+        # Pooling answers "is there anything here", not "does it rest on one
+        # season". MLB's pooled margin is almost entirely 2024: drop it and t
+        # falls from 2.37 to 1.16.
+        concentrated = [
+            # 2024 alone carries it: pooled clears 2 SE, but drop 2024 and
+            # 0.05 SE remains. The pooled test cannot see that.
+            {"season": 2024, "logloss_model": .6740, "logloss_market": .6900,
+             "n_games": 2170, "ll_diff_sd": 0.14},
+            {"season": 2025, "logloss_model": .6899, "logloss_market": .6900,
+             "n_games": 2170, "ll_diff_sd": 0.14},
+            {"season": 2026, "logloss_model": .6899, "logloss_market": .6900,
+             "n_games": 2170, "ll_diff_sd": 0.14}]
+        e = v.record(probe, v.REAL_MARKET, concentrated)
+        check("gate 1 rejects a margin that rests on one season",
+              not e["cleared"], e["reason"])
+        spread_out = [dict(r, logloss_model=.6850) for r in concentrated]
+        e = v.record(probe, v.REAL_MARKET, spread_out)
+        check("gate 1 accepts a margin present in every season",
+              e["cleared"], e["reason"])
+
         # Season averages with no spread cannot be judged, so they must not
         # clear. Failing open here would be the whole point of the gate lost.
         bare = [{"season": r["season"], "logloss_model": .6850,
