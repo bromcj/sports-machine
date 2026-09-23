@@ -235,6 +235,56 @@ def execute(max_credits: int, seasons=TEST_SEASONS, limit=None):
     print(f"\nDone. Credits spent this run: {spent:,}")
 
 
+# /v4/sports is the one endpoint that does NOT count against the quota, and it
+# still returns the quota headers. So the plan can be verified as live, and the
+# balance checked, without spending anything.
+SPORTS_URL = "https://api.the-odds-api.com/v4/sports"
+
+
+def preflight(seasons=TEST_SEASONS) -> dict:
+    """Check the balance against the plan. Costs ZERO credits."""
+    import os
+    from ingest import http
+    api_key = os.environ.get("ODDS_API_KEY", "")
+    if not api_key:
+        raise SystemExit("ODDS_API_KEY is not set.")
+    r = http.get(SPORTS_URL, params={"apiKey": api_key}, label="preflight")
+    rem = r.headers.get("x-requests-remaining")
+    used = r.headers.get("x-requests-used")
+    last = r.headers.get("x-requests-last")
+    rem_i = int(rem) if rem and str(rem).isdigit() else None
+    used_i = int(used) if used and str(used).isdigit() else None
+
+    con = connect()
+    try:
+        done = len(_done(con))
+    except Exception:
+        done = 0
+    con.close()
+    need = (len(build_plan(seasons)) - done) * CREDITS_PER_REQUEST
+
+    print("PREFLIGHT - this call is free (/v4/sports does not count against "
+          "the quota).\n")
+    print(f"  credits remaining : {rem if rem else 'unknown'}")
+    print(f"  credits used      : {used if used else 'unknown'}")
+    print(f"  cost of last call : {last} (0 confirms this one was free)")
+    print(f"  plan needs        : {need:,}")
+    if rem_i is None:
+        print("\n  Could not read the balance. Not safe to run.")
+        ok = False
+    elif rem_i >= need:
+        print(f"\n  ENOUGH: {rem_i - need:,} credits would be left over.")
+        ok = True
+    else:
+        print(f"\n  NOT ENOUGH: short by {need - rem_i:,}. The run would stop "
+              f"partway, which is safe - it is resumable - but do not start "
+              f"until the upgrade has landed.")
+        ok = False
+    if rem_i is not None and used_i is not None:
+        print(f"  (plan size looks like {rem_i + used_i:,} credits/month)")
+    return {"remaining": rem_i, "used": used_i, "need": need, "ok": ok}
+
+
 def dry_run(seasons=TEST_SEASONS, show=8):
     plan = build_plan(seasons)
     con = connect()
@@ -275,7 +325,11 @@ if __name__ == "__main__":
                     help="hard cap; required with --execute")
     ap.add_argument("--limit", type=int, help="stop after N requests")
     ap.add_argument("--plan", action="store_true", help="cost breakdown only")
+    ap.add_argument("--preflight", action="store_true",
+                    help="check the credit balance against the plan (free)")
     a = ap.parse_args()
+    if a.preflight:
+        raise SystemExit(0 if preflight()["ok"] else 1)
     if a.execute:
         if not a.max_credits:
             raise SystemExit("--execute requires --max-credits.")
