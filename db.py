@@ -52,6 +52,13 @@ CREATE TABLE IF NOT EXISTS predictions (
     home_win_prob REAL NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS merged_files (
+    name TEXT PRIMARY KEY,         -- archive/ filename, e.g. odds-2026-09-23-0053.csv
+    bytes INTEGER NOT NULL,        -- size when merged; a changed size means re-read
+    rows INTEGER NOT NULL,
+    merged_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS bets (
     bet_id INTEGER PRIMARY KEY AUTOINCREMENT,
     ts TEXT NOT NULL,

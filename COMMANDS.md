@@ -94,6 +94,7 @@ To run it by hand, use the **Run workflow** button on GitHub and pick a mode:
 python backfill.py              full history download — hours, resumable
 python backfill.py topup        just the days since the last download
 python merge_archive.py         what machine_daily.bat does, manually
+python merge_archive.py --all   re-read every archive file (repair/rebuild)
 python features/build_training.py   rebuild the training table + retrain + save
 ```
 
