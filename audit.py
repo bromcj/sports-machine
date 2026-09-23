@@ -188,7 +188,7 @@ def main() -> int:
 
         # Matching is on time, so a match whose start times disagree is a
         # mismatch that got through.
-        pairs, bad_gap = 0, []
+        pairs, bad_gap, gaps = 0, [], []
         for r in con2.execute(
                 f"SELECT game_id, start_time_utc FROM games WHERE sport='mlb'"
                 f" AND ({SQL_STATS_API}) AND start_time_utc IS NOT NULL"
@@ -201,16 +201,25 @@ def main() -> int:
             a, b = parse_utc(r["start_time_utc"]), parse_utc(o["start_time_utc"])
             if a and b:
                 pairs += 1
-                if abs((a - b).total_seconds()) / 60 > 5:
+                gaps.append(abs((a - b).total_seconds()) / 60)
+                # 60 min, not 5. Feeds genuinely disagree when a game is
+                # delayed - TOR @ BAL 2026-09-21 is scheduled 22:35Z by the
+                # Stats API and 23:20Z by the odds feed, 45 minutes apart and
+                # unmistakably one game. The failure this guards against is a
+                # DAY offset, which is what the old date matching produced and
+                # which shows up here as ~1440 minutes.
+                if gaps[-1] > 60:
                     bad_gap.append(r["game_id"])
         if pairs:
-            check("every feed match agrees on first pitch",
-                  not bad_gap, f"{pairs} matched, {len(bad_gap)} disagree by >5 min")
+            check("no feed match is a different game",
+                  not bad_gap,
+                  f"{pairs} matched, worst gap {max(gaps):.0f} min"
+                  if gaps else f"{pairs} matched")
         else:
-            skip("every feed match agrees on first pitch", "no matched pairs yet")
+            skip("no feed match is a different game", "no matched pairs yet")
     else:
         skip("game_date is the LOCAL date of first pitch, never UTC", "no tables")
-        skip("every feed match agrees on first pitch", "no tables")
+        skip("no feed match is a different game", "no tables")
     con2.close()
 
     # ------------------------------------------------------------ staleness
