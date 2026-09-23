@@ -130,6 +130,20 @@ CREATE TABLE IF NOT EXISTS probables_history (
     home_starter_id INTEGER
 );
 
+-- Which historical snapshots have been paid for and stored. This is a ONE-TIME
+-- purchase at 10 credits a request, so a rerun must never buy the same
+-- snapshot twice - and a failed request must be recorded too, or a retry loop
+-- could quietly spend the budget on something that will never succeed.
+CREATE TABLE IF NOT EXISTS odds_history_progress (
+    snapshot_ts TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,            -- hist_open | hist_close
+    fetched_at TEXT NOT NULL,
+    n_prices INTEGER,
+    credits_remaining INTEGER,
+    ok INTEGER NOT NULL DEFAULT 1,
+    note TEXT
+);
+
 CREATE TABLE IF NOT EXISTS merged_files (
     name TEXT PRIMARY KEY,         -- archive/ filename, e.g. odds-2026-09-23-0053.csv
     bytes INTEGER NOT NULL,        -- size when merged; a changed size means re-read
