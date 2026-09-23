@@ -10,12 +10,26 @@ on:
     # 3 pulls/day = 12/day = ~360/month. A 4th daily pull would be ~480 and a
     # 5th would blow the cap. Do not add a cron without redoing that math.
     #
-    # The close pulls are deliberately EARLY: GitHub queues scheduled runs and
-    # routinely starts them 5-30 min late, so aiming at first pitch would often
-    # land after it. Landing slightly early is recoverable; landing late is not.
-    - cron: '0 14 * * *'    # 10:00 am ET - opening lines, probables are up
-    - cron: '40 22 * * *'   #  6:40 pm ET - ~25 min before the 7:05 pm main slate
-    - cron: '20 1 * * *'    #  9:20 pm ET - ~20 min before 9:40 pm west-coast games
+    # The close pulls are deliberately EARLY, for two reasons.
+    #
+    # 1. GitHub queues scheduled runs on shared runners and starts them late.
+    #    Measured on this repo 2026-09-22: the 14:00 cron fired at 17:58 (3h58m
+    #    late) and the 22:40 cron fired at 00:53 (2h13m late). At that second
+    #    pull 10 of 14 MLB games had already started, so what came back was
+    #    IN-PLAY pricing, not a closing line. Useless as a CLV anchor.
+    # 2. Minutes are staggered off the hour. Queue depth spikes at :00, :15,
+    #    :30 and :45 because that is when most of GitHub schedules; an odd
+    #    minute waits in a far shorter line.
+    #
+    # A pregame price two hours out is a real market opinion. An in-play price
+    # twenty minutes in is not. Early is recoverable; late is worthless.
+    - cron: '13 14 * * *'   # 10:13 am ET - opening lines, probables are up
+    - cron: '9 21 * * *'    #  5:09 pm ET - ~2h before the 7:05 pm main slate
+    - cron: '51 23 * * *'   #  7:51 pm ET - ~2h before 9:40 pm west-coast games
+    #
+    # Keep the last one BEFORE 00:00 UTC. At 01:20 UTC the runner's calendar day
+    # was already tomorrow while the games were still today's, so on Oct 31 ->
+    # Nov 1 `active_sports()` would have been asked for the wrong month.
   workflow_dispatch:
     inputs:
       mode:
@@ -48,8 +62,12 @@ jobs:
         run: |
           # An empty SCHEDULE means this was triggered by hand, so honour the
           # dropdown; fall back to morning if it is somehow unset.
+          # Match on the HOUR only. This used to compare the whole cron string
+          # against '0 14 * * *', which meant changing the morning pull's minute
+          # silently turned it into a close pull. The hour is the part that
+          # actually identifies which run this is.
           case "$SCHEDULE" in
-            '0 14 * * *') MODE=morning ;;
+            *' 14 * * *') MODE=morning ;;
             '')           MODE="${DISPATCH_MODE:-morning}" ;;
             *)            MODE=close   ;;
           esac

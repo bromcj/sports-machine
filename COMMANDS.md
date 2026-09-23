@@ -94,11 +94,20 @@ Runs on GitHub's servers three times a day. Your computer can be off.
 
 | Your time (Eastern) | Mode |
 |---|---|
-| 10:00 am | opening odds |
-| 6:40 pm | closing odds — ~25 min before the 7:05 slate |
-| 9:20 pm | closing odds — ~20 min before west-coast games |
+| 10:13 am | opening odds |
+| 5:09 pm | closing odds — ~2h before the 7:05 slate |
+| 7:51 pm | closing odds — ~2h before west-coast games |
 
 Times are set in UTC, so in winter each fires an hour earlier on your clock.
+
+**Why so early?** GitHub runs scheduled jobs on shared machines and starts them
+late — measured on this repo, by anywhere from a few minutes to four hours. A
+pull aimed at 25 minutes before first pitch lands *after* first pitch on a bad
+day, and what comes back is in-play pricing, which is worthless as a betting
+benchmark. Two hours early still catches a real pregame market.
+
+So don't be alarmed if a run shows up an hour or two after the time above.
+That's expected, and the schedule is built to absorb it.
 
 ---
 
