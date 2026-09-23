@@ -31,8 +31,8 @@ from bets.engine import evaluate, novig_probs
 from bets.engine import american_to_decimal
 from bets.log import (CLOSING_WINDOW_MIN, closing_snapshot, fair_prob,
                       grade, record_bet)
-from feeds import parse_utc, pregame_books
-from model.validation import record_paper
+from feeds import ET, parse_utc, pregame_books
+from model.validation import record_paper, slot_of
 
 PAPER_BANKROLL = 1000.0        # notional; only the CLV matters for gate 2
 
@@ -224,20 +224,31 @@ def score(sport: str = "mlb") -> dict | None:
     if not rows:
         print("  no paper bets with a usable closing line yet - gate 2 untouched")
         return None
-    clvs, hours = [], []
+    clvs, slots = [], []
     for r in rows:
         snap = closing_snapshot(r["game_id"])
-        ct = snap["commence_time"] if snap else None
-        if not ct or len(ct) < 14:
-            continue                    # cannot place it in a bucket; drop it
+        start = parse_utc(snap["commence_time"]) if snap else None
+        if start is None:
+            continue                    # cannot place it in a slot; drop it
         # info, not clv_pct: the part of the result the model earned.
         clvs.append(r["info_pct"])
-        hours.append(int(ct[11:13]))
+        slots.append(slot_of(start.astimezone(ET).hour))
     if not clvs:
         print("  graded bets exist but none carry a first-pitch time - "
               "gate 2 untouched")
         return None
-    return record_paper(sport, clvs, start_hours=hours)
+
+    # Coverage: of the paper bets that SETTLED, how many could be graded?
+    # This is the honest measure of whether the graded set represents the bets
+    # actually placed. The graded ones are whichever games a cron happened to
+    # land near, and that is not random.
+    con = connect()
+    settled = con.execute(
+        "SELECT COUNT(*) FROM bets WHERE mode='paper' AND sport=?"
+        " AND result IS NOT NULL", (sport,)).fetchone()[0]
+    con.close()
+    coverage = (len(clvs) / settled) if settled else None
+    return record_paper(sport, clvs, slots=slots, coverage=coverage)
 
 
 def summary(sport: str = "mlb") -> dict | None:

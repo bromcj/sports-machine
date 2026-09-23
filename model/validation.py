@@ -45,20 +45,36 @@ REAL_MARKET = "market"          # de-vigged closing lines
 PLACEHOLDER = "placeholder"     # home-constant or any other stand-in
 MIN_PAPER_BETS = 50
 
-# Graded paper bets must span at least this many distinct first-pitch hours.
-#
 # Which games get a gradeable closing line is decided by cron timing, not at
 # random. Measured on this archive: of 51 MLB games with any pregame price, the
-# 7 that had one inside the window ALL started at 01:00 UTC - west-coast night
-# games - while the games that missed had a median start of 22:00 UTC. One pull
-# happened to land near one start-time bucket, so that bucket is the entire
-# sample.
+# 7 with one inside the window ALL started at 01:00 UTC - west-coast night
+# games - while the games that missed had a median start of 22:00 UTC.
 #
-# Fifty bets drawn from a single bucket do not validate a model, they validate
-# it on late west-coast games. The spread requirement is a blunt instrument
-# and deliberately so: it cannot make the sample random, but it stops the most
-# obvious way for gate 2 to look satisfied while measuring one narrow slice.
-MIN_START_HOUR_SPREAD = 3
+# The first attempt at guarding this counted distinct UTC start HOURS and asked
+# for 3. That is far too easy: the late west-coast slice alone spans 00:xx
+# (Colorado at 8:40pm ET), 01:xx and 02:xx, so the very sample that motivated
+# the rule passes it. So would 48 bets in one hour plus one in each of two
+# others.
+#
+# The real question is not "how spread out are the graded bets" but "are the
+# graded bets a random sample of the bets placed". That is measurable directly.
+MIN_COVERAGE = 0.75          # graded / settled. Below this, gate 2 fails.
+
+# Backstop for the case where coverage is adequate but still lopsided. Slots
+# are ET: day (before 5pm), evening (5-8:59pm), late (9pm or later).
+MAX_SLOT_SHARE = 0.60
+# Above this coverage the slot mix IS the real schedule, so stop second-
+# guessing it - MLB genuinely plays most games in the evening.
+COVERAGE_WAIVES_SLOTS = 0.90
+
+SLOTS = ("day", "evening", "late")
+
+
+def slot_of(et_hour: int) -> str:
+    """ET first-pitch hour -> day | evening | late."""
+    if et_hour < 17:
+        return "day"
+    return "evening" if et_hour < 21 else "late"
 
 # How many standard errors a result must clear before it counts as evidence
 # rather than noise.
@@ -290,7 +306,7 @@ def record(sport: str, baseline_kind: str, seasons: list[dict]) -> dict:
     _save(data)
     return new_entry
 
-def record_paper(sport: str, clvs, start_hours=None) -> dict:
+def record_paper(sport: str, clvs, slots=None, coverage=None) -> dict:
     """Gate 2: the model moved the fair line its way, by more than noise.
 
     `clvs` is the per-bet INFO component, not raw CLV. CLV against the same
@@ -357,11 +373,21 @@ def record_paper(sport: str, clvs, start_hours=None) -> dict:
     enough = n_bets >= MIN_PAPER_BETS
     convincing = margin > 0
     # Unknown coverage fails closed, the same way gate 1 treats a missing
-    # per-game spread. A caller that cannot say when its games started cannot
-    # show the sample is not one narrow slice.
-    spread = len(set(start_hours)) if start_hours is not None else 0
-    varied = spread >= MIN_START_HOUR_SPREAD
-    passed = enough and convincing and varied
+    # per-game spread. A caller that cannot say what fraction of its settled
+    # bets it managed to grade cannot show the graded ones are representative.
+    cov = float(coverage) if coverage is not None else None
+    covered = cov is not None and cov >= MIN_COVERAGE
+
+    by_slot, slot_share, lopsided = {}, {}, None
+    if slots is not None and len(slots) == n_bets:
+        for sl, c in zip(slots, clvs):
+            by_slot.setdefault(sl, []).append(c)
+        slot_share = {k: len(v) / n_bets for k, v in by_slot.items()}
+        if cov is None or cov < COVERAGE_WAIVES_SLOTS:
+            over = [k for k, v in slot_share.items() if v > MAX_SLOT_SHARE]
+            lopsided = over[0] if over else None
+
+    passed = enough and convincing and covered and lopsided is None
     if not enough:
         reason = f"only {n_bets} graded paper bets, need {MIN_PAPER_BETS}"
     elif avg_clv <= 0:
@@ -369,18 +395,24 @@ def record_paper(sport: str, clvs, start_hours=None) -> dict:
     elif not convincing:
         reason = (f"mean info {avg_clv:+.2f}% over {n_bets} bets is within noise "
                   f"(SE {se:.2f}%, needs to clear {PAPER_CLV_SIGMA:g} SE; t={t:.2f})")
-    elif start_hours is None:
+    elif cov is None:
         reason = (f"mean info {avg_clv:+.2f}% over {n_bets} bets clears the noise, "
-                  f"but no first-pitch times were supplied, so the sample cannot "
-                  f"be shown to span more than one start-time bucket")
-    elif not varied:
-        reason = (f"mean info {avg_clv:+.2f}% over {n_bets} bets clears the noise, "
-                  f"but every bet falls in {spread} start-time bucket(s) "
-                  f"(need {MIN_START_HOUR_SPREAD}) - that validates a slice, "
-                  f"not the model")
+                  f"but coverage was not supplied, so the graded bets cannot be "
+                  f"shown to represent the bets actually placed")
+    elif not covered:
+        reason = (f"COVERAGE is the blocker: only {cov:.0%} of settled paper bets "
+                  f"could be graded (need {MIN_COVERAGE:.0%}). The graded ones are "
+                  f"whichever games a cron happened to land near, not a random "
+                  f"sample. Fix pre-game collection before reading anything into "
+                  f"the {avg_clv:+.2f}% info over {n_bets} bets")
+    elif lopsided is not None:
+        reason = (f"mean info {avg_clv:+.2f}% over {n_bets} bets clears the noise "
+                  f"at {cov:.0%} coverage, but {slot_share[lopsided]:.0%} of them "
+                  f"are '{lopsided}' games (max {MAX_SLOT_SHARE:.0%}) - that "
+                  f"validates a slate slot, not the model")
     else:
-        reason = (f"mean info {avg_clv:+.2f}% over {n_bets} bets, "
-                  f"{t:.1f} SE above zero, across {spread} start-time buckets")
+        reason = (f"mean info {avg_clv:+.2f}% over {n_bets} bets, {t:.1f} SE "
+                  f"above zero, at {cov:.0%} coverage")
 
     data = _load()
     entry = data.setdefault(sport, {})
@@ -388,7 +420,12 @@ def record_paper(sport: str, clvs, start_hours=None) -> dict:
                  "avg_clv": round(float(avg_clv), 3),
                  "sd_clv": round(sd, 3), "se_clv": round(se, 4),
                  "t_stat": round(t, 3) if t != float("inf") else None,
-                 "start_hour_spread": spread,
+                 "coverage": None if cov is None else round(cov, 4),
+                 "slot_share": {k: round(v, 3) for k, v in slot_share.items()},
+                 # info per slot, so a model that only works on late games is
+                 # visible rather than averaged away.
+                 "info_by_slot": {k: round(sum(v) / len(v), 3)
+                                  for k, v in by_slot.items()},
                  "reason": reason, "recorded_at": _now()}
     old_paper = entry.get("paper_trading") or {}
     if old_paper and _same_except_time(old_paper, new_paper):

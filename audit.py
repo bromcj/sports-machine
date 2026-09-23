@@ -813,8 +813,8 @@ def main() -> int:
         # 60 bets averaging +1.4% with modest spread: comfortably real, and
         # spread across six first-pitch hours so the coverage rule is met.
         strong = [1.4 + (i % 7 - 3) * 0.4 for i in range(60)]
-        varied = [17 + (i % 6) for i in range(60)]
-        v.record_paper(probe, strong, start_hours=varied)
+        varied = [v.SLOTS[i % 3] for i in range(60)]
+        v.record_paper(probe, strong, slots=varied, coverage=0.95)
         check("adding positive CLV alone does not clear", not v.is_cleared(probe))
         v.arm(probe)
         check("all three gates open the tap", v.is_cleared(probe))
@@ -826,27 +826,41 @@ def main() -> int:
         # model lands above zero about half the time. "Average is positive"
         # was therefore not a test of anything.
         noisy = [(2.97 if i % 2 else -2.85) for i in range(60)]   # mean +0.06%
-        r = v.record_paper(probe, noisy, start_hours=varied)
+        r = v.record_paper(probe, noisy, slots=varied, coverage=0.95)
         check("gate 2 rejects a positive average that is inside the noise",
               not r["passed"], r["reason"])
-        r = v.record_paper(probe, strong, start_hours=varied)
+        r = v.record_paper(probe, strong, slots=varied, coverage=0.95)
         check("gate 2 accepts an average clear of the noise",
               r["passed"], r["reason"])
-        r = v.record_paper(probe, strong[:40], start_hours=varied[:40])
+        r = v.record_paper(probe, strong[:40], slots=varied[:40], coverage=0.95)
         check("gate 2 still enforces the 50-bet floor independently",
               not r["passed"], r["reason"])
 
         # Which games get a gradeable close is decided by cron timing, not at
         # random: every game that qualified in this archive started at 01:00
-        # UTC. Fifty bets from one bucket validate a slice, not a model.
-        one_bucket = [1] * 60
-        r = v.record_paper(probe, strong, start_hours=one_bucket)
-        check("gate 2 rejects a sample from a single start-time bucket",
-              not r["passed"], r["reason"])
-        r = v.record_paper(probe, strong)
-        check("gate 2 refuses when start times are unknown",
-              not r["passed"], r["reason"])
-        v.record_paper(probe, strong, start_hours=varied)   # restore for below
+        # UTC. The question is whether the GRADED bets represent the bets
+        # PLACED, and that is coverage.
+        mixed = [v.SLOTS[i % 3] for i in range(60)]
+        r = v.record_paper(probe, strong, slots=mixed, coverage=0.11)
+        check("gate 2 fails on low coverage and says so",
+              not r["passed"] and "COVERAGE is the blocker" in r["reason"],
+              r["reason"][:72])
+        r = v.record_paper(probe, strong, slots=mixed)
+        check("gate 2 refuses when coverage is unknown",
+              not r["passed"], r["reason"][:72])
+        # Good coverage, but 80% of the graded bets are late games.
+        lop = ["late"] * 48 + ["day"] * 6 + ["evening"] * 6
+        r = v.record_paper(probe, strong, slots=lop, coverage=0.80)
+        check("gate 2 rejects a graded set dominated by one slate slot",
+              not r["passed"], r["reason"][:72])
+        # At very high coverage the mix IS the schedule, so stop second-guessing.
+        r = v.record_paper(probe, strong, slots=lop, coverage=0.95)
+        check("very high coverage waives the slot check",
+              r["passed"], r["reason"][:72])
+        r = v.record_paper(probe, strong, slots=mixed, coverage=0.95)
+        check("info is reported per slate slot",
+              set(r["info_by_slot"]) == set(v.SLOTS), str(r["info_by_slot"]))
+        v.record_paper(probe, strong, slots=mixed, coverage=0.95)  # restore
 
         # Gate 1 must do the same job. MLB beats its baseline in all three
         # test seasons, but two of those margins are ~0.6 SE - a rule that
