@@ -3,25 +3,37 @@
     "armed": false,
     "baseline_kind": "placeholder",
     "cleared": false,
+    "pooled": {
+      "mean_ll_diff": 0.003925,
+      "n_games": 6497,
+      "se": 0.00154,
+      "t_stat": 2.549
+    },
     "reason": "baseline is a placeholder, not a real market - beating it proves the model learned something, not that it has edge",
-    "recorded_at": "2026-09-22T05:26:48+00:00",
+    "recorded_at": "2026-09-23T05:03:30+00:00",
     "seasons": [
       {
         "beat_market": true,
-        "logloss_market": 0.693083,
+        "ll_diff_sd": 0.138799,
+        "logloss_market": 0.692398,
         "logloss_model": 0.684738,
+        "n_games": 2179,
         "season": 2024
       },
       {
         "beat_market": true,
-        "logloss_market": 0.688989,
+        "ll_diff_sd": 0.120505,
+        "logloss_market": 0.689772,
         "logloss_model": 0.687165,
+        "n_games": 2187,
         "season": 2025
       },
       {
         "beat_market": true,
-        "logloss_market": 0.691354,
+        "ll_diff_sd": 0.111126,
+        "logloss_market": 0.691202,
         "logloss_model": 0.689744,
+        "n_games": 2131,
         "season": 2026
       }
     ]

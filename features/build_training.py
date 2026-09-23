@@ -15,9 +15,16 @@ frame reshuffles same-day games and silently pairs each team with another
 team's numbers.
 
 Baseline note (honesty): free odds tiers don't include historical closing
-lines, so the market column here is a HOME-CONSTANT baseline (54%). Your
-model must beat it decisively. True market comparison begins with the
-closing lines your own daily runs are now archiving.
+lines, so the market column here is a HOME-CONSTANT baseline, not a market.
+It is the home win rate of the seasons BEFORE the one being scored - the
+same thing build_training_nfl.py uses, and leakage-free because a season
+never contributes to its own baseline.
+
+It used to be a flat 0.54, which was simply wrong: the actual rate over
+this window is 52.3-52.9%. A miscalibrated constant is an easier target,
+so part of any margin over it was the constant being off rather than the
+model being good. True market comparison begins with the closing lines
+your own daily runs are now archiving.
 """
 import sys
 from pathlib import Path
@@ -34,7 +41,9 @@ from model.train import walk_forward
 from model.validation import record, explain, PLACEHOLDER
 from model.persist import save as save_model, describe
 
-HOME_BASELINE = 0.54
+# Fallback only, for the earliest season, which has no prior season to
+# measure and is never scored anyway (walk_forward needs 2 training seasons).
+HOME_BASELINE_PRIOR = 0.5
 OUT = ROOT / "data" / "training_mlb.parquet"
 
 
@@ -107,7 +116,20 @@ def assemble() -> pd.DataFrame:
     pf = park_factor_table(games)
     df["venue"] = [venue_id(t, s) for t, s in zip(df["home_ab"], df["season"])]
     df["park_factor"] = [pf[(v, s)] for v, s in zip(df["venue"], df["season"])]
-    df["novig_home_prob"] = HOME_BASELINE  # placeholder baseline; see docstring
+    # Placeholder baseline, expanding-window: each season is scored against the
+    # home win rate of the seasons before it, never including itself. Matching
+    # walk_forward's own train/test split keeps the comparison leakage-free.
+    # Still a PLACEHOLDER - a well-calibrated constant is not a market, and
+    # beating it clears nothing.
+    seasons_sorted = sorted(df["season"].unique())
+    prior_rate = {}
+    for idx, yr in enumerate(seasons_sorted):
+        earlier = df[df["season"].isin(seasons_sorted[:idx])]
+        prior_rate[yr] = (float(earlier["home_won"].mean()) if len(earlier)
+                          else HOME_BASELINE_PRIOR)
+    df["novig_home_prob"] = df["season"].map(prior_rate)
+    print("Placeholder baseline (home win rate of prior seasons): "
+          + ", ".join(f"{y}:{prior_rate[y]:.3f}" for y in seasons_sorted))
 
     feats = [c for c in df.columns if any(
         c.startswith(p) for p in ("home_pen", "away_pen", "home_off", "away_off",
