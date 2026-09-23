@@ -4,35 +4,35 @@
     "baseline_kind": "placeholder",
     "cleared": false,
     "pooled": {
-      "mean_ll_diff": 0.003925,
+      "mean_ll_diff": 0.004037,
       "n_games": 6497,
-      "se": 0.00154,
-      "t_stat": 2.549
+      "se": 0.001572,
+      "t_stat": 2.568
     },
     "reason": "baseline is a placeholder, not a real market - beating it proves the model learned something, not that it has edge",
-    "recorded_at": "2026-09-23T05:03:30+00:00",
+    "recorded_at": "2026-09-23T06:30:25+00:00",
     "seasons": [
       {
         "beat_market": true,
-        "ll_diff_sd": 0.138799,
+        "ll_diff_sd": 0.143934,
         "logloss_market": 0.692398,
-        "logloss_model": 0.684738,
+        "logloss_model": 0.684696,
         "n_games": 2179,
         "season": 2024
       },
       {
         "beat_market": true,
-        "ll_diff_sd": 0.120505,
+        "ll_diff_sd": 0.121385,
         "logloss_market": 0.689772,
-        "logloss_model": 0.687165,
+        "logloss_model": 0.687073,
         "n_games": 2187,
         "season": 2025
       },
       {
         "beat_market": true,
-        "ll_diff_sd": 0.111126,
+        "ll_diff_sd": 0.112447,
         "logloss_market": 0.691202,
-        "logloss_model": 0.689744,
+        "logloss_model": 0.68954,
         "n_games": 2131,
         "season": 2026
       }
