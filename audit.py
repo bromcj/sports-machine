@@ -120,12 +120,27 @@ def main() -> int:
     import pandas as pd
     sc = sorted((ROOT / "data" / "statcast").glob("*.parquet"))
     if sc:
-        latest = max(pd.read_parquet(p)["game_date"].max() for p in sc)
+        # Normalise before comparing. A season that has been topped up used to
+        # come back as datetime64 while untouched ones were strings, and the
+        # bare max() then raised "'>' not supported between Timestamp and str".
+        dtypes = {}
+        latest = None
+        for f in sc:
+            col = pd.read_parquet(f, columns=["game_date"])["game_date"]
+            dtypes[f.stem] = str(col.dtype)
+            top = pd.to_datetime(col).max()
+            latest = top if latest is None else max(latest, top)
         gap = (pd.Timestamp(dt.date.today()) - pd.Timestamp(latest)).days
         check("statcast lag is visible", True,
               f"{gap} day(s) behind (Statcast itself lags ~1)")
+        # The invariant the bug above violated: a season's stored type must not
+        # depend on whether it has ever been topped up.
+        check("every statcast season stores game_date the same way",
+              len(set(dtypes.values())) == 1,
+              ", ".join(f"{k}:{v}" for k, v in sorted(dtypes.items())))
     else:
         skip("statcast lag is visible", "no statcast parquets - run: python backfill.py")
+        skip("every statcast season stores game_date the same way", "no parquets")
 
     if (ROOT / "archive").exists():
         import db as dbmod
@@ -215,6 +230,38 @@ def main() -> int:
         skip("NFL ties dropped, not scored as away wins", "no NFL training table")
 
     # --------------------------------------------------------------- guard
+    # ----------------------------------------------------- sequential testing
+    section("SEQUENTIAL TESTING")
+    # Gate 2 is re-tested every night as bets accumulate, so each night is a
+    # fresh chance to cross the bar by luck. Two sigma checked nightly is a
+    # ~15% false-pass rate, not 2.5%. This re-runs the calibration rather than
+    # trusting the comment next to the constant: if the cadence, the CLV
+    # spread, or the sigma changes, this check is what notices.
+    import numpy as _np
+    from model.validation import PAPER_CLV_SIGMA, MIN_PAPER_BETS
+
+    def _false_pass(sigma, days=120, per_day=3, sd=2.965, trials=1500, edge=0.0):
+        rng = _np.random.default_rng(97)
+        n = days * per_day
+        x = rng.normal(edge, sd, (trials, n))
+        cs, cs2 = _np.cumsum(x, axis=1), _np.cumsum(x ** 2, axis=1)
+        ns = _np.arange(1, n + 1)
+        mean = cs / ns
+        var = (cs2 - ns * mean ** 2) / _np.maximum(ns - 1, 1)
+        se = _np.sqrt(_np.maximum(var, 0) / ns)
+        ok = (mean - sigma * se > 0) & (ns >= MIN_PAPER_BETS)
+        return ok[:, per_day - 1::per_day].any(axis=1).mean()
+
+    fp = _false_pass(PAPER_CLV_SIGMA)
+    check("gate 2 holds a zero-skill model under NIGHTLY re-testing",
+          fp <= 0.05, f"sigma {PAPER_CLV_SIGMA:g} -> {fp:.1%} false pass over 120 days")
+    fp2 = _false_pass(2.0)
+    check("two sigma would NOT hold it - the reason this bar is higher",
+          fp2 > 0.05, f"sigma 2.0 -> {fp2:.1%}")
+    pw = _false_pass(PAPER_CLV_SIGMA, days=200, edge=1.0)
+    check("the higher bar still detects a real +1% edge",
+          pw >= 0.80, f"{pw:.0%} of the time within 200 days")
+
     # --------------------------------------------------------- paper trading
     section("PAPER TRADING (GATE 2)")
     import db as dbmod4

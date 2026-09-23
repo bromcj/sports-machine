@@ -151,6 +151,13 @@ def topup_statcast(year: int | None = None, today: str | None = None,
     combined = combined.sort_values(["game_date", "game_pk", "at_bat_number",
                                      "pitch_number"])
     added = len(combined) - len(df)
+    # Write game_date back as an ISO STRING, the way backfill_statcast() wrote
+    # it. Leaving it as datetime64 silently gave a topped-up season a different
+    # dtype from every untouched one, so comparing across files raised
+    # "'>' not supported between Timestamp and str". load_statcast() coerces on
+    # read and never noticed; audit.py, which compares the files directly, did.
+    # A season's dtype must not depend on whether it has been topped up.
+    combined["game_date"] = combined["game_date"].dt.strftime("%Y-%m-%d")
     combined.to_parquet(out)
     print(f"[{year}] +{added:,} pitches ({before - len(combined):,} duplicates "
           f"dropped). Now through "
