@@ -331,12 +331,29 @@ def main() -> int:
         rows = [{"season": 2025, "logloss_model": .61, "logloss_market": .65}]
         v.record(probe, v.REAL_MARKET, rows)
         check("beating the market alone does not clear", not v.is_cleared(probe))
-        v.record_paper(probe, 60, 1.4)
+        # 60 bets averaging +1.4% with modest spread: comfortably real.
+        strong = [1.4 + (i % 7 - 3) * 0.4 for i in range(60)]
+        v.record_paper(probe, strong)
         check("adding positive CLV alone does not clear", not v.is_cleared(probe))
         v.arm(probe)
         check("all three gates open the tap", v.is_cleared(probe))
         v.record(probe, v.REAL_MARKET, rows)
         check("a fresh walk-forward auto-disarms", not v.is_cleared(probe))
+
+        # Gate 2 must distinguish a real edge from a coin flip. Measured on
+        # this archive, per-bet CLV has SD ~2.97%, so over 50 bets a zero-skill
+        # model lands above zero about half the time. "Average is positive"
+        # was therefore not a test of anything.
+        noisy = [(2.97 if i % 2 else -2.85) for i in range(60)]   # mean +0.06%
+        r = v.record_paper(probe, noisy)
+        check("gate 2 rejects a positive average that is inside the noise",
+              not r["passed"], r["reason"])
+        r = v.record_paper(probe, strong)
+        check("gate 2 accepts an average clear of the noise",
+              r["passed"], r["reason"])
+        r = v.record_paper(probe, strong[:40])
+        check("gate 2 still enforces the 50-bet floor independently",
+              not r["passed"], r["reason"])
     finally:
         # Leave validation.json exactly as found. If it did not exist, the probe
         # created it, so remove it rather than leaving a fake sport behind.

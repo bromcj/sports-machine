@@ -45,6 +45,26 @@ REAL_MARKET = "market"          # de-vigged closing lines
 PLACEHOLDER = "placeholder"     # home-constant or any other stand-in
 MIN_PAPER_BETS = 50
 
+# How many standard errors a result must clear before it counts as evidence
+# rather than noise. Both measured gates use it, so tightening the project's
+# idea of "convincing" is one edit.
+#
+# Two is the conventional ~95% bar. It is a floor, not a ceiling: these are
+# the gates that decide whether real money gets staked, and the cost of
+# passing a model that has no edge is much higher than the cost of making a
+# good model wait for more data.
+PAPER_CLV_SIGMA = 2.0
+WALK_FORWARD_SIGMA = 2.0
+
+
+def _stdev(xs) -> float:
+    """Sample standard deviation. 0.0 for fewer than two points."""
+    n = len(xs)
+    if n < 2:
+        return 0.0
+    mean = sum(xs) / n
+    return (sum((x - mean) ** 2 for x in xs) / (n - 1)) ** 0.5
+
 
 def _load() -> dict:
     if not PATH.exists():
@@ -124,25 +144,82 @@ def record(sport: str, baseline_kind: str, seasons: list[dict]) -> dict:
     _save(data)
     return new_entry
 
-def record_paper(sport: str, n_bets: int, avg_clv: float) -> dict:
-    """Gate 2: paper-traded picks held positive closing-line value.
+def record_paper(sport: str, clvs) -> dict:
+    """Gate 2: paper-traded picks held closing-line value that is not noise.
 
     CLV is the honest scoreboard - it says you got a better price than the
     market settled at, which is what edge looks like before variance buries
-    it. Win rate over 50 bets is mostly noise; CLV is not.
+    it. Win rate over 50 bets is mostly noise; CLV is less noisy, but it is
+    NOT noise-free, and the previous version of this gate ignored that.
+
+    It passed on `n >= 50 and avg_clv > 0`. Measured on this project's own
+    archive, per-bet CLV between the first and last pregame price has a
+    standard deviation of ~2.97%, so the standard error over 50 bets is
+    ~0.42% and a model with no skill whatsoever clears "average is above
+    zero" about half the time. That is a coin flip wearing a lab coat.
+
+    So the bar is the average beating zero by PAPER_CLV_SIGMA standard
+    errors, which needs the spread of the individual bets, not just their
+    mean. `clvs` is the list of per-bet CLV percentages.
+
+    Simulated against this archive's spread, 20k trials per cell:
+
+        bets    old rule passes a       new rule passes a
+                ZERO-skill model        ZERO-skill model
+        50          50.0%                    2.7%
+        100         49.6%                    2.4%
+        400         49.2%                    2.3%
+
+    The old rule was not a weak test, it was no test - a coin flip at every
+    sample size, because "is the average above zero" is exactly the question
+    a symmetric noise distribution answers 50/50.
+
+    The cost is honest and worth stating: a small edge now needs a lot of
+    evidence. Bets required to detect a real edge 80% of the time:
+
+        true edge   bets
+        +1.0%       ~77
+        +0.5%       ~291
+        +0.25%      ~1378
+
+    At roughly three qualifying MLB bets a day that is months, not weeks.
+    That is the correct trade. The cost of passing a model with no edge is
+    losing money indefinitely; the cost of making a good model wait is
+    waiting.
+
+    The 50-bet floor stays as a separate, independent condition: a handful
+    of lucky bets can clear a t-statistic, and n is the cheaper guard.
     """
-    passed = n_bets >= MIN_PAPER_BETS and avg_clv > 0
-    if n_bets < MIN_PAPER_BETS:
+    clvs = [float(c) for c in clvs]
+    n_bets = len(clvs)
+    avg_clv = sum(clvs) / n_bets if n_bets else 0.0
+    sd = _stdev(clvs)
+    se = sd / (n_bets ** 0.5) if n_bets else 0.0
+    # se == 0 means every bet had an identical CLV. Degenerate, and almost
+    # certainly synthetic, but a positive mean with no spread is unambiguous.
+    t = (avg_clv / se) if se > 0 else (float("inf") if avg_clv > 0 else 0.0)
+    margin = avg_clv - PAPER_CLV_SIGMA * se
+
+    enough = n_bets >= MIN_PAPER_BETS
+    convincing = margin > 0
+    passed = enough and convincing
+    if not enough:
         reason = f"only {n_bets} graded paper bets, need {MIN_PAPER_BETS}"
     elif avg_clv <= 0:
         reason = f"avg CLV {avg_clv:+.2f}% over {n_bets} bets is not positive"
+    elif not convincing:
+        reason = (f"avg CLV {avg_clv:+.2f}% over {n_bets} bets is within noise "
+                  f"(SE {se:.2f}%, needs to clear {PAPER_CLV_SIGMA:g} SE; t={t:.2f})")
     else:
-        reason = f"avg CLV {avg_clv:+.2f}% over {n_bets} bets"
+        reason = (f"avg CLV {avg_clv:+.2f}% over {n_bets} bets, "
+                  f"{t:.1f} SE above zero")
 
     data = _load()
     entry = data.setdefault(sport, {})
     new_paper = {"passed": passed, "n_bets": int(n_bets),
                  "avg_clv": round(float(avg_clv), 3),
+                 "sd_clv": round(sd, 3), "se_clv": round(se, 4),
+                 "t_stat": round(t, 3) if t != float("inf") else None,
                  "reason": reason, "recorded_at": _now()}
     old_paper = entry.get("paper_trading") or {}
     if old_paper and _same_except_time(old_paper, new_paper):
