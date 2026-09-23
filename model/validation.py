@@ -95,6 +95,38 @@ def _now() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
 
 
+def _pooled_diff(rows: list[dict]) -> dict | None:
+    """Pool the per-game log-loss margin across test seasons. None if unknown.
+
+    Exact, from each season's (n, mean, sd) - the individual game losses do
+    not need to travel. Standard pooling: the grand mean is the n-weighted
+    mean, and the total sum of squares is the within-season variation plus
+    the between-season variation of the means.
+
+    Why pooled rather than per-season: a model can beat the market in every
+    season by a margin that is noise in every season, which is exactly what
+    MLB does here (2025: 0.64 SE, 2026: 0.61 SE). Pooling uses all the games
+    at once and is the honest test of "is there anything here at all".
+    """
+    usable = [r for r in rows if r.get("n_games") and "ll_diff_sd" in r]
+    if len(usable) != len(rows) or not usable:
+        return None
+    total = sum(r["n_games"] for r in usable)
+    if total < 2:
+        return None
+    mean = sum(r["n_games"] * (r["logloss_market"] - r["logloss_model"])
+               for r in usable) / total
+    ss = 0.0
+    for r in usable:
+        n, sd = r["n_games"], r["ll_diff_sd"]
+        m = r["logloss_market"] - r["logloss_model"]
+        ss += (n - 1) * sd ** 2 + n * (m - mean) ** 2
+    var = ss / (total - 1)
+    se = (var / total) ** 0.5
+    return {"n_games": total, "mean": mean, "se": se,
+            "t": (mean / se) if se > 0 else 0.0}
+
+
 def record(sport: str, baseline_kind: str, seasons: list[dict]) -> dict:
     """Gate 1: a walk-forward result, and whether it beat a real market.
 
@@ -107,11 +139,19 @@ def record(sport: str, baseline_kind: str, seasons: list[dict]) -> dict:
     rows = []
     for s in seasons:
         beat = float(s["logloss_model"]) < float(s["logloss_market"])
-        rows.append({"season": int(s["season"]),
-                     "logloss_model": round(float(s["logloss_model"]), 6),
-                     "logloss_market": round(float(s["logloss_market"]), 6),
-                     "beat_market": beat})
+        row = {"season": int(s["season"]),
+               "logloss_model": round(float(s["logloss_model"]), 6),
+               "logloss_market": round(float(s["logloss_market"]), 6),
+               "beat_market": beat}
+        # Optional, so an older caller that only has season averages still
+        # works - it just cannot clear a real market, which is the safe way
+        # round.
+        if s.get("n_games") and s.get("ll_diff_sd") is not None:
+            row["n_games"] = int(s["n_games"])
+            row["ll_diff_sd"] = round(float(s["ll_diff_sd"]), 6)
+        rows.append(row)
 
+    pooled = _pooled_diff(rows)
     lost = [r["season"] for r in rows if not r["beat_market"]]
     if baseline_kind == PLACEHOLDER:
         cleared = False
@@ -123,15 +163,33 @@ def record(sport: str, baseline_kind: str, seasons: list[dict]) -> dict:
         cleared = False
         reason = (f"lost to market in {len(lost)} of {len(rows)} seasons "
                   f"({', '.join(map(str, lost))})")
+    elif pooled is None:
+        # Beat every season on the average, but the per-game spread was never
+        # supplied, so there is no way to tell skill from luck. Refuse.
+        cleared = False
+        reason = (f"beat market in all {len(rows)} seasons, but no per-game "
+                  f"spread was recorded, so the margin cannot be separated "
+                  f"from noise - rerun the training script")
+    elif pooled["t"] <= WALK_FORWARD_SIGMA:
+        cleared = False
+        reason = (f"beat market in all {len(rows)} seasons, but the pooled "
+                  f"margin {pooled['mean']:+.5f} is only {pooled['t']:.2f} SE "
+                  f"above zero (needs {WALK_FORWARD_SIGMA:g}) - inside the noise")
     else:
         cleared = True
-        reason = f"beat market in all {len(rows)} test seasons"
+        reason = (f"beat market in all {len(rows)} test seasons; pooled margin "
+                  f"{pooled['mean']:+.5f}, {pooled['t']:.2f} SE above zero")
 
     data = _load()
     entry = data.setdefault(sport, {})
     new_entry = dict(entry)
     new_entry.update({"recorded_at": _now(), "baseline_kind": baseline_kind,
                       "cleared": cleared, "reason": reason, "seasons": rows,
+                      "pooled": None if pooled is None else {
+                          "n_games": pooled["n_games"],
+                          "mean_ll_diff": round(pooled["mean"], 6),
+                          "se": round(pooled["se"], 6),
+                          "t_stat": round(pooled["t"], 3)},
                       # A new walk-forward supersedes any earlier decision
                       # to stake money.
                       "armed": False})

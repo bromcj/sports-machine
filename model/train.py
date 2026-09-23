@@ -83,11 +83,24 @@ def walk_forward(df: pd.DataFrame, feature_cols: list[str],
         pred_prob = margin_to_win_prob(pred_diff, sport)
 
         y = test["home_won"].values
+        # Per-game paired losses, so a season's margin can be judged against
+        # its own noise. Season AVERAGES cannot: two of MLB's three test
+        # seasons beat the baseline by less than one standard error, which is
+        # indistinguishable from luck, and a gate comparing only the means
+        # could not tell. model/validation.py pools (n, mean, sd) across
+        # seasons exactly, so the arrays do not need to travel.
+        pm = np.clip(pred_prob, 1e-6, 1 - 1e-6)
+        bm = np.clip(test["novig_home_prob"].values, 1e-6, 1 - 1e-6)
+        ll_model_each = -(y * np.log(pm) + (1 - y) * np.log(1 - pm))
+        ll_market_each = -(y * np.log(bm) + (1 - y) * np.log(1 - bm))
+        diff = ll_market_each - ll_model_each        # positive = model better
         metrics = {
             "test_season": int(seasons[i]),
             "alpha": best_alpha,
             "k_used": SPORTS[sport]["k_default"],
             "k_fit": round(k_fit, 3),
+            "n_games": int(len(y)),
+            "ll_diff_sd": float(np.std(diff, ddof=1)) if len(diff) > 1 else 0.0,
             "rmse": mean_squared_error(test[target_col], pred_diff) ** 0.5,
             "logloss_model": log_loss(y, np.clip(pred_prob, 1e-6, 1 - 1e-6)),
             "brier_model": float(np.mean((pred_prob - y) ** 2)),

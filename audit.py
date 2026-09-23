@@ -374,7 +374,10 @@ def main() -> int:
                 check(f"{sport} is not cleared to bet", not v.is_cleared(sport),
                       v.status(sport).get("reason", ""))
         probe = "_audit_probe"
-        rows = [{"season": 2025, "logloss_model": .61, "logloss_market": .65}]
+        # A decisive win: 0.04 per game against a 0.30 spread over 2000 games
+        # is ~6 SE. Comfortably real.
+        rows = [{"season": 2025, "logloss_model": .61, "logloss_market": .65,
+                 "n_games": 2000, "ll_diff_sd": 0.30}]
         v.record(probe, v.REAL_MARKET, rows)
         check("beating the market alone does not clear", not v.is_cleared(probe))
         # 60 bets averaging +1.4% with modest spread: comfortably real.
@@ -400,6 +403,32 @@ def main() -> int:
         r = v.record_paper(probe, strong[:40])
         check("gate 2 still enforces the 50-bet floor independently",
               not r["passed"], r["reason"])
+
+        # Gate 1 must do the same job. MLB beats its baseline in all three
+        # test seasons, but two of those margins are ~0.6 SE - a rule that
+        # only compares season averages cannot tell that from skill.
+        thin = [{"season": 2024, "logloss_model": .6900, "logloss_market": .6910,
+                 "n_games": 2179, "ll_diff_sd": 0.14},
+                {"season": 2025, "logloss_model": .6905, "logloss_market": .6912,
+                 "n_games": 2187, "ll_diff_sd": 0.14},
+                {"season": 2026, "logloss_model": .6902, "logloss_market": .6909,
+                 "n_games": 2131, "ll_diff_sd": 0.14}]
+        e = v.record(probe, v.REAL_MARKET, thin)
+        check("gate 1 rejects winning every season by less than the noise",
+              not e["cleared"], e["reason"])
+
+        fat = [dict(r, logloss_model=.6850) for r in thin]
+        e = v.record(probe, v.REAL_MARKET, fat)
+        check("gate 1 accepts a pooled margin clear of the noise",
+              e["cleared"], e["reason"])
+
+        # Season averages with no spread cannot be judged, so they must not
+        # clear. Failing open here would be the whole point of the gate lost.
+        bare = [{"season": r["season"], "logloss_model": .6850,
+                 "logloss_market": r["logloss_market"]} for r in thin]
+        e = v.record(probe, v.REAL_MARKET, bare)
+        check("gate 1 refuses to clear without per-game spread",
+              not e["cleared"], e["reason"])
     finally:
         # Leave validation.json exactly as found. If it did not exist, the probe
         # created it, so remove it rather than leaving a fake sport behind.
