@@ -97,7 +97,28 @@ so anything under 100% is real signal that the schedule needs moving earlier.
 Runs that fired before you last edited the crons show `(old schedule)` instead
 of a made-up lateness.
 
-The raw version, if you want it:
+### It also runs itself
+
+A Windows scheduled task, **SportsMachine-CronStatus**, runs this every night
+at **10:00 pm** and writes the report to `logs\cronstatus-latest.txt`. Open
+that file any time — you do not have to be at the computer when it runs.
+
+If your PC is off or asleep at 10, it runs the next time you log in rather
+than skipping the day. It costs nothing and never writes to the database.
+
+To change the time, remove it, or check on it:
+
+```
+schtasks /Query /TN SportsMachine-CronStatus
+schtasks /Change /TN SportsMachine-CronStatus /ST 21:30
+schtasks /Delete /TN SportsMachine-CronStatus /F
+```
+
+Or open **Task Scheduler** from the Start menu and find it in the top-level
+list. It runs `scheduled_check.bat`, which pulls the repo first so the report
+reflects what the cloud actually collected.
+
+### The raw version, if you want it:
 
 ```
 gh run list --limit 5
