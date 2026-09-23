@@ -14,6 +14,7 @@ import requests
 import sys
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
 from db import connect
+from ingest import http
 from config import SPORTS, active_sports
 
 API_KEY = os.environ.get("ODDS_API_KEY", "")
@@ -23,11 +24,10 @@ BOOKS = "draftkings,fanduel,betmgm,pinnacle"
 
 def pull_sport(sport: str, snapshot_type: str) -> int:
     cfg = SPORTS[sport]
-    r = requests.get(BASE.format(key=cfg["odds_key"]), params={
+    r = http.get(BASE.format(key=cfg["odds_key"]), params={
         "apiKey": API_KEY, "regions": "us", "markets": "h2h",
         "oddsFormat": "american", "bookmakers": BOOKS,
-    }, timeout=30)
-    r.raise_for_status()
+    }, label=sport)
     ts = dt.datetime.utcnow().isoformat()
     con = connect()
     n = 0
@@ -68,7 +68,7 @@ def pull(snapshot_type: str = "open"):
     for sport in active_sports(month):
         try:
             pull_sport(sport, snapshot_type)
-        except requests.HTTPError as e:
+        except requests.RequestException as e:
             print(f"[{sport}] pull failed: {e}")
 
 

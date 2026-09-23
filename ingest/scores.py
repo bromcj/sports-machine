@@ -8,6 +8,7 @@ import requests
 import sys
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
 from db import connect
+from ingest import http
 from config import SPORTS, active_sports
 
 URL = "https://site.api.espn.com/apis/site/v2/sports/{path}/scoreboard"
@@ -16,8 +17,7 @@ URL = "https://site.api.espn.com/apis/site/v2/sports/{path}/scoreboard"
 def pull_sport(sport: str, date: str | None = None) -> int:
     cfg = SPORTS[sport]
     params = {"dates": date.replace("-", "")} if date else {}
-    r = requests.get(URL.format(path=cfg["espn"]), params=params, timeout=30)
-    r.raise_for_status()
+    r = http.get(URL.format(path=cfg["espn"]), params=params, label=sport)
     con = connect()
     n = 0
     for ev in r.json().get("events", []):
@@ -50,7 +50,7 @@ def pull_all(date: str | None = None):
     for sport in active_sports(month):
         try:
             pull_sport(sport, date)
-        except requests.HTTPError as e:
+        except requests.RequestException as e:
             print(f"[{sport}] scoreboard failed: {e}")
 
 

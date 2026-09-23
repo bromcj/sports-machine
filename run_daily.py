@@ -9,6 +9,7 @@
 """
 import sys
 import datetime as dt
+import requests
 from ingest import mlb, odds, scores
 from config import active_sports
 from bets import log as betlog
@@ -19,7 +20,14 @@ def morning():
     live = active_sports(month)
     print(f"In-season sports today: {', '.join(live) or 'none'}")
     if "mlb" in live:
-        mlb.pull_day()          # probables come from MLB Stats API
+        # Guarded because this runs BEFORE the odds pull, and the odds pull is
+        # the one that cannot be made up later - prices move, and there are
+        # only three chances a day. Missing probables costs today's MLB
+        # predictions; an unhandled error here used to cost the prices too.
+        try:
+            mlb.pull_day()      # probables come from MLB Stats API
+        except requests.RequestException as e:
+            print(f"[mlb] probables unavailable: {e}")
     scores.pull_all()           # schedules/finals for everything else
     odds.pull("open")
     if "mlb" in live:
@@ -69,7 +77,10 @@ def show_picks():
 def grade():
     scores.pull_all()
     if "mlb" in active_sports(dt.date.today().month):
-        mlb.pull_day()
+        try:
+            mlb.pull_day()
+        except requests.RequestException as e:
+            print(f"[mlb] finals unavailable from MLB Stats API: {e}")
     betlog.review()
 
 

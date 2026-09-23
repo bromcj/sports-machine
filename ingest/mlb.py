@@ -3,21 +3,20 @@
 Free, no key. Educational/non-commercial use per MLBAM terms.
 """
 import datetime as dt
-import requests
 import sys
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
 from db import connect
+from ingest import http
 
 SCHED = "https://statsapi.mlb.com/api/v1/schedule"
 
 
 def pull_day(date: str | None = None):
     date = date or dt.date.today().isoformat()
-    r = requests.get(SCHED, params={
+    r = http.get(SCHED, params={
         "sportId": 1, "date": date,
         "hydrate": "probablePitcher,linescore",
-    }, timeout=30)
-    r.raise_for_status()
+    }, label="mlb")
     con = connect()
     n = 0
     for day in r.json().get("dates", []):
