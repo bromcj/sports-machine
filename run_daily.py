@@ -7,6 +7,7 @@
   python run_daily.py grade    -> finals + review
   python run_daily.py cronstatus -> did the cloud fire, and on time? free
   python run_daily.py backup     -> snapshot the database, verified. free
+  python run_daily.py finals     -> yesterday's and today's results. free
   python run_daily.py predict    -> statcast top-up + today's predictions. free
   python run_daily.py paper      -> place/settle/score paper bets (gate 2). free
 """
@@ -93,13 +94,44 @@ def show_picks():
     picks()
 
 
-def grade():
-    scores.pull_all()
-    if "mlb" in active_sports(dt.date.today().month):
+def finals(days_back: int = 1):
+    """Fetch completed results for today and the previous `days_back` days.
+
+    FREE - ESPN and the MLB Stats API, no odds credits.
+
+    Exists because finals for a game that ends at 10pm were never collected by
+    anything. Both score pulls asked only for TODAY: the cloud's morning run
+    fires at 10:13am, hours before any game that day finishes, and by the time
+    yesterday's games were over nothing ever asked about them again. Measured
+    across every archived games file the cloud produced: ESPN rows reached
+    'final' 38 times and MLB Stats API rows reached it ZERO times, sitting at
+    'preview' or 'live' forever.
+
+    That is not cosmetic. bets/paper.settle() looks up the bet's own Stats API
+    game_id and requires status='final', so no paper bet could ever settle and
+    gate 2 could never fill, no matter how long it ran.
+
+    Yesterday is the important half. Today is included because an afternoon
+    game may already be over when this runs.
+    """
+    today = dt.date.today()
+    live = active_sports(today.month)
+    for i in range(days_back, -1, -1):
+        day = (today - dt.timedelta(days=i)).isoformat()
+        print(f"Results for {day}:")
         try:
-            mlb.pull_day()
+            scores.pull_all(day)
         except requests.RequestException as e:
-            print(f"[mlb] finals unavailable from MLB Stats API: {e}")
+            print(f"  [scores] unavailable: {e}")
+        if "mlb" in live:
+            try:
+                mlb.pull_day(day)
+            except requests.RequestException as e:
+                print(f"  [mlb] unavailable: {e}")
+
+
+def grade():
+    finals()
     # Finals just landed, so any paper bet whose game finished can now be
     # settled and, if a usable close exists, scored toward gate 2.
     try:
@@ -130,4 +162,5 @@ if __name__ == "__main__":
         bk.prune()
         raise SystemExit(0)
     {"morning": morning, "close": close, "picks": show_picks,
-     "refresh": refresh, "grade": grade, "predict": predict}[mode]()
+     "refresh": refresh, "grade": grade, "predict": predict,
+     "finals": finals}[mode]()

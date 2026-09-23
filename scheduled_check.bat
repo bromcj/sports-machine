@@ -46,6 +46,12 @@ if errorlevel 1 (
   REM are placed against prices that actually arrived.
   "%PY%" merge_archive.py
   echo.
+  REM Yesterday's and today's results. Nothing else fetches a completed
+  REM game: both score pulls asked only for today, and the cloud's morning
+  REM run fires hours before any game that day ends. Without this, paper
+  REM bets never settle. Free: ESPN and MLB Stats, no odds credits.
+  "%PY%" run_daily.py finals
+  echo.
   REM Build today's predictions locally - the cloud cannot, it has no
   REM Statcast file or model. Free: no API credits.
   "%PY%" run_daily.py predict
