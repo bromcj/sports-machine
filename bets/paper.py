@@ -29,10 +29,19 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from db import connect
 from bets.engine import evaluate, novig_probs
 from bets.log import CLOSING_WINDOW_MIN, closing_snapshot, grade, record_bet
-from model.predict import _odds_for
+from feeds import parse_utc, pregame_books
 from model.validation import record_paper
 
 PAPER_BANKROLL = 1000.0        # notional; only the CLV matters for gate 2
+
+# How close to first pitch a paper bet may still be placed.
+#
+# place() used to have no such check, and the 10pm local job would happily bet
+# on games already in the 5th inning. Worse, _odds_for returns the latest
+# PREGAME price, which for a started game is the same snapshot settle() then
+# uses as the close - so the CLV is exactly 0 by construction and the bet
+# padded the 50-bet floor while carrying no information at all.
+PLACE_CUTOFF_MIN = 10
 
 
 def place(date: str | None = None, sport: str = "mlb") -> int:
@@ -46,16 +55,26 @@ def place(date: str | None = None, sport: str = "mlb") -> int:
     date = date or dt.date.today().isoformat()
     con = connect()
     preds = con.execute(
-        "SELECT p.game_id, p.home_win_prob, p.model_version, g.away, g.home"
+        "SELECT p.game_id, p.home_win_prob, p.model_version, g.away, g.home,"
+        " g.start_time_utc, g.status"
         " FROM predictions p JOIN games g ON g.game_id = p.game_id"
         " WHERE p.sport=? AND g.game_date=?", (sport, date)).fetchall()
 
-    placed = 0
+    now = dt.datetime.now(dt.timezone.utc)
+    placed = skipped_started = 0
     for p in preds:
         if con.execute("SELECT 1 FROM bets WHERE game_id=? AND mode='paper'",
                        (p["game_id"],)).fetchone():
             continue
-        books, note = _odds_for(con, date, p["away"], p["home"])
+        # A bet nobody could have placed is not evidence of anything.
+        start = parse_utc(p["start_time_utc"])
+        if start is None or p["status"] != "scheduled" or                 (start - now).total_seconds() / 60 < PLACE_CUTOFF_MIN:
+            skipped_started += 1
+            continue
+        # By game_id, not by (date, teams). place() already knows which game
+        # this is; re-deriving it from a date was the last remnant of the
+        # matching that gave late games the previous night's prices.
+        books, note = pregame_books(con, p["game_id"])
         if note:
             continue
         # Take the best available price on whichever side the model likes,
@@ -71,14 +90,26 @@ def place(date: str | None = None, sport: str = "mlb") -> int:
         if best is None:
             continue
         r, b = best
-        record_bet(p["game_id"], sport, r["side"], b["book"], r["line"],
-                   r["stake"], r["model_prob"], r["novig_market_prob"],
-                   r["edge"], r["kelly_fraction"], p["model_version"],
-                   mode="paper")
+        # The exact price row this bet was taken at, so "could this bet have
+        # been placed?" is answerable later instead of inferred.
+        taken = parse_utc(b["ts"])
+        if taken is None or not (taken <= now < start):
+            skipped_started += 1
+            continue
+        bet_id = record_bet(p["game_id"], sport, r["side"], b["book"], r["line"],
+                            r["stake"], r["model_prob"], r["novig_market_prob"],
+                            r["edge"], r["kelly_fraction"], p["model_version"],
+                            mode="paper")
+        con.execute("UPDATE bets SET odds_snapshot_id=? WHERE bet_id=?",
+                    (b["id"], bet_id))
+        con.commit()
         placed += 1
         print(f"  paper: {p['away'][:18]} @ {p['home'][:18]}  "
               f"{r['side']} {r['line']:+d} @{b['book']}  edge {r['edge']:+.1%}")
     con.close()
+    if skipped_started:
+        print(f"  skipped {skipped_started} game(s): already started, not "
+              f"scheduled, or within {PLACE_CUTOFF_MIN} min of first pitch")
     return placed
 
 

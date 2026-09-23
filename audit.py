@@ -406,6 +406,73 @@ def main() -> int:
     check("the higher bar still detects a real +1% edge",
           pw >= 0.80, f"{pw:.0%} of the time within 200 days")
 
+    # ------------------------------------------------------- pregame guard
+    section("PREGAME GUARD")
+    import db as dbmod5
+    from bets import paper as bp5, log as bl5
+    from feeds import parse_utc as _pu
+    real5 = dbmod5.DB_PATH
+    try:
+        tmp5 = pathlib.Path(tempfile.mkdtemp())
+        dbmod5.DB_PATH = tmp5 / "pg.db"
+        dbmod5.init()
+        bp5.connect = dbmod5.connect
+        bl5.connect = dbmod5.connect
+        c5 = dbmod5.connect()
+        now = dt.datetime.now(dt.timezone.utc)
+        # Three games: one safely ahead, one already under way, one two
+        # minutes out. Only the first is placeable.
+        spec = [("ahead", now + dt.timedelta(hours=4), "scheduled"),
+                ("started", now - dt.timedelta(hours=2), "live"),
+                ("imminent", now + dt.timedelta(minutes=2), "scheduled")]
+        for name, start, status in spec:
+            c5.execute(
+                "INSERT INTO games (game_id, sport, game_date, start_time_utc,"
+                " away, home, status) VALUES (?,?,?,?,?,?,?)",
+                (f"mlb-1{name}", "mlb", str(now.date()), start.isoformat(),
+                 f"A{name}", f"H{name}", status))
+            c5.execute(
+                "INSERT INTO predictions (game_id, sport, ts, model_version,"
+                " proj_margin, home_win_prob) VALUES (?,?,?,?,?,?)",
+                # 0.78 against a no-vig 0.61 clears the 4% edge threshold, so
+                # the only thing that can stop a bet here is the guard.
+                (f"mlb-1{name}", "mlb", dbmod5.utc_now(), "v1", 1.5, 0.78))
+            oid = f"mlb-o{name}"
+            c5.execute(
+                "INSERT INTO games (game_id, sport, game_date, start_time_utc,"
+                " away, home, status) VALUES (?,?,?,?,?,?,?)",
+                (oid, "mlb", str(now.date()), start.isoformat(),
+                 f"A{name}", f"H{name}", "scheduled"))
+            c5.execute(
+                "INSERT INTO odds_snapshots (game_id, sport, ts, book, away_ml,"
+                " home_ml, snapshot_type, commence_time) VALUES (?,?,?,?,?,?,?,?)",
+                (oid, "mlb", (now - dt.timedelta(hours=6)).isoformat(),
+                 "fanduel", +150, -170, "open", start.isoformat()))
+        c5.commit()
+        c5.close()
+        n = bp5.place(str(now.date()))
+        c5 = dbmod5.connect()
+        got = [r["game_id"] for r in c5.execute(
+            "SELECT game_id FROM bets WHERE mode='paper'")]
+        snaps = [r["odds_snapshot_id"] for r in c5.execute(
+            "SELECT odds_snapshot_id FROM bets WHERE mode='paper'")]
+        c5.close()
+        check("a paper bet is placed on a game safely ahead",
+              "mlb-1ahead" in got, f"placed {n}")
+        check("no paper bet on a game already under way",
+              "mlb-1started" not in got, "started game refused")
+        check("no paper bet within the cutoff of first pitch",
+              "mlb-1imminent" not in got,
+              f"{bp5.PLACE_CUTOFF_MIN} min cutoff held")
+        check("every paper bet records the price row it used",
+              bool(snaps) and all(x is not None for x in snaps),
+              f"odds_snapshot_id set on {sum(x is not None for x in snaps)}"
+              f"/{len(snaps)}")
+    finally:
+        dbmod5.DB_PATH = real5
+        bp5.connect = dbmod5.connect
+        bl5.connect = dbmod5.connect
+
     # --------------------------------------------------------- paper trading
     section("PAPER TRADING (GATE 2)")
     import db as dbmod4

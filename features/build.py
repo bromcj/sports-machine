@@ -126,7 +126,12 @@ def build_for_date(date: str | None = None, verbose: bool = True) -> int:
         # NOT GLOB 'mlb-[0-9]*': an odds-API id like 'mlb-82b37a47...' starts
         # with a digit too. Require every character after 'mlb-' to be a digit,
         # which is what an MLB Stats API gamePk looks like.
-        " AND status != 'final' AND SUBSTR(game_id,5) NOT GLOB '*[^0-9]*'",
+        # status='scheduled' only, not "anything not final". A game already
+        # under way is not a game anyone can bet, and building features for it
+        # produced paper bets nobody could have placed - their CLV is exactly
+        # 0 because the price used to place them is the same snapshot used to
+        # grade them, so they padded the 50-bet floor with no information.
+        " AND status = 'scheduled' AND SUBSTR(game_id,5) NOT GLOB '*[^0-9]*'",
         (date,)).fetchall()
 
     teams = set()
