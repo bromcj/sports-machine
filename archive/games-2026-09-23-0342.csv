@@ -1,0 +1,49 @@
+game_id,sport,game_date,away,home,away_starter,home_starter,away_score,home_score,status,away_starter_id,home_starter_id
+mlb-espn-401873648,mlb,2026-09-22,Tampa Bay Rays,New York Yankees,,,0,2,final,,
+mlb-espn-401817035,mlb,2026-09-22,Toronto Blue Jays,Baltimore Orioles,,,0,0,final,,
+mlb-espn-401817032,mlb,2026-09-22,Milwaukee Brewers,Philadelphia Phillies,,,4,6,final,,
+mlb-espn-401817033,mlb,2026-09-22,St. Louis Cardinals,Pittsburgh Pirates,,,0,2,final,,
+mlb-espn-401817036,mlb,2026-09-22,Washington Nationals,Detroit Tigers,,,3,1,final,,
+mlb-espn-401817031,mlb,2026-09-22,Cleveland Guardians,Boston Red Sox,,,3,2,final,,
+mlb-espn-401817034,mlb,2026-09-22,Tampa Bay Rays,New York Yankees,,,6,1,final,,
+mlb-espn-401817030,mlb,2026-09-22,Cincinnati Reds,Atlanta Braves,,,4,0,final,,
+mlb-espn-401817037,mlb,2026-09-22,Chicago White Sox,Kansas City Royals,,,14,11,final,,
+mlb-espn-401817038,mlb,2026-09-22,Miami Marlins,Chicago Cubs,,,6,2,live,,
+mlb-espn-401817039,mlb,2026-09-23,New York Mets,Texas Rangers,,,6,3,final,,
+mlb-espn-401817040,mlb,2026-09-23,Arizona Diamondbacks,Colorado Rockies,,,7,2,final,,
+mlb-espn-401817041,mlb,2026-09-23,Los Angeles Angels,Athletics,,,6,2,live,,
+mlb-espn-401817042,mlb,2026-09-23,Houston Astros,Seattle Mariners,,,4,0,live,,
+mlb-espn-401817043,mlb,2026-09-23,Minnesota Twins,San Francisco Giants,,,3,1,live,,
+mlb-espn-401817044,mlb,2026-09-23,San Diego Padres,Los Angeles Dodgers,,,0,5,live,,
+nfl-espn-401872932,nfl,2026-09-18,Detroit Lions,Buffalo Bills,,,31,41,final,,
+nfl-espn-401872933,nfl,2026-09-20,Carolina Panthers,Atlanta Falcons,,,34,3,final,,
+nfl-espn-401872937,nfl,2026-09-20,Minnesota Vikings,Chicago Bears,,,9,3,final,,
+nfl-espn-401872939,nfl,2026-09-20,Philadelphia Eagles,Tennessee Titans,,,24,20,final,,
+nfl-espn-401872946,nfl,2026-09-20,Pittsburgh Steelers,New England Patriots,,,3,20,final,,
+nfl-espn-401872936,nfl,2026-09-20,Green Bay Packers,New York Jets,,,20,17,final,,
+nfl-espn-401872935,nfl,2026-09-20,Cleveland Browns,Tampa Bay Buccaneers,,,23,19,final,,
+nfl-espn-401872938,nfl,2026-09-20,New Orleans Saints,Baltimore Ravens,,,24,17,final,,
+nfl-espn-401872934,nfl,2026-09-20,Cincinnati Bengals,Houston Texans,,,20,6,final,,
+nfl-espn-401872940,nfl,2026-09-20,Jacksonville Jaguars,Denver Broncos,,,13,20,final,,
+nfl-espn-401872941,nfl,2026-09-20,Las Vegas Raiders,Los Angeles Chargers,,,26,14,final,,
+nfl-espn-401872944,nfl,2026-09-20,Washington Commanders,Dallas Cowboys,,,20,37,final,,
+nfl-espn-401872943,nfl,2026-09-20,Seattle Seahawks,Arizona Cardinals,,,31,7,final,,
+nfl-espn-401872942,nfl,2026-09-20,Miami Dolphins,San Francisco 49ers,,,13,35,final,,
+nfl-espn-401872945,nfl,2026-09-21,Indianapolis Colts,Kansas City Chiefs,,,30,33,final,,
+nfl-espn-401872947,nfl,2026-09-22,New York Giants,Los Angeles Rams,,,6,28,final,,
+mlb-824223,mlb,2026-09-23,Washington Nationals,Detroit Tigers,Richard Lovelady,Framber Valdez,,,preview,663992,664285
+mlb-824785,mlb,2026-09-23,Toronto Blue Jays,Baltimore Orioles,Max Scherzer,,,,preview,453286,
+mlb-824784,mlb,2026-09-23,Toronto Blue Jays,Baltimore Orioles,,,,,preview,,
+mlb-823168,mlb,2026-09-23,Minnesota Twins,San Francisco Giants,Connor Prielipp,Cesar Perdomo,,,preview,687570,702885
+mlb-823327,mlb,2026-09-23,St. Louis Cardinals,Pittsburgh Pirates,Matthew Liberatore,Lake Bachar,,,preview,669461,669199
+mlb-823410,mlb,2026-09-23,Milwaukee Brewers,Philadelphia Phillies,Logan Henderson,Aaron Nola,,,preview,701656,605400
+mlb-823492,mlb,2026-09-23,Tampa Bay Rays,New York Yankees,Ian Seymour,Gerrit Cole,,,preview,693855,543037
+mlb-824710,mlb,2026-09-23,Cleveland Guardians,Boston Red Sox,Foster Griffin,Sonny Gray,,,preview,656492,543243
+mlb-824868,mlb,2026-09-23,Cincinnati Reds,Atlanta Braves,Andrew Abbott,Chris Sale,,,preview,671096,519242
+mlb-824060,mlb,2026-09-23,Chicago White Sox,Kansas City Royals,Bryan Hudson,Seth Lugo,,,preview,663542,607625
+mlb-824625,mlb,2026-09-23,Miami Marlins,Chicago Cubs,Ryan Gusto,Kevin Gausman,,,preview,687473,592332
+mlb-822841,mlb,2026-09-23,New York Mets,Texas Rangers,Nolan McLean,,,,preview,690997,
+mlb-824301,mlb,2026-09-23,Arizona Diamondbacks,Colorado Rockies,Merrill Kelly,Mason Adams,,,preview,518876,690279
+mlb-824951,mlb,2026-09-23,Los Angeles Angels,Athletics,Walbert Ureña,Jeffrey Springs,,,preview,700712,605488
+mlb-823894,mlb,2026-09-23,San Diego Padres,Los Angeles Dodgers,Robbie Ray,Yoshinobu Yamamoto,,,preview,592662,808967
+mlb-823086,mlb,2026-09-23,Houston Astros,Seattle Mariners,,George Kirby,,,preview,,669923
