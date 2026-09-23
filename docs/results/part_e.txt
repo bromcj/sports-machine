@@ -1,0 +1,149 @@
+==============================================================================
+E1  the market's recipe vs reality's recipe  [CORE features]
+==============================================================================
+
+6,519 games, 3 seasons
+coefficients are per standard deviation, signed so POSITIVE HELPS THE HOME TEAM
+
+(1) vs (2): descriptive comparison of the two recipes
+  feature               market   reality   market-reality       t   pre-registered
+  d_sp_kbb             +0.1113   +0.1223          -0.0110   -0.27   market larger  WRONG SIGN
+  d_sp_xwoba           +0.1001   +0.0473          +0.0529   +1.35   market larger  as predicted
+  d_pen_kbb            +0.0691   +0.0514          +0.0177   +0.64   market smaller  WRONG SIGN
+  d_pen_fatigue        +0.0092   -0.0099          +0.0191   +0.67   market smaller  WRONG SIGN
+  d_pen_third_day      +0.0059   +0.0080          -0.0021   -0.07   market smaller  as predicted
+  d_off_woba           +0.0924   +0.0806          +0.0117   +0.48   
+  d_rest               +0.0012   -0.0054          +0.0067   +0.25   
+  park_factor          -0.0675   -0.1012          +0.0337   +1.30   
+
+(3) THE DECISIVE TEST: does the feature predict the outcome ON TOP
+    of the closing price? Null is exactly zero.
+  feature                 coef                 95% CI       t   pre-registered
+  d_sp_kbb             +0.0122 [  -0.0669,  +0.0920]   +0.30   negative  wrong sign
+  d_sp_xwoba           -0.0520 [  -0.1318,  +0.0289]   -1.31   negative  n.s.
+  d_pen_kbb            -0.0170 [  -0.0717,  +0.0372]   -0.61   positive  wrong sign
+  d_pen_fatigue        -0.0192 [  -0.0769,  +0.0340]   -0.66   positive  wrong sign
+  d_pen_third_day      +0.0022 [  -0.0531,  +0.0579]   +0.07   positive  n.s.
+  d_off_woba           -0.0107 [  -0.0584,  +0.0376]   -0.44   
+  d_rest               -0.0067 [  -0.0581,  +0.0469]   -0.25   
+  park_factor          -0.0345 [  -0.0858,  +0.0142]   -1.32   
+
+  what the largest residual coefficient is worth, in probability:
+    d_sp_xwoba: 0.0520 logit per sd = 1.30 probability points per sd near a coin flip.
+    A NJ book's margin is about 4 points, so a bet needs ~2 points.
+    This is worth 0.65x the vig at one sd, 1.30x at two.
+==============================================================================
+E1  the market's recipe vs reality's recipe  [FULL features, incl. velocity change]
+==============================================================================
+
+2,950 games, 3 seasons
+coefficients are per standard deviation, signed so POSITIVE HELPS THE HOME TEAM
+
+(1) vs (2): descriptive comparison of the two recipes
+  feature               market   reality   market-reality       t   pre-registered
+  d_sp_kbb             +0.1008   +0.1678          -0.0669   -1.10   market larger  WRONG SIGN
+  d_sp_xwoba           +0.1105   +0.0219          +0.0887   +1.47   market larger  as predicted
+  d_sp_velo_delta      +0.0190   +0.0717          -0.0528   -1.39   market larger  WRONG SIGN
+  d_pen_kbb            +0.0590   +0.1002          -0.0412   -1.10   market smaller  as predicted
+  d_pen_fatigue        +0.0108   -0.0817          +0.0925   +2.27   market smaller  WRONG SIGN
+  d_pen_third_day      +0.0099   +0.0640          -0.0540   -1.39   market smaller  as predicted
+  d_off_woba           +0.1038   +0.0997          +0.0041   +0.09   
+  d_rest               +0.0057   -0.0156          +0.0213   +0.59   
+  park_factor          -0.0589   +0.0078          -0.0667   -1.75   
+
+(3) THE DECISIVE TEST: does the feature predict the outcome ON TOP
+    of the closing price? Null is exactly zero.
+  feature                 coef                 95% CI       t   pre-registered
+  d_sp_kbb             +0.0681 [  -0.0534,  +0.1743]   +1.11   negative  wrong sign
+  d_sp_xwoba           -0.0878 [  -0.2016,  +0.0276]   -1.44   negative  n.s.
+  d_sp_velo_delta      +0.0532 [  -0.0222,  +0.1302]   +1.38   negative  wrong sign
+  d_pen_kbb            +0.0422 [  -0.0309,  +0.1201]   +1.12   positive  n.s.
+  d_pen_fatigue        -0.0932 [  -0.1845,  -0.0146]   -2.27   positive  wrong sign
+  d_pen_third_day      +0.0546 [  -0.0187,  +0.1340]   +1.39   positive  n.s.
+  d_off_woba           -0.0028 [  -0.0923,  +0.0914]   -0.06   
+  d_rest               -0.0212 [  -0.0929,  +0.0480]   -0.58   
+  park_factor          +0.0670 [  -0.0022,  +0.1394]   +1.75   
+
+  what the largest residual coefficient is worth, in probability:
+    d_pen_fatigue: 0.0932 logit per sd = 2.33 probability points per sd near a coin flip.
+    A NJ book's margin is about 4 points, so a bet needs ~2 points.
+    This is worth 1.17x the vig at one sd, 2.33x at two.
+
+==============================================================================
+E2  subgroup calibration
+==============================================================================
+
+pre-registered: home teams with a LARGE STARTER EDGE are
+OVERPRICED; teams facing a TIRED bullpen are UNDERPRICED.
+
+--- bucketed by starter K-BB% edge, home minus away ---
+                  bucket      n   implied    actual      gap       t   EV@-110
+       (-0.158, -0.0371]  1,304    45.79%    47.24%   +1.45   +1.07    -9.82%
+      (-0.0371, -0.0102]  1,304    50.25%    50.08%   -0.17   -0.12    -4.40%
+       (-0.0102, 0.0107]  1,303    53.22%    53.57%   +0.35   +0.27    +2.27%
+        (0.0107, 0.0364]  1,304    55.97%    53.68%   -2.29   -1.62    +2.48%
+         (0.0364, 0.154]  1,304    60.51%    61.27%   +0.77   +0.58   +16.98%
+
+--- bucketed by opponent bullpen fatigue edge ---
+                  bucket      n   implied    actual      gap       t   EV@-110
+       (-139.001, -27.0]  1,326    52.69%    53.92%   +1.23   +0.85    +2.94%
+           (-27.0, -9.0]  1,348    53.04%    53.41%   +0.38   +0.28    +1.97%
+             (-9.0, 5.0]  1,243    52.95%    51.17%   -1.78   -1.30    -2.32%
+             (5.0, 24.0]  1,305    53.57%    54.94%   +1.37   +0.99    +4.89%
+           (24.0, 134.0]  1,297    53.49%    52.27%   -1.22   -0.90    -0.20%
+
+--- bucketed by favourite size (home) ---
+                  bucket      n   implied    actual      gap       t   EV@-110
+          (0.261, 0.459]  1,315    41.03%    42.59%   +1.55   +1.20   -18.70%
+          (0.459, 0.512]  1,329    48.83%    49.89%   +1.06   +0.77    -4.76%
+          (0.512, 0.552]  1,271    53.33%    53.74%   +0.41   +0.29    +2.59%
+          (0.552, 0.602]  1,302    57.60%    54.38%   -3.22   -2.52    +3.81%
+          (0.602, 0.797]  1,302    65.16%    65.44%   +0.28   +0.22   +24.93%
+
+
+==============================================================================
+E3  does public money push lines the wrong way?
+==============================================================================
+
+BASELINE, all 6,513 games. Positive = the CLOSE is better,
+which is close to a law of markets and doubles as a check that this
+pipeline is wired up correctly.
+  morning minus close log loss: +0.000870  [-0.000062, +0.001835]  t=+1.78  n=6,513
+
+pre-registered: overall the close wins; in a public subgroup the
+gap NARROWS, and in at least one the MORNING price is better.
+
+  subgroup                          n  morning-close       t
+  all games                     6,513      +0.000870   +1.79
+  marquee starter matchup         652      +0.000168   +0.11
+  a big-market team             2,693      +0.001682   +2.31
+  heavy favourite either side     474      +0.002857   +1.53
+  a team on a 5+ win streak       446      +0.001780   +0.95
+
+  A NEGATIVE number is the pre-registered finding: the morning
+  price beat the close, so the move was noise.
+
+==============================================================================
+E6  early-season slowness
+==============================================================================
+
+pre-registered: the market residual is MORE predictable in
+April-May than in July-August, and a velocity DROP predicts that
+pitcher's team UNDERPERFORMING its closing price.
+
+  April-May 2,323 games   July-August 2,170 games
+
+--- residual predictability: all features, on top of the close ---
+  April-May    in-sample log-loss gain +0.002796   strongest term d_sp_xwoba t=-2.38
+  July-August  in-sample log-loss gain +0.002371   strongest term d_pen_kbb t=-1.91
+  (in-sample, so both are upper bounds - the comparison between
+   the two windows is the point, not either number by itself)
+
+--- the specific velocity test ---
+  April-May    n=  973  coef  -0.0238 [-0.1374,+0.1042]  t=-0.40
+  July-August  n=1,045  coef  +0.0121 [-0.1170,+0.1271]  t=+0.19
+  whole season n=2,950  coef  +0.0485 [-0.0216,+0.1212]  t=+1.31
+
+  POSITIVE means a home starter throwing harder than last year
+  beats his closing price, i.e. a velocity DROP predicts
+  underperformance - the pre-registered direction.

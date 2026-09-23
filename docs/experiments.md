@@ -371,17 +371,20 @@ stakes money on its own.
 
 ## Results log
 
+Part E is written up in full in [part-e-results.md](part-e-results.md);
+raw output in `docs/results/part_e.txt`.
+
 Filled in as each experiment completes. Failures stay in the file.
 
 | experiment | run on | verdict | number |
 |---|---|---|---|
 | A1 | 2026-09-23 | **FAIL** (real signal, ~12x too small to bet) | see below |
-| E1 | | | |
-| E2 | | | |
-| E3 | | | |
-| E4 | | | |
-| E5 | | | |
-| E6 | | | |
+| E1 | 2026-09-23 | **FAIL** | best residual term t = -1.31; 2 of 4 starter/pen terms wrong-signed |
+| E2 | 2026-09-23 | **FAIL** | no bucket clears t = 2 in the predicted direction |
+| E3 | 2026-09-23 | **FAIL** | every subgroup favours the close; big-market t = +2.31 the wrong way |
+| E4 | 2026-09-23 | **FAIL** (all 3) | popular teams priced LOWER, t = -7.4..-9.5; no weekend or time pattern |
+| E5 | 2026-09-23 | **FAIL** | +2.73 pts at Pinnacle, t = +1.46; right direction, underpowered |
+| E6 | 2026-09-23 | **FAIL** | April-May +0.0028 vs July-Aug +0.0024; velocity wrong-signed early |
 
 ### A1, run 2026-09-23 on 6,513 games (2024-2026)
 

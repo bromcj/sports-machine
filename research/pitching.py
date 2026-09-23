@@ -251,12 +251,29 @@ def bullpen_state(lines: pd.DataFrame) -> pd.DataFrame:
         "pen_fatigue_pitches", "pen_third_day_arms"])
 
 
-def build(years=None) -> pd.DataFrame:
+CACHE = RICH_DIR / "_measures.parquet"
+CACHE_LINES = RICH_DIR / "_lines.parquet"
+
+
+def build(years=None, cache=True):
+    """(measures, lines). Cached, because bullpen_state() takes ~10 minutes.
+
+    The cache is keyed on nothing, deliberately: it is derived entirely from
+    data/statcast_rich/, which only changes when enrich_statcast.py reruns. If
+    you rebuild that, delete these two files. Anything cleverer would be a
+    staleness bug waiting to happen, and a wrong pitching measure would quietly
+    poison every result in Part E.
+    """
+    if cache and years is None and CACHE.exists() and CACHE_LINES.exists():
+        return pd.read_parquet(CACHE), pd.read_parquet(CACHE_LINES)
     sc = load_rich(years)
     lines = pitcher_lines(sc)
     sq = starter_quality(lines)
     bp = bullpen_state(lines)
     out = sq.merge(bp, on=["game_pk", "pitch_team"], how="left")
+    if cache and years is None:
+        out.to_parquet(CACHE)
+        lines.to_parquet(CACHE_LINES)
     return out, lines
 
 
