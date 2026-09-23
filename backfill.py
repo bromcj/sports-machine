@@ -89,6 +89,12 @@ KEEP_COLS = ["game_pk", "game_date", "home_team", "away_team", "inning",
              "batter", "events", "woba_value", "woba_denom"]
 
 
+# How many days back the top-up re-reads on every run. Savant publishes during
+# games and revises afterwards, so the most recent days are the unreliable
+# ones. Three covers a normal lag; the dedupe keeps the newest copy.
+RESETTLE_DAYS = 3
+
+
 def topup_statcast(year: int | None = None, today: str | None = None,
                    allow_full_download: bool = True) -> int:
     """Append only the days the current season's parquet is missing.
@@ -128,10 +134,28 @@ def topup_statcast(year: int | None = None, today: str | None = None,
         # already in the past. Statcast returns nothing for days with no games,
         # so asking past the real season end is harmless.
         season_end = max(season_end, target)
-    end = min(target, season_end)
-    start = last + dt.timedelta(days=1)
+    # Stop at YESTERDAY, and always re-read the last few days.
+    #
+    # The old version fetched last_date+1 .. TODAY, then next time started at
+    # today+1. Whatever Savant had not published by the moment it ran was
+    # therefore frozen out permanently. Measured on this repo: 2026-09-21 had
+    # 3 of the 5 games actually played, and those 2 games could never be
+    # collected again.
+    #
+    # The audit predicted the damage would be truncated games (missing late
+    # innings, i.e. bullpen data). On this data it is whole games missing
+    # instead - same cause, and a pitch-count check would not have seen it.
+    #
+    # Two changes: never ask for today, because a day being played is a day
+    # still being written; and re-fetch RESETTLE_DAYS back, because Savant
+    # revises. Dedupe keeps the last copy, so re-reading is free of charge
+    # beyond the download.
+    end = min(target - dt.timedelta(days=1), season_end)
+    start = max(last - dt.timedelta(days=RESETTLE_DAYS - 1),
+                dt.date.fromisoformat(SEASON_DATES[year][0]))
     if start > end:
-        print(f"[{year}] statcast current through {last}; nothing to add.")
+        print(f"[{year}] statcast current through {last}; nothing to add "
+              f"(top-ups stop at yesterday).")
         return 0
 
     from pybaseball import statcast, cache

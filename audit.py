@@ -142,6 +142,52 @@ def main() -> int:
         skip("statcast lag is visible", "no statcast parquets - run: python backfill.py")
         skip("every statcast season stores game_date the same way", "no parquets")
 
+    # A day the top-up read before Savant finished publishing it used to be
+    # frozen incomplete forever, because the next run started at last_date+1.
+    # The predicted symptom was truncated games; the real one on this data was
+    # whole games missing (2026-09-21 held 3 of 5), which a pitch-count check
+    # would not see. Both are checked.
+    if sc and (ROOT / "data" / "machine.db").exists():
+        import sqlite3 as _sq
+        _c = _sq.connect(ROOT / "data" / "machine.db")
+        cur_year = max(int(f.stem) for f in sc)
+        pit = pd.read_parquet(ROOT / "data" / "statcast" / f"{cur_year}.parquet",
+                              columns=["game_pk", "game_date"])
+        per_game = pit.groupby(["game_date", "game_pk"]).size()
+        # Only judge SETTLED days. The newest ones are legitimately still
+        # filling, and the top-up now stops at yesterday anyway.
+        settled = pd.Timestamp(dt.date.today()) - pd.Timedelta(days=3)
+        days = sorted({d for d in pit["game_date"].unique()
+                       if pd.Timestamp(d) <= settled})[-21:]
+        worst = None
+        for d in days:
+            have = pit[pit["game_date"] == d]["game_pk"].nunique()
+            # Stats API ids are 'mlb-' + digits ONLY. A bare GLOB 'mlb-[0-9]*'
+            # also matches odds-feed ids, which are hex and often start with a
+            # digit ('mlb-85b75fca...'), inflating the schedule count by every
+            # odds row and inventing missing games. Measured on 2026-09-23:
+            # 23 by the loose test, 15 by this one.
+            want = _c.execute(
+                "SELECT COUNT(*) FROM games WHERE sport='mlb' AND game_date=?"
+                " AND game_id NOT LIKE 'mlb-espn-%'"
+                " AND SUBSTR(game_id,5) NOT GLOB '*[^0-9]*'", (str(d),)).fetchone()[0]
+            if want and have < want and (worst is None or want - have > worst[1] - worst[2]):
+                worst = (str(d), want, have)
+        _c.close()
+        # One game short is tolerated: a postponement is scheduled but never
+        # played, and until the status mapping is fixed it looks like a gap.
+        check("no settled day is missing Statcast games",
+              worst is None or worst[1] - worst[2] <= 1,
+              "all days complete" if worst is None
+              else f"{worst[0]}: {worst[2]} of {worst[1]} games")
+        thin = per_game[per_game < 200]
+        check("no Statcast game is truncated (<200 pitches)",
+              len(thin) == 0,
+              "none" if len(thin) == 0 else f"{len(thin)} game(s), worst {thin.min()}")
+    else:
+        skip("no settled day is missing Statcast games", "no statcast or no database")
+        skip("no Statcast game is truncated (<200 pitches)", "no statcast or no database")
+
     if (ROOT / "archive").exists():
         import db as dbmod
         import merge_archive
