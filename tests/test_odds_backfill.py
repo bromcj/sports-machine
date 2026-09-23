@@ -57,3 +57,32 @@ def test_history_is_stored_under_its_own_snapshot_types():
     plan = [{"kind": "hist_open"}, {"kind": "hist_close"}]
     for p in plan:
         assert p["kind"].startswith("hist_")
+
+
+def test_a_postponed_game_must_not_keep_its_original_slot():
+    """The Stats API returns a postponed game TWICE under one gamePk.
+
+    Once in its original slot as "Postponed", again on the make-up date as
+    "Final" - and BOTH report abstractGameState "Final". Code that trusted the
+    abstract field stored the original slot's time next to the rescheduled
+    game's score. Measured: Brewers @ Mets stored at 17:10Z on 2024-03-28 when
+    it was played at 17:40Z on the 29th, twenty hours out. 88 games across the
+    three test seasons were wrong the same way.
+
+    That is worse than a mismatch here: the paid request would have been aimed
+    at a moment when the game was not on the board.
+    """
+    from feeds import stats_api_status
+    postponed = {"detailedState": "Postponed", "abstractGameState": "Final"}
+    played = {"detailedState": "Final", "abstractGameState": "Final"}
+    assert stats_api_status(postponed) != "final"
+    assert stats_api_status(played) == "final"
+
+    # The selection rule backfill_start_times applies.
+    entries = [("2024-03-28T17:10:00Z", stats_api_status(postponed)),
+               ("2024-03-29T17:40:00Z", stats_api_status(played))]
+    best = None
+    for when, st in entries:
+        if best is None or (st == "final" and best[1] != "final"):
+            best = (when, st)
+    assert best[0] == "2024-03-29T17:40:00Z"

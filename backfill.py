@@ -99,6 +99,58 @@ def backfill_venues(year: int) -> int:
     return n
 
 
+def backfill_start_times(year: int) -> int:
+    """Correct start_time_utc to the time a game was ACTUALLY played. Free.
+
+    The Stats API returns a postponed game TWICE under the same gamePk: once
+    in its original slot with detailedState "Postponed", and again on the
+    make-up date as "Final". Both report abstractGameState "Final", so code
+    that trusted the abstract field stored the ORIGINAL slot's gameDate
+    alongside the rescheduled game's score.
+
+    Measured on 2024-03-28: Brewers @ Mets was stored starting 17:10Z on the
+    28th when it was played at 17:40Z on the 29th - twenty hours out. The odds
+    feed has the real time, so the two could never be matched, and the
+    historical backfill would have aimed a paid request at a moment when the
+    game was not on the board.
+
+    Keeps the FINAL entry for each gamePk, and only ever moves a start time.
+    """
+    import requests as _rq
+    from feeds import et_date, stats_api_status
+    start, end = SEASON_DATES[year]
+    r = _rq.get(SCHED, params={"sportId": 1, "startDate": start, "endDate": end,
+                               "gameType": "R"}, timeout=90)
+    r.raise_for_status()
+    best = {}
+    for day in r.json().get("dates", []):
+        for g in day.get("games", []):
+            status = stats_api_status(g.get("status") or {})
+            gid = f"mlb-{g['gamePk']}"
+            # A real completion always wins over the postponed placeholder.
+            if gid not in best or (status == "final" and best[gid][1] != "final"):
+                best[gid] = (g.get("gameDate"), status)
+
+    con = connect()
+    moved = 0
+    for gid, (when, status) in best.items():
+        if not when or status != "final":
+            continue
+        cur = con.execute(
+            "SELECT start_time_utc FROM games WHERE game_id=?", (gid,)).fetchone()
+        if cur is None or cur["start_time_utc"] == when:
+            continue
+        con.execute(
+            "UPDATE games SET start_time_utc=?, game_date=? WHERE game_id=?",
+            (when, et_date(when), gid))
+        moved += 1
+    con.commit()
+    con.close()
+    print(f"[{year}] start times: {moved} game(s) corrected to when they were "
+          f"actually played.")
+    return moved
+
+
 def backfill_statcast(year: int):
     out = STATCAST_DIR / f"{year}.parquet"
     if out.exists():
