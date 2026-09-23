@@ -115,6 +115,51 @@ def main() -> int:
             skip("odds_twin bridges predictions to prices", "no predictions stored yet")
         con.close()
 
+    # -------------------------------------------------- train / serve parity
+    section("TRAIN vs SERVE")
+    # The model must be trained on the same feature it is served. Two ways
+    # these drifted, both found by measurement rather than by reading:
+    #
+    #  - a 30-day rolling window followed by shift(1) handed a team's first
+    #    game of a season the window ending at its last game of the PREVIOUS
+    #    season. Live's date-filtered window is empty there, so live skips the
+    #    game and training kept it.
+    #  - rest_days(df, "home_ab") tracked only the home column, so it measured
+    #    days since the last HOME game. Live has always measured days since the
+    #    last game of any kind. 16% of rows disagreed.
+    import pandas as pd
+    mlb_tr = ROOT / "data" / "training_mlb.parquet"
+    if mlb_tr.exists():
+        t = pd.read_parquet(mlb_tr)
+        worst_rest = max(t["home_rest_days"].max(), t["away_rest_days"].max())
+        check("no training row carries an off-season rest gap",
+              worst_rest <= 30, f"max rest_days {worst_rest:.0f}")
+        # Recompute rest_days both ways from the games table - cheap, no
+        # Statcast needed - and require the training definition to be the
+        # live one.
+        from features.sports.mlb_features import TEAM_ABBR as _TA
+        gdf = pd.read_sql(
+            "SELECT game_date, away, home FROM games WHERE sport='mlb'"
+            " AND status='final' AND away_score IS NOT NULL", connect())
+        gdf["game_date"] = pd.to_datetime(gdf["game_date"])
+        gdf["home_ab"] = gdf["home"].map(_TA)
+        gdf["away_ab"] = gdf["away"].map(_TA)
+        gdf = gdf.dropna(subset=["home_ab", "away_ab"]).sort_values("game_date")
+        from features.build_training import rest_days as _train_rest
+        got = _train_rest(gdf, "home_ab")
+        last, want = {}, []
+        for a, h, d in zip(gdf["away_ab"], gdf["home_ab"], gdf["game_date"]):
+            want.append((d - last[h]).days if h in last else None)
+            last[a] = d
+            last[h] = d
+        diff = sum(1 for x, y in zip(got, want)
+                   if (x == x) and y is not None and x != y)
+        check("training rest_days is the same feature live serves",
+              diff == 0, f"{diff} of {len(want):,} rows differ")
+    else:
+        skip("no training row carries an off-season rest gap", "no training table")
+        skip("training rest_days is the same feature live serves", "no training table")
+
     # ---------------------------------------------------------- game status
     section("GAME STATUS")
     from feeds import espn_status, stats_api_status

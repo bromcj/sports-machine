@@ -68,11 +68,28 @@ def load_games() -> pd.DataFrame:
 
 
 def rest_days(df: pd.DataFrame, team_col: str) -> list:
-    """Days since that team last played. df must be sorted by game_date."""
-    prev, out = {}, []
-    for team, d in zip(df[team_col], df["game_date"]):
-        out.append((d - prev[team]).days if team in prev else np.nan)
-        prev[team] = d
+    """Days since that team last played ANY game. df must be sorted by date.
+
+    It used to track only `df[team_col]`, so rest_days(df, "home_ab") measured
+    days since the team's last HOME game - a homestand-length feature, not a
+    rest feature. features/build.py:rest_days_asof has always checked both
+    columns, so training and serving were computing DIFFERENT features under
+    the same name.
+
+    Measured over 12,052 games: 16% of rows disagreed, mean 4.04 days against
+    live's 2.03, and the maximum ran to 197 days because a team's first away
+    game of a season is months after its last away game of the previous one.
+
+    Found while fixing the off-season window problem, not by looking for it -
+    the impossible rest values that survived the window mask are what exposed
+    it.
+    """
+    last, out = {}, []
+    for away, home, d in zip(df["away_ab"], df["home_ab"], df["game_date"]):
+        team = away if team_col == "away_ab" else home
+        out.append((d - last[team]).days if team in last else np.nan)
+        last[away] = d
+        last[home] = d
     return out
 
 

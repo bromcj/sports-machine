@@ -166,6 +166,29 @@ def pitcher_game_lines(sc: pd.DataFrame) -> pd.DataFrame:
     return lines
 
 
+def _stale(index, days: int):
+    """True where the PREVIOUS observation is more than `days` older than this one.
+
+    rolling("30D") gives the window ending at each row, and .shift(1) then hands
+    that window to the NEXT row - however far away it is. A team's first game of
+    a season therefore inherited the window ending at its last game of the
+    previous season, so a "30-day" form number was built from last September.
+
+    The live path cannot do this. features/build.py filters on
+    `game_date >= asof - 30 days`, which at season start is an empty window, so
+    live produces no feature and skips the game entirely. Training kept the row.
+    The model was learning from rows production never generates.
+
+    This marks exactly those rows, so they can be nulled and dropped - which is
+    what live already does to them.
+
+    Note it is only the CALENDAR windows that diverge. sp_kbb_5s uses a count
+    window (the last 5 starts) in both paths, so the two already agree there.
+    """
+    prev = index.to_series().shift(1)
+    return (index.to_series() - prev).dt.days > days
+
+
 def bullpen_table(lines: pd.DataFrame) -> pd.DataFrame:
     """(team, date) -> pen_kbb_30d, pen_pitches_3d, both as-of (shifted)."""
     pen = (lines[~lines["is_starter"]]
@@ -179,6 +202,9 @@ def bullpen_table(lines: pd.DataFrame) -> pd.DataFrame:
         g["pen_kbb_30d"] = ((g["k"] - g["bb"]).rolling("30D").sum()
                             / g["pa"].rolling("30D").sum()).shift(1)
         g["pen_pitches_3d"] = g["pitches"].rolling("3D").sum().shift(1).fillna(0)
+        # Live's window would be empty across a gap this big; match it.
+        g.loc[_stale(g.index, 30), "pen_kbb_30d"] = np.nan
+        g.loc[_stale(g.index, 3), "pen_pitches_3d"] = 0.0
         g = g.reset_index()
         g["team"] = team
         out.append(g[["team", "game_date", "pen_kbb_30d", "pen_pitches_3d"]])
@@ -196,6 +222,7 @@ def offense_table(sc: pd.DataFrame) -> pd.DataFrame:
         g = g.set_index("game_date").sort_index()
         g["off_woba_30d"] = (g["wv"].rolling("30D").sum()
                              / g["wd"].rolling("30D").sum()).shift(1)
+        g.loc[_stale(g.index, 30), "off_woba_30d"] = np.nan
         g = g.reset_index()
         g["team"] = team
         out.append(g[["team", "game_date", "off_woba_30d"]])
