@@ -130,10 +130,14 @@ python features/build_training.py   rebuild the training table + retrain + save
 The Odds API free tier is **500 credits a month**, and one pull costs
 **one credit per in-season sport**.
 
-**Spends credits:** `morning`, `close`, `refresh`, and every cloud cron run.
+**Spends credits:** `morning`, `close`, and every cloud cron run. Nothing else.
 
-**Free:** `picks`, `audit`, `dashboard`, `grade`, `validation`, `healthcheck`,
-`backup`, `cronstatus`, `machine_daily.bat`, and anything reading the database.
+**Free:** `picks`, `audit`, `dashboard`, `grade`, `refresh`, `validation`,
+`healthcheck`, `backup`, `cronstatus`, `machine_daily.bat`, and anything
+reading the database.
+
+`refresh` is free but slow — it re-downloads Statcast and retrains, and
+touches no odds API.
 
 The three daily cron runs cost about 360 credits in October, when all four
 sports overlap. That is the tightest month. **Do not add a fourth daily pull
