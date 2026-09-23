@@ -669,11 +669,16 @@ def main() -> int:
                 ("started", now - dt.timedelta(hours=2), "live"),
                 ("imminent", now + dt.timedelta(minutes=2), "scheduled")]
         for name, start, status in spec:
+            # Starters set, or the sp_unconfirmed guardrail fires and the
+            # bet is refused for a reason this section is not testing.
             c5.execute(
                 "INSERT INTO games (game_id, sport, game_date, start_time_utc,"
-                " away, home, status) VALUES (?,?,?,?,?,?,?)",
+                " away, home, status, away_starter, home_starter,"
+                " away_starter_id, home_starter_id)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (f"mlb-1{name}", "mlb", str(now.date()), start.isoformat(),
-                 f"A{name}", f"H{name}", status))
+                 f"A{name}", f"H{name}", status, "A Pitcher", "H Pitcher",
+                 111111, 222222))
             c5.execute(
                 "INSERT INTO predictions (game_id, sport, created_at,"
                 " model_version, proj_margin, home_win_prob)"

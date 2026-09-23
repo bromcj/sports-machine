@@ -32,6 +32,7 @@ import pandas as pd
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 from bets.engine import evaluate, novig_probs
+from bets.guardrails import daily_exposure, flags_for_game
 from db import LATEST_FEATURE, LATEST_PREDICTION, code_sha, connect
 from feeds import SQL_STATS_API, pregame_books
 from model.persist import (load as load_model, predict_margin,
@@ -135,8 +136,11 @@ def picks(date: str | None = None, bankroll: float = 1000.0,
             nv_away, nv_home = novig_probs(b["away_ml"], b["home_ml"])
             edge = max(p["home_win_prob"] - nv_home,
                        (1 - p["home_win_prob"]) - nv_away)
+            side_guess = "home" if p["home_win_prob"] >= 0.5 else "away"
             r = evaluate(sport, p["home_win_prob"], b["away_ml"], b["home_ml"],
-                         bankroll)
+                         bankroll,
+                         flags=flags_for_game(con, p["game_id"], side_guess),
+                         exposure_used=daily_exposure(con, sport, date, bankroll))
             if best is None or edge > best[0]:
                 best = (edge, b, r)
         edge, b, r = best

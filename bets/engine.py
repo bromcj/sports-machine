@@ -50,7 +50,8 @@ def kelly_stake(model_prob: float, ml: int, bankroll: float) -> float:
 
 def evaluate(sport: str, model_home_prob: float, away_ml: int, home_ml: int,
              bankroll: float, flags: dict | None = None,
-             allow_unvalidated: bool = False) -> dict:
+             allow_unvalidated: bool = False,
+             exposure_used: float = 0.0) -> dict:
     """Decide whether to bet, and how much.
 
     A sport whose walk-forward has not beaten the real market is refused before
@@ -77,6 +78,16 @@ def evaluate(sport: str, model_home_prob: float, away_ml: int, home_ml: int,
     elif edge_away >= min_edge:
         side, edge, ml, prob, novig = "away", edge_away, away_ml, 1 - model_home_prob, novig_away
 
+    # MAX_DAILY_PCT was defined and never used. A per-bet cap says nothing
+    # about a slate: fifteen bets at the 3% per-bet maximum is 45% of the
+    # bankroll on one night, which is not a staking plan.
+    room = max(0.0, MAX_DAILY_PCT - exposure_used)
+    if side is not None and room <= 0:
+        return {"sport": sport, "bet": False,
+                "reason": f"daily exposure cap reached "
+                          f"({exposure_used:.1%} of {MAX_DAILY_PCT:.0%})",
+                "edge_home": edge_home, "edge_away": edge_away}
+
     if side is None or blocked:
         return {"sport": sport, "bet": False,
                 "reason": ("guardrail:" + ",".join(blocked)) if blocked
@@ -85,7 +96,8 @@ def evaluate(sport: str, model_home_prob: float, away_ml: int, home_ml: int,
     return {"sport": sport, "bet": True, "side": side, "line": ml,
             "edge": round(edge, 4), "model_prob": round(prob, 4),
             "novig_market_prob": round(novig, 4),
-            "stake": kelly_stake(prob, ml, bankroll),
+            "stake": min(kelly_stake(prob, ml, bankroll),
+                         round(bankroll * room, 2)),
             "kelly_fraction": KELLY_FRACTION}
 
 

@@ -29,6 +29,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from db import LATEST_PREDICTION, connect
 from bets.engine import evaluate, novig_probs
+from bets.guardrails import daily_exposure, flags_for_game
 from bets.engine import american_to_decimal
 from bets.log import (CLOSING_WINDOW_MIN, closing_snapshot, fair_prob,
                       grade, record_bet)
@@ -82,10 +83,18 @@ def place(date: str | None = None, sport: str = "mlb") -> int:
             continue
         # Take the best available price on whichever side the model likes,
         # which is what a real bettor shopping four books would do.
+        # Guardrails can finally fire: no caller ever passed flags, so the
+        # protections evaluate() advertises had never once been applied.
         best = None
+        gflags = flags_for_game(con, p["game_id"], "home")
+        aflags = flags_for_game(con, p["game_id"], "away")
         for b in books:
+            side_guess = ("home" if p["home_win_prob"] >= 0.5 else "away")
             r = evaluate(sport, p["home_win_prob"], b["away_ml"], b["home_ml"],
-                         PAPER_BANKROLL, allow_unvalidated=True)
+                         PAPER_BANKROLL, allow_unvalidated=True,
+                         flags=(gflags if side_guess == "home" else aflags),
+                         exposure_used=daily_exposure(con, sport, date,
+                                                      PAPER_BANKROLL))
             if not r["bet"]:
                 continue
             if best is None or r["edge"] > best[0]["edge"]:
