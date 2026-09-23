@@ -73,8 +73,17 @@ def main():
         mkt = np.clip(test["novig_home_prob"].values, 1e-6, 1 - 1e-6)
         home_p = np.clip(np.full_like(y, train["home_won"].mean()), 1e-6, 1 - 1e-6)
 
+        # Per-game paired log-loss difference, so model/validation.py can tell
+        # a real margin from a lucky one. Without these a REAL_MARKET record
+        # cannot clear gate 1 at all - fail-closed, by design.
+        ll_model_each = -(y * np.log(p) + (1 - y) * np.log(1 - p))
+        ll_market_each = -(y * np.log(mkt) + (1 - y) * np.log(1 - mkt))
+        ll_diff = ll_market_each - ll_model_each
+
         rows.append({
             "test_season": test_season, "n": len(test),
+            "n_games": int(len(y)),
+            "ll_diff_sd": round(float(np.std(ll_diff, ddof=1)), 6),
             "alpha": best_alpha, "k": round(k, 3),
             "rmse": round(mean_squared_error(test["point_diff"], pred_margin) ** 0.5, 2),
             "logloss_model": round(log_loss(y, p), 6),
