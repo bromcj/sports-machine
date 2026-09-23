@@ -115,6 +115,60 @@ def main() -> int:
             skip("odds_twin bridges predictions to prices", "no predictions stored yet")
         con.close()
 
+    # ---------------------------------------------------- market scoring
+    section("MARKET SCORING")
+    import model.market_score as _ms
+    import inspect as _insp
+    # It reports; it must not decide. Checked against the module's imports and
+    # names, not its text - the first version of this check searched for
+    # "record(" and tripped on the docstring saying it does not call record().
+    names = {n for n in dir(_ms)}
+    uses_validation = any("validation" in str(getattr(_ms, n, "")) for n in names
+                          if n.startswith("__") is False)
+    check("market scoring cannot clear a gate",
+          "record" not in names and "record_paper" not in names
+          and not uses_validation,
+          "does not import model.validation")
+
+    # A day-block bootstrap must give a WIDER interval than resampling games
+    # independently, or it is not doing its job - same-day games are
+    # correlated and treating them as independent understates the spread.
+    import random as _r
+    _r.seed(5)
+    # A REAL day effect: most of the variance is between days, which is the
+    # situation the block bootstrap exists for. My first fixture had a day sd
+    # of 0.05 against a within-day 0.2, where the two methods barely differ -
+    # it did not exercise the thing it claimed to test.
+    # The day mean is drawn ONCE PER DAY. Written inline in a nested
+    # comprehension it is redrawn per game, which produces no day effect at
+    # all - so the fixture "testing" the block bootstrap had nothing for it to
+    # find, and the naive interval came out marginally wider by chance.
+    days = []
+    for _ in range(40):
+        mu = _r.gauss(0, 0.30)
+        days.append([_r.gauss(mu, 0.05) for _ in range(12)])
+    flat = [x for d in days for x in d]
+
+    def _boot(blocks, n=1500):
+        rng = _r.Random(7)
+        ms = []
+        for _ in range(n):
+            pick = [blocks[rng.randrange(len(blocks))] for _ in range(len(blocks))]
+            v = [x for b in pick for x in b]
+            ms.append(sum(v) / len(v))
+        ms.sort()
+        return ms[int(.05 * n)], ms[int(.95 * n) - 1]
+
+    lo_d, hi_d = _boot(days)
+    lo_g, hi_g = _boot([[x] for x in flat])
+    check("the day-block interval is wider than a naive per-game one",
+          (hi_d - lo_d) > (hi_g - lo_g),
+          f"day-block {hi_d - lo_d:.4f} vs per-game {hi_g - lo_g:.4f}")
+    check("log loss is computed correctly",
+          abs(_ms._ll(0.5, 1) - 0.6931472) < 1e-6
+          and abs(_ms._ll(0.9, 1) - 0.1053605) < 1e-6,
+          "matches -log(p)")
+
     # ---------------------------------------------------------------- lineage
     section("LINEAGE")
     from db import LATEST_PREDICTION as _LP, code_sha as _sha

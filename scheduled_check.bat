@@ -58,6 +58,10 @@ if errorlevel 1 (
   echo.
   "%PY%" run_daily.py paper
   echo.
+  REM Every finished game scored against the market, bet or not. Reports
+  REM only - it clears no gate. Free.
+  "%PY%" run_daily.py market
+  echo.
   "%PY%" run_daily.py cronstatus
 )
 

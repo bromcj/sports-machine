@@ -10,6 +10,7 @@
   python run_daily.py finals     -> yesterday's and today's results. free
   python run_daily.py predict    -> statcast top-up + today's predictions. free
   python run_daily.py paper      -> place/settle/score paper bets (gate 2). free
+  python run_daily.py market     -> score finished games vs the market. free
 """
 import sys
 import datetime as dt
@@ -152,6 +153,10 @@ if __name__ == "__main__":
     if mode == "cronstatus":
         from cronstatus import report
         raise SystemExit(report())
+    if mode == "market":
+        from model.market_score import run as market_run
+        market_run()
+        raise SystemExit(0)
     if mode == "paper":
         from bets.paper import run as paper_run
         paper_run()

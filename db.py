@@ -84,6 +84,24 @@ CREATE TABLE IF NOT EXISTS predictions (
     home_win_prob REAL NOT NULL
 );
 
+-- Every finished game scored against the market, whether or not a bet was
+-- ever placed on it. Gate 1 runs on a PLACEHOLDER baseline and will until
+-- enough real closing lines accumulate; this is the running head-to-head
+-- against the actual market in the meantime. It clears nothing by itself.
+CREATE TABLE IF NOT EXISTS market_scores (
+    game_id TEXT PRIMARY KEY,
+    sport TEXT NOT NULL,
+    game_date TEXT NOT NULL,
+    scored_at TEXT NOT NULL,
+    prediction_id INTEGER,         -- the latest prediction made BEFORE first pitch
+    model_prob REAL NOT NULL,
+    market_prob REAL NOT NULL,     -- de-vigged close, inside the window
+    fair_source TEXT,
+    home_won INTEGER NOT NULL,
+    model_ll REAL NOT NULL,
+    market_ll REAL NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS merged_files (
     name TEXT PRIMARY KEY,         -- archive/ filename, e.g. odds-2026-09-23-0053.csv
     bytes INTEGER NOT NULL,        -- size when merged; a changed size means re-read
