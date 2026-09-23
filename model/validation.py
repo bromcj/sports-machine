@@ -306,7 +306,8 @@ def record(sport: str, baseline_kind: str, seasons: list[dict]) -> dict:
     _save(data)
     return new_entry
 
-def record_paper(sport: str, clvs, slots=None, coverage=None) -> dict:
+def record_paper(sport: str, clvs, slots=None, coverage=None,
+                 placebo=None) -> dict:
     """Gate 2: the model moved the fair line its way, by more than noise.
 
     `clvs` is the per-bet INFO component, not raw CLV. CLV against the same
@@ -387,7 +388,24 @@ def record_paper(sport: str, clvs, slots=None, coverage=None) -> dict:
             over = [k for k, v in slot_share.items() if v > MAX_SLOT_SHARE]
             lopsided = over[0] if over else None
 
-    passed = enough and convincing and covered and lopsided is None
+    # A placebo bets a RANDOM side through the same pipeline. It should score
+    # nothing. If it clears the same bar, whatever this gate is measuring is
+    # not the model - a systematic line drift, a bug in the decomposition, a
+    # selection effect in which bets get graded. Any of those would make a
+    # passing real result meaningless, so the gate refuses.
+    placebo_stat = None
+    if placebo:
+        p_mean = sum(placebo) / len(placebo)
+        p_se = _stdev(placebo) / (len(placebo) ** 0.5) if len(placebo) > 1 else 0.0
+        placebo_passes = (len(placebo) >= MIN_PAPER_BETS
+                          and p_mean - PAPER_CLV_SIGMA * p_se > 0)
+        placebo_stat = {"n": len(placebo), "mean": round(p_mean, 3),
+                        "would_pass": placebo_passes}
+    else:
+        placebo_passes = False
+
+    passed = (enough and convincing and covered and lopsided is None
+              and not placebo_passes)
     if not enough:
         reason = f"only {n_bets} graded paper bets, need {MIN_PAPER_BETS}"
     elif avg_clv <= 0:
@@ -405,6 +423,11 @@ def record_paper(sport: str, clvs, slots=None, coverage=None) -> dict:
                   f"whichever games a cron happened to land near, not a random "
                   f"sample. Fix pre-game collection before reading anything into "
                   f"the {avg_clv:+.2f}% info over {n_bets} bets")
+    elif placebo_passes:
+        reason = (f"mean info {avg_clv:+.2f}% over {n_bets} bets clears the bar, "
+                  f"but SO DOES A RANDOM-SIDE PLACEBO "
+                  f"({placebo_stat['mean']:+.2f}% over {placebo_stat['n']}) - "
+                  f"whatever this is measuring, it is not the model")
     elif lopsided is not None:
         reason = (f"mean info {avg_clv:+.2f}% over {n_bets} bets clears the noise "
                   f"at {cov:.0%} coverage, but {slot_share[lopsided]:.0%} of them "
@@ -420,6 +443,7 @@ def record_paper(sport: str, clvs, slots=None, coverage=None) -> dict:
                  "avg_clv": round(float(avg_clv), 3),
                  "sd_clv": round(sd, 3), "se_clv": round(se, 4),
                  "t_stat": round(t, 3) if t != float("inf") else None,
+                 "placebo": placebo_stat,
                  "coverage": None if cov is None else round(cov, 4),
                  "slot_share": {k: round(v, 3) for k, v in slot_share.items()},
                  # info per slot, so a model that only works on late games is

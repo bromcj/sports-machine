@@ -22,6 +22,7 @@ No paper bet can ever move money. record_bet(mode='paper') writes to the
 same table as a real wager, deliberately - it is the same measurement - and
 bets/engine.py still refuses every real bet until all three gates pass.
 """
+import hashlib
 import sys
 from pathlib import Path
 
@@ -65,8 +66,8 @@ def place(date: str | None = None, sport: str = "mlb") -> int:
     now = dt.datetime.now(dt.timezone.utc)
     placed = skipped_started = 0
     for p in preds:
-        if con.execute("SELECT 1 FROM bets WHERE game_id=? AND mode='paper'",
-                       (p["game_id"],)).fetchone():
+        if con.execute("SELECT 1 FROM bets WHERE game_id=? AND mode IN"
+                       " ('paper','placebo')", (p["game_id"],)).fetchone():
             continue
         # A bet nobody could have placed is not evidence of anything.
         start = parse_utc(p["start_time_utc"])
@@ -98,12 +99,30 @@ def place(date: str | None = None, sport: str = "mlb") -> int:
         if taken is None or not (taken <= now < start):
             skipped_started += 1
             continue
-        bet_id = record_bet(p["game_id"], sport, r["side"], b["book"], r["line"],
-                            r["stake"], r["model_prob"], r["novig_market_prob"],
-                            r["edge"], r["kelly_fraction"], p["model_version"],
-                            mode="paper")
-        con.execute("UPDATE bets SET odds_snapshot_id=? WHERE bet_id=?",
-                    (b["id"], bet_id))
+        # Shadow bet with a RANDOM side, same game, book and snapshot. Seeded
+        # from the game_id so it is reproducible and cannot be reshuffled after
+        # the fact. If this clears gate 2 too, the gate is measuring something
+        # other than the model.
+        coin = int(hashlib.sha256(p["game_id"].encode()).hexdigest(), 16) & 1
+        pl_side = "home" if coin else "away"
+        pl_line = b["home_ml"] if pl_side == "home" else b["away_ml"]
+
+        # record_bet opens its OWN connection, so `con` must not be holding an
+        # uncommitted write while it runs - that deadlocks SQLite against
+        # itself. Both inserts first, then the updates together.
+        new_ids = [(record_bet(p["game_id"], sport, r["side"], b["book"],
+                               r["line"], r["stake"], r["model_prob"],
+                               r["novig_market_prob"], r["edge"],
+                               r["kelly_fraction"], p["model_version"],
+                               mode="paper"))]
+        if pl_line is not None:
+            new_ids.append(record_bet(p["game_id"], sport, pl_side, b["book"],
+                                      pl_line, r["stake"], 0.5, 0.5, 0.0,
+                                      r["kelly_fraction"], p["model_version"],
+                                      mode="placebo"))
+        for bid in new_ids:
+            con.execute("UPDATE bets SET odds_snapshot_id=? WHERE bet_id=?",
+                        (b["id"], bid))
         con.commit()
         placed += 1
         print(f"  paper: {p['away'][:18]} @ {p['home'][:18]}  "
@@ -119,8 +138,8 @@ def settle(sport: str = "mlb") -> dict:
     """Grade paper bets whose game has finished. Returns a tally of outcomes."""
     con = connect()
     open_bets = con.execute(
-        "SELECT * FROM bets WHERE mode='paper' AND sport=? AND result IS NULL",
-        (sport,)).fetchall()
+        "SELECT * FROM bets WHERE mode IN ('paper','placebo') AND sport=?"
+        " AND result IS NULL", (sport,)).fetchall()
     tally = {"graded": 0, "no_result": 0, "no_close": 0, "settled_no_clv": 0}
     for b in open_bets:
         g = con.execute(
@@ -207,48 +226,49 @@ def _decompose_bet(con, bet, close_snap) -> bool:
     return True
 
 
-def score(sport: str = "mlb") -> dict | None:
-    """Feed the graded paper CLVs into gate 2, with their first-pitch hours.
-
-    The hours matter because which games get a gradeable close is decided by
-    cron timing rather than at random - measured on this archive, every game
-    that qualified started at 01:00 UTC. Gate 2 refuses a sample drawn from
-    one start-time bucket, so it needs to be told the buckets.
-    """
-    con = connect()
+def _graded(con, sport: str, mode: str):
+    """(info values, slot labels) for graded bets in that mode."""
     rows = con.execute(
-        "SELECT bet_id, game_id, info_pct, shop_pct, ev_fair_close FROM bets"
-        " WHERE mode='paper' AND sport=? AND info_pct IS NOT NULL",
-        (sport,)).fetchall()
-    con.close()
-    if not rows:
-        print("  no paper bets with a usable closing line yet - gate 2 untouched")
-        return None
-    clvs, slots = [], []
+        "SELECT game_id, info_pct FROM bets WHERE mode=? AND sport=?"
+        " AND info_pct IS NOT NULL", (mode, sport)).fetchall()
+    vals, slots = [], []
     for r in rows:
         snap = closing_snapshot(r["game_id"])
         start = parse_utc(snap["commence_time"]) if snap else None
         if start is None:
-            continue                    # cannot place it in a slot; drop it
-        # info, not clv_pct: the part of the result the model earned.
-        clvs.append(r["info_pct"])
+            continue
+        vals.append(r["info_pct"])
         slots.append(slot_of(start.astimezone(ET).hour))
-    if not clvs:
-        print("  graded bets exist but none carry a first-pitch time - "
-              "gate 2 untouched")
-        return None
+    return vals, slots
 
-    # Coverage: of the paper bets that SETTLED, how many could be graded?
-    # This is the honest measure of whether the graded set represents the bets
-    # actually placed. The graded ones are whichever games a cron happened to
-    # land near, and that is not random.
+
+def score(sport: str = "mlb") -> dict | None:
+    """Feed the graded paper `info` values into gate 2, with what they need.
+
+    Three things travel with them, and gate 2 fails closed without each:
+
+      slots      the ET slate slot of each graded bet, so a sample that is
+                 all late west-coast games is visible rather than averaged.
+      coverage   graded / settled. Which games get a gradeable close is
+                 decided by cron timing, not at random, so this is the honest
+                 measure of whether the graded set represents the bets placed.
+      placebo    the same pipeline with a random side. If that clears the gate
+                 too, the gate is measuring something other than the model.
+    """
     con = connect()
+    clvs, slots = _graded(con, sport, "paper")
+    placebo, _ = _graded(con, sport, "placebo")
     settled = con.execute(
         "SELECT COUNT(*) FROM bets WHERE mode='paper' AND sport=?"
         " AND result IS NOT NULL", (sport,)).fetchone()[0]
     con.close()
+    if not clvs:
+        print("  no paper bets with a gradeable closing line yet - "
+              "gate 2 untouched")
+        return None
     coverage = (len(clvs) / settled) if settled else None
-    return record_paper(sport, clvs, slots=slots, coverage=coverage)
+    return record_paper(sport, clvs, slots=slots, coverage=coverage,
+                        placebo=placebo)
 
 
 def summary(sport: str = "mlb") -> dict | None:

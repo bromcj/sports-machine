@@ -19,9 +19,14 @@ def record_bet(game_id, sport, side, book, line_taken, stake, model_prob,
     unlabelled bet contributes nothing toward opening the tap - the mistake
     costs you a slower gate, not an unearned one. The reverse default would
     let anything that forgot the flag help justify staking money.
+
+    'placebo' is the same pipeline with a RANDOM side. It exists to be
+    measured, not to be believed: if the placebo also clears gate 2, the test
+    is measuring something other than the model and gate 2 refuses.
     """
-    if mode not in ("paper", "real"):
-        raise ValueError(f"mode must be 'paper' or 'real', got {mode!r}")
+    if mode not in ("paper", "real", "placebo"):
+        raise ValueError(
+            f"mode must be 'paper', 'real' or 'placebo', got {mode!r}")
     con = connect()
     cur = con.execute(
         """INSERT INTO bets (mode, ts, game_id, sport, side, book, line_taken, stake,

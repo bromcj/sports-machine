@@ -857,6 +857,22 @@ def main() -> int:
         r = v.record_paper(probe, strong, slots=lop, coverage=0.95)
         check("very high coverage waives the slot check",
               r["passed"], r["reason"][:72])
+        # A placebo bets a RANDOM side through the same pipeline and should
+        # score nothing. If it clears the same bar, the gate is measuring
+        # something other than the model.
+        import random as _rnd
+        _rnd.seed(3)
+        noise = [_rnd.gauss(0, 2.9) for _ in range(60)]
+        r = v.record_paper(probe, strong, slots=mixed, coverage=0.95,
+                           placebo=noise)
+        check("a placebo that scores nothing does not block a real result",
+              r["passed"], f"placebo mean {r['placebo']['mean']:+.2f}%")
+        r = v.record_paper(probe, strong, slots=mixed, coverage=0.95,
+                           placebo=strong)
+        check("gate 2 refuses when a RANDOM-side placebo also passes",
+              not r["passed"] and "PLACEBO" in r["reason"].upper(),
+              r["reason"][:70])
+
         r = v.record_paper(probe, strong, slots=mixed, coverage=0.95)
         check("info is reported per slate slot",
               set(r["info_by_slot"]) == set(v.SLOTS), str(r["info_by_slot"]))
