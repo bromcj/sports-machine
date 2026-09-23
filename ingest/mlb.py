@@ -37,12 +37,25 @@ def pull_day(date: str | None = None):
                                       away_starter_id, home_starter_id,
                                       away_score, home_score, status)
                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                   -- Same rule as ingest/scores.py: 'final' is terminal and a
+                   -- NULL never overwrites a real value. The starters matter
+                   -- as much as the scores here - the API drops
+                   -- probablePitcher from some responses, and an unconditional
+                   -- assignment wiped a confirmed starter that features/build.py
+                   -- requires before it will predict a game at all.
                    ON CONFLICT(game_id) DO UPDATE SET
-                     away_starter=excluded.away_starter, home_starter=excluded.home_starter,
-                     away_starter_id=excluded.away_starter_id,
-                     home_starter_id=excluded.home_starter_id,
-                     away_score=excluded.away_score, home_score=excluded.home_score,
-                     status=excluded.status""",
+                     away_starter=COALESCE(excluded.away_starter, games.away_starter),
+                     home_starter=COALESCE(excluded.home_starter, games.home_starter),
+                     away_starter_id=COALESCE(excluded.away_starter_id,
+                                              games.away_starter_id),
+                     home_starter_id=COALESCE(excluded.home_starter_id,
+                                              games.home_starter_id),
+                     away_score=CASE WHEN games.status='final' THEN games.away_score
+                                ELSE COALESCE(excluded.away_score, games.away_score) END,
+                     home_score=CASE WHEN games.status='final' THEN games.home_score
+                                ELSE COALESCE(excluded.home_score, games.home_score) END,
+                     status=CASE WHEN games.status='final' THEN 'final'
+                                 ELSE excluded.status END""",
                 (gid, "mlb", date, away, home, away_sp, home_sp,
                  away_sp_id, home_sp_id, away_score, home_score, status),
             )

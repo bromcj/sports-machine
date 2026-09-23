@@ -27,12 +27,24 @@ def pull_sport(sport: str, date: str | None = None) -> int:
         gid = f"{sport}-espn-{ev['id']}"
         status = comp["status"]["type"]["state"]  # pre | in | post
         con.execute(
+            # 'final' is terminal, and a NULL never overwrites a real score.
+            #
+            # The previous version assigned excluded.* unconditionally, so when
+            # ESPN returned this game as 'pre' - which it does for
+            # postponements, re-keyed doubleheaders, and the occasional glitch -
+            # a completed 7-2 was silently rewritten to NULL-NULL/scheduled, and
+            # the result was gone. merge_archive.py already guarded against
+            # exactly this; the primary ingest path did not.
             """INSERT INTO games (game_id, sport, game_date, away, home,
                                   away_score, home_score, status)
                VALUES (?,?,?,?,?,?,?,?)
                ON CONFLICT(game_id) DO UPDATE SET
-                 away_score=excluded.away_score, home_score=excluded.home_score,
-                 status=excluded.status""",
+                 away_score=CASE WHEN games.status='final' THEN games.away_score
+                            ELSE COALESCE(excluded.away_score, games.away_score) END,
+                 home_score=CASE WHEN games.status='final' THEN games.home_score
+                            ELSE COALESCE(excluded.home_score, games.home_score) END,
+                 status=CASE WHEN games.status='final' THEN 'final'
+                             ELSE excluded.status END""",
             (gid, sport, ev["date"][:10],
              away["team"]["displayName"], home["team"]["displayName"],
              int(away.get("score") or 0) if status != "pre" else None,
