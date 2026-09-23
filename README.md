@@ -10,7 +10,8 @@ in all four test seasons. `python model/validation.py` prints the current state.
 
 - **Running it:** see [COMMANDS.md](COMMANDS.md)
 - **Looking at it:** `python dashboard.py`
-- **Checking it:** `python audit.py` — 21 checks against live data
+- **Checking it:** `python audit.py` — 25 checks against live data
+- **Keeping it:** `python backup.py` — verified snapshot of the database
 
 ## Setup (once)
 
@@ -63,7 +64,8 @@ model/       train.py (walk-forward) · persist.py (saves the fitted model)
              predict.py (scores today) · validation.py (the gates)
 bets/        engine.py (no-vig, Kelly, guardrails) · log.py (CLV grading)
 dashboard.py one-page visual summary → dashboard.html / .png
-audit.py     21 checks: leakage, identity, staleness, de-vig, the gates
+backup.py    verified database snapshots; cronstatus.py checks the cloud
+audit.py     25 checks: leakage, identity, staleness, de-vig, gates, backups
 healthcheck.py  writes STATUS.md, fails the cloud run if something is wrong
 ```
 

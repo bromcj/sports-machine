@@ -14,7 +14,7 @@ bar, type `powershell`, press Enter.
 | `python dashboard.py` | Builds the visual page and opens it. Add `--png` for a shareable image. |
 | `python run_daily.py picks` | Tonight's games in the terminal — model vs bookmakers. |
 | `python audit.py` | 21 checks. All green = everything is sound. |
-| **`machine_daily.bat`** | **Double-click.** Pulls what the cloud collected into your local database. |
+| **`machine_daily.bat`** | **Double-click.** Pulls what the cloud collected into your local database, then backs it up. |
 
 ---
 
@@ -31,9 +31,34 @@ so there is no need to do it daily.
 
 ---
 
+## Backups
+
+`machine_daily.bat` takes one every time you run it, so normally you do
+nothing. To take one by hand, or to check:
+
+```
+python backup.py            take one, verify it, prune to the last 14
+python backup.py --list     what exists and how old it is
+python backup.py --restore <file>   put one back (asks first)
+```
+
+They go to `OneDrive\sports-machine-backups` — off this disk, which is the
+point. Set `SPORTS_MACHINE_BACKUP_DIR` to put them elsewhere.
+
+Every backup is reopened and row-counted before it is kept, and one that
+fails is deleted rather than left looking like protection. `python audit.py`
+also fails if the newest backup is over 7 days old.
+
+`data/` is the only thing that exists nowhere else, and most of it can be
+rebuilt — odds and games from `archive/`, Statcast from `backfill.py`, the
+models by retraining. What cannot be rebuilt is your `bets` table.
+
+---
+
 ## Occasional
 
 ```
+python run_daily.py backup      same as backup.py, from the usual command
 python run_daily.py morning     schedules + odds + features + predictions
 python run_daily.py close       closing odds only
 python run_daily.py grade       final scores + bet review
@@ -108,7 +133,7 @@ The Odds API free tier is **500 credits a month**, and one pull costs
 **Spends credits:** `morning`, `close`, `refresh`, and every cloud cron run.
 
 **Free:** `picks`, `audit`, `dashboard`, `grade`, `validation`, `healthcheck`,
-`machine_daily.bat`, and anything reading the database.
+`backup`, `cronstatus`, `machine_daily.bat`, and anything reading the database.
 
 The three daily cron runs cost about 360 credits in October, when all four
 sports overlap. That is the tightest month. **Do not add a fourth daily pull

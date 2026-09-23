@@ -6,6 +6,7 @@
   python run_daily.py refresh  -> top up Statcast + retrain (slow, weekly)
   python run_daily.py grade    -> finals + review
   python run_daily.py cronstatus -> did the cloud fire, and on time? free
+  python run_daily.py backup     -> snapshot the database, verified. free
 """
 import sys
 import datetime as dt
@@ -89,5 +90,10 @@ if __name__ == "__main__":
     if mode == "cronstatus":
         from cronstatus import report
         raise SystemExit(report())
+    if mode == "backup":
+        import backup as bk
+        bk.take()
+        bk.prune()
+        raise SystemExit(0)
     {"morning": morning, "close": close, "picks": show_picks,
      "refresh": refresh, "grade": grade}[mode]()

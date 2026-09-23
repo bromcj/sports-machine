@@ -16,6 +16,12 @@ if errorlevel 1 goto pullfail
 echo Merging cloud archive into local database...
 python merge_archive.py
 echo.
+REM Back up AFTER the merge, so the newest backup includes what just arrived.
+REM A failure here is reported but does not fail the sync - the merge already
+REM succeeded and that is the part you cannot redo.
+echo Backing up the database...
+python backup.py
+echo.
 echo Done. Close this window whenever.
 goto end
 

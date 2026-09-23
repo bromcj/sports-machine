@@ -215,6 +215,48 @@ def main() -> int:
         skip("NFL ties dropped, not scored as away wins", "no NFL training table")
 
     # --------------------------------------------------------------- guard
+    # ----------------------------------------------------------- durability
+    section("DURABILITY")
+    # `backup` is rebound below as validation.json's saved text, so alias it.
+    import backup as bkmod
+    tmpdir = pathlib.Path(tempfile.mkdtemp())
+    db_file = ROOT / "data" / "machine.db"
+    if db_file.exists():
+        torn = tmpdir / "torn.db"
+        raw = db_file.read_bytes()
+        torn.write_bytes(raw[:len(raw) // 3])     # what a mid-write copy leaves
+        ok_torn, why_torn = bkmod.verify(torn)
+        check("backup verification rejects a torn file", not ok_torn, why_torn)
+
+        hollow = tmpdir / "hollow.db"
+        c = sqlite3.connect(hollow)
+        c.execute("CREATE TABLE games (x INT)")
+        c.execute("CREATE TABLE odds_snapshots (x INT)")
+        c.commit()
+        c.close()
+        ok_hollow, why_hollow = bkmod.verify(hollow)
+        # A valid-but-empty SQLite file is the failure mode a naive check
+        # misses: it opens fine and integrity_check passes.
+        check("backup verification rejects an empty database",
+              not ok_hollow, why_hollow)
+    else:
+        skip("backup verification rejects a torn file", "no data/machine.db")
+        skip("backup verification rejects an empty database", "no data/machine.db")
+
+    backups = sorted(bkmod.backup_dir().glob("machine-*.db"))
+    if backups:
+        newest = backups[-1]
+        age_days = (dt.datetime.now()
+                    - dt.datetime.fromtimestamp(newest.stat().st_mtime)).days
+        ok_b, detail_b = bkmod.verify(newest)
+        check("the newest backup actually opens", ok_b, detail_b)
+        check("a backup exists from the last 7 days", age_days <= 7,
+              f"{newest.name} is {age_days} day(s) old")
+    else:
+        skip("the newest backup actually opens", "no backups yet")
+        skip("a backup exists from the last 7 days",
+             f"none in {bkmod.backup_dir()} — run `python backup.py`")
+
     section("BETTING GUARD")
     from model import validation as v
     live = ROOT / "validation.json"
