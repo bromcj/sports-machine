@@ -215,6 +215,56 @@ def main() -> int:
         skip("NFL ties dropped, not scored as away wins", "no NFL training table")
 
     # --------------------------------------------------------------- guard
+    # --------------------------------------------------------- paper trading
+    section("PAPER TRADING (GATE 2)")
+    import db as dbmod4
+    from bets import log as blog4, paper as bpaper
+    real4 = dbmod4.DB_PATH
+    try:
+        tmp4 = pathlib.Path(tempfile.mkdtemp())
+        dbmod4.DB_PATH = tmp4 / "paper.db"
+        dbmod4.init()
+        blog4.connect = dbmod4.connect
+
+        pid = blog4.record_bet("g1", "mlb", "home", "fanduel", -110, 10.0,
+                               0.55, 0.52, 0.03, 0.01, "v1", mode="paper")
+        rid = blog4.record_bet("g2", "mlb", "home", "fanduel", -110, 10.0,
+                               0.55, 0.52, 0.03, 0.01, "v1")      # default
+        c4 = dbmod4.connect()
+        modes = {r["bet_id"]: r["mode"] for r in
+                 c4.execute("SELECT bet_id, mode FROM bets")}
+        c4.close()
+        check("a paper bet is recorded as paper", modes[pid] == "paper")
+        # The default must be 'real': an unlabelled bet that silently counted
+        # as paper would help open the tap without anyone deciding to.
+        check("an unlabelled bet defaults to real, not paper",
+              modes[rid] == "real", f"mode={modes[rid]!r}")
+        try:
+            blog4.record_bet("g3", "mlb", "home", "fd", -110, 1.0, .5, .5, 0, 0,
+                             "v1", mode="simulated")
+            check("record_bet rejects an unknown mode", False, "accepted it")
+        except ValueError as e:
+            check("record_bet rejects an unknown mode", True, str(e))
+
+        # Gate 2 must read paper bets only. Grade one of each with identical,
+        # strongly positive CLV and confirm the real one is ignored.
+        blog4.grade(pid, -200, True, minutes_before_start=20)
+        blog4.grade(rid, -200, True, minutes_before_start=20)
+        bpaper.connect = dbmod4.connect
+        c4 = dbmod4.connect()
+        paper_clvs = [r["clv_pct"] for r in c4.execute(
+            "SELECT clv_pct FROM bets WHERE mode='paper' AND clv_pct IS NOT NULL")]
+        all_clvs = [r["clv_pct"] for r in c4.execute(
+            "SELECT clv_pct FROM bets WHERE clv_pct IS NOT NULL")]
+        c4.close()
+        check("gate 2 counts paper bets only, not real ones",
+              len(paper_clvs) == 1 and len(all_clvs) == 2,
+              f"{len(paper_clvs)} paper of {len(all_clvs)} graded")
+    finally:
+        dbmod4.DB_PATH = real4
+        blog4.connect = dbmod4.connect
+        bpaper.connect = dbmod4.connect
+
     # ------------------------------------------------------------ CLV window
     section("CLV GRADING WINDOW")
     import db as dbmod3

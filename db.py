@@ -62,6 +62,7 @@ CREATE TABLE IF NOT EXISTS merged_files (
 
 CREATE TABLE IF NOT EXISTS bets (
     bet_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    mode TEXT NOT NULL DEFAULT 'real',   -- 'paper' | 'real'; gate 2 counts paper
     ts TEXT NOT NULL,
     game_id TEXT NOT NULL,
     sport TEXT NOT NULL,
@@ -177,6 +178,12 @@ MIGRATIONS = [
     # no way to look up a probable starter's recent form before a game.
     ("games", "away_starter_id", "INTEGER"),
     ("games", "home_starter_id", "INTEGER"),
+    # 'paper' | 'real'. Gate 2 counts PAPER bets only - it is the evidence
+    # gathered BEFORE any money is staked, so letting real wagers feed it
+    # would let money already at risk justify risking more. NULL on rows
+    # written before this column existed is read as 'real', which is the
+    # fail-closed direction: an unlabelled bet cannot help pass a gate.
+    ("bets", "mode", "TEXT"),
 ]
 
 
@@ -203,6 +210,9 @@ INDEXES = [
     # odds_twin() and every 'today's slate' query filter on exactly this pair.
     ("ix_games_sport_date", "CREATE INDEX IF NOT EXISTS ix_games_sport_date"
                             " ON games(sport, game_date)"),
+    # settle() sweeps ungraded paper bets every run; gate 2 reads graded ones.
+    ("ix_bets_mode_sport", "CREATE INDEX IF NOT EXISTS ix_bets_mode_sport"
+                           " ON bets(mode, sport, result)"),
 ]
 # closing_snapshot() filters odds_snapshots on game_id alone; that is the
 # leading column of ux_snap_dedupe, so SQLite uses it. No separate index.

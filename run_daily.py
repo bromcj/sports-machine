@@ -7,6 +7,7 @@
   python run_daily.py grade    -> finals + review
   python run_daily.py cronstatus -> did the cloud fire, and on time? free
   python run_daily.py backup     -> snapshot the database, verified. free
+  python run_daily.py paper      -> place/settle/score paper bets (gate 2). free
 """
 import sys
 import datetime as dt
@@ -45,6 +46,14 @@ def morning():
             from model.predict import predict_for_date
             if build_for_date():
                 predict_for_date()
+                # Gate 2 evidence. Free - reads the database only. Placed here
+                # rather than later in the day on purpose: a paper bet has to
+                # be taken at a price a real bettor could actually have got,
+                # and by evening the only pregame prices left are ones much
+                # closer to the close, which would flatter the CLV.
+                from bets.paper import place
+                n = place()
+                print(f"Paper bets placed for gate 2: {n}")
         except FileNotFoundError as e:
             print(f"(no predictions: {e})")
     print("Morning run complete. Run `python run_daily.py picks` to see them.")
@@ -82,6 +91,18 @@ def grade():
             mlb.pull_day()
         except requests.RequestException as e:
             print(f"[mlb] finals unavailable from MLB Stats API: {e}")
+    # Finals just landed, so any paper bet whose game finished can now be
+    # settled and, if a usable close exists, scored toward gate 2.
+    try:
+        from bets.paper import settle, score
+        t = settle()
+        if any(t.values()):
+            print(f"Paper: {t['graded']} graded with CLV, "
+                  f"{t['no_close'] + t['settled_no_clv']} with no usable close, "
+                  f"{t['no_result']} awaiting a final")
+        score()
+    except Exception as e:                      # never let this kill grading
+        print(f"(paper settle skipped: {e})")
     betlog.review()
 
 
@@ -90,6 +111,10 @@ if __name__ == "__main__":
     if mode == "cronstatus":
         from cronstatus import report
         raise SystemExit(report())
+    if mode == "paper":
+        from bets.paper import run as paper_run
+        paper_run()
+        raise SystemExit(0)
     if mode == "backup":
         import backup as bk
         bk.take()

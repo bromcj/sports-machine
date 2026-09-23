@@ -13,7 +13,7 @@ bar, type `powershell`, press Enter.
 |---|---|
 | `python dashboard.py` | Builds the visual page and opens it. Add `--png` for a shareable image. |
 | `python run_daily.py picks` | Tonight's games in the terminal — model vs bookmakers. |
-| `python audit.py` | 28 checks. All green = everything is sound. |
+| `python audit.py` | 42 checks. All green = everything is sound. |
 | **`machine_daily.bat`** | **Double-click.** Pulls what the cloud collected into your local database, then backs it up. |
 
 ---
@@ -59,6 +59,7 @@ models by retraining. What cannot be rebuilt is your `bets` table.
 
 ```
 python run_daily.py backup      same as backup.py, from the usual command
+python run_daily.py paper       place/settle/score paper bets (gate 2)
 python run_daily.py morning     schedules + odds + features + predictions
 python run_daily.py close       closing odds only
 python run_daily.py grade       final scores + bet review
@@ -154,8 +155,8 @@ The Odds API free tier is **500 credits a month**, and one pull costs
 **Spends credits:** `morning`, `close`, and every cloud cron run. Nothing else.
 
 **Free:** `picks`, `audit`, `dashboard`, `grade`, `refresh`, `validation`,
-`healthcheck`, `backup`, `cronstatus`, `machine_daily.bat`, and anything
-reading the database.
+`healthcheck`, `backup`, `cronstatus`, `paper`, `machine_daily.bat`, and
+anything reading the database.
 
 `refresh` is free but slow — it re-downloads Statcast and retrains, and
 touches no odds API.

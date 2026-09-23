@@ -11,16 +11,29 @@ from bets.engine import clv_pct, american_to_decimal
 
 
 def record_bet(game_id, sport, side, book, line_taken, stake, model_prob,
-               novig_market_prob, edge, kelly_fraction, model_version):
+               novig_market_prob, edge, kelly_fraction, model_version,
+               mode: str = "real"):
+    """Log a wager. Returns its bet_id.
+
+    `mode` defaults to 'real' deliberately. Gate 2 counts PAPER bets, so an
+    unlabelled bet contributes nothing toward opening the tap - the mistake
+    costs you a slower gate, not an unearned one. The reverse default would
+    let anything that forgot the flag help justify staking money.
+    """
+    if mode not in ("paper", "real"):
+        raise ValueError(f"mode must be 'paper' or 'real', got {mode!r}")
     con = connect()
-    con.execute(
-        """INSERT INTO bets (ts, game_id, sport, side, book, line_taken, stake, model_prob,
-                             novig_market_prob, edge, kelly_fraction, model_version)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-        (utc_now(), game_id, sport, side, book, line_taken, stake,
+    cur = con.execute(
+        """INSERT INTO bets (mode, ts, game_id, sport, side, book, line_taken, stake,
+                             model_prob, novig_market_prob, edge, kelly_fraction,
+                             model_version)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (mode, utc_now(), game_id, sport, side, book, line_taken, stake,
          model_prob, novig_market_prob, edge, kelly_fraction, model_version))
+    bet_id = cur.lastrowid
     con.commit()
     con.close()
+    return bet_id
 
 
 # How close to first pitch a snapshot must be to count as a CLOSING line.
@@ -151,7 +164,7 @@ def closing_snapshot(game_id: str, book: str | None = None):
     return out
 
 
-def grade(bet_id: int, closing_line: int, won: bool | None,
+def grade(bet_id: int, closing_line: int | None, won: bool | None,
           minutes_before_start: float | None = None):
     """Attach closing line + CLV, settle P&L. won=None for push.
 
@@ -167,7 +180,8 @@ def grade(bet_id: int, closing_line: int, won: bool | None,
     """
     con = connect()
     b = con.execute("SELECT * FROM bets WHERE bet_id=?", (bet_id,)).fetchone()
-    valid_close = (minutes_before_start is not None
+    valid_close = (closing_line is not None
+                   and minutes_before_start is not None
                    and minutes_before_start <= CLOSING_WINDOW_MIN)
     clv = clv_pct(b["line_taken"], closing_line) if valid_close else None
     if won is None:
