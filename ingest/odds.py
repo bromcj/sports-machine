@@ -44,9 +44,13 @@ def pull_sport(sport: str, snapshot_type: str) -> int:
                 if mkt["key"] != "h2h":
                     continue
                 prices = {o["name"]: o["price"] for o in mkt["outcomes"]}
+                # OR IGNORE: ux_snap_dedupe makes a repeat of the same price
+                # from the same book in the same pull a no-op rather than an
+                # IntegrityError that would abort the run.
                 con.execute(
-                    "INSERT INTO odds_snapshots (game_id, sport, ts, book, away_ml,"
-                    " home_ml, snapshot_type, commence_time) VALUES (?,?,?,?,?,?,?,?)",
+                    "INSERT OR IGNORE INTO odds_snapshots (game_id, sport, ts, book,"
+                    " away_ml, home_ml, snapshot_type, commence_time)"
+                    " VALUES (?,?,?,?,?,?,?,?)",
                     (gid, sport, ts, bk["key"], prices.get(away), prices.get(home),
                      snapshot_type, commence))
                 n += 1

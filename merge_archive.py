@@ -25,25 +25,25 @@ def merge():
     con = connect()
     added_snaps = added_games = 0
 
+    # Deduplication is the ux_snap_dedupe UNIQUE index, not a per-row SELECT.
+    # The old version probed the table once per archived row; with no index
+    # that was a full scan each time, so the merge was O(n^2) in the history
+    # and reached 84 minutes after a year of collection. OR IGNORE pushes the
+    # same rule into the database, where it costs one B-tree lookup.
+    before = con.total_changes
     for p in sorted(ARCHIVE.glob("odds-*.csv")):
         with open(p, newline="", encoding="utf-8") as f:
-            for row in csv.DictReader(f):
-                dup = con.execute(
-                    "SELECT 1 FROM odds_snapshots WHERE game_id=? AND ts=? "
-                    "AND book=? AND snapshot_type=?",
-                    (row["game_id"], row["ts"], row["book"],
-                     row["snapshot_type"])).fetchone()
-                if dup:
-                    continue
-                con.execute(
-                    "INSERT INTO odds_snapshots (game_id, sport, ts, book, away_ml,"
-                    " home_ml, snapshot_type, commence_time) VALUES (?,?,?,?,?,?,?,?)",
-                    (row["game_id"], row["sport"], row["ts"], row["book"],
-                     row["away_ml"] or None, row["home_ml"] or None,
-                     row["snapshot_type"],
-                     # absent from CSVs archived before commence_time was added
-                     row.get("commence_time") or None))
-                added_snaps += 1
+            con.executemany(
+                "INSERT OR IGNORE INTO odds_snapshots (game_id, sport, ts, book,"
+                " away_ml, home_ml, snapshot_type, commence_time)"
+                " VALUES (?,?,?,?,?,?,?,?)",
+                [(row["game_id"], row["sport"], row["ts"], row["book"],
+                  row["away_ml"] or None, row["home_ml"] or None,
+                  row["snapshot_type"],
+                  # absent from CSVs archived before commence_time was added
+                  row.get("commence_time") or None)
+                 for row in csv.DictReader(f)])
+    added_snaps = con.total_changes - before
 
     for p in sorted(ARCHIVE.glob("games-*.csv")):
         with open(p, newline="", encoding="utf-8") as f:

@@ -94,6 +94,59 @@ MIGRATIONS = [
 ]
 
 
+# Indexes. Created by init(), so `python db.py` adds them to an existing DB.
+#
+# Without these EVERY hot query is a full table scan - measured with EXPLAIN
+# QUERY PLAN on the live DB, all five of them. That is invisible at a thousand
+# rows and fatal at a hundred thousand, because merge_archive.py does one
+# dedupe probe per archived row against a table growing at the same rate. That
+# is O(n^2): measured, a year of collection takes the daily merge from instant
+# to 84 minutes. With the first index below it is 7 seconds.
+#
+# The first one is UNIQUE, which also turns deduplication from a convention
+# enforced in one hand-written SELECT inside merge_archive.py into something
+# the database will not let any writer violate.
+INDEXES = [
+    # (game_id, ts, book, snapshot_type) identifies one price from one book in
+    # one pull. A second row with that key is the same observation twice.
+    ("ux_snap_dedupe", "CREATE UNIQUE INDEX IF NOT EXISTS ux_snap_dedupe"
+                       " ON odds_snapshots(game_id, ts, book, snapshot_type)"),
+    # healthcheck counts per sport; 'latest snapshot for X' sorts by ts.
+    ("ix_snap_sport_ts", "CREATE INDEX IF NOT EXISTS ix_snap_sport_ts"
+                         " ON odds_snapshots(sport, ts)"),
+    # odds_twin() and every 'today's slate' query filter on exactly this pair.
+    ("ix_games_sport_date", "CREATE INDEX IF NOT EXISTS ix_games_sport_date"
+                            " ON games(sport, game_date)"),
+]
+# closing_snapshot() filters odds_snapshots on game_id alone; that is the
+# leading column of ux_snap_dedupe, so SQLite uses it. No separate index.
+
+
+def index(con):
+    """Create any missing index. Idempotent.
+
+    A UNIQUE index fails to build if the table already violates it, which is
+    information worth surfacing rather than swallowing: it means duplicate
+    snapshots are already in there and the dedupe was not doing its job.
+    """
+    have = {r["name"] for r in con.execute(
+        "SELECT name FROM sqlite_master WHERE type='index'")}
+    added = []
+    for name, ddl in INDEXES:
+        if name in have:
+            continue
+        try:
+            con.execute(ddl)
+            added.append(name)
+        except sqlite3.IntegrityError as e:
+            raise SystemExit(
+                f"Cannot create {name}: {e}\n"
+                "The table already contains rows that violate it. Inspect with:\n"
+                "  SELECT game_id, ts, book, snapshot_type, COUNT(*) c\n"
+                "  FROM odds_snapshots GROUP BY 1,2,3,4 HAVING c > 1;")
+    return added
+
+
 def migrate(con):
     """Add any columns a pre-existing DB is missing. Idempotent."""
     applied = []
@@ -111,10 +164,13 @@ def init():
     con = connect()
     con.executescript(SCHEMA)
     applied = migrate(con)
+    indexed = index(con)
     con.commit()
     con.close()
     if applied:
         print(f"Migrated: added {', '.join(applied)}")
+    if indexed:
+        print(f"Indexed: created {', '.join(indexed)}")
     print(f"DB initialized at {DB_PATH}")
 
 
