@@ -15,6 +15,8 @@ import sys
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
 from db import connect, utc_now
 from ingest import http, quality
+from ingest.http import redact
+from ingest.raw import save_raw
 from feeds import et_date
 from config import SPORTS, active_sports
 
@@ -56,6 +58,10 @@ def pull_sport(sport: str, snapshot_type: str) -> int:
                 if mkt["key"] != "h2h":
                     continue
                 prices = {o["name"]: o["price"] for o in mkt["outcomes"]}
+                # When the BOOK last moved this price, not when we pulled it.
+                # Without it a line that has not moved in six hours looks
+                # identical to one that just changed.
+                last_up = mkt.get("last_update") or bk.get("last_update")
                 if not bad.check(quality.snapshot(prices.get(away),
                                                   prices.get(home))):
                     continue
@@ -63,15 +69,28 @@ def pull_sport(sport: str, snapshot_type: str) -> int:
                 # from the same book in the same pull a no-op rather than an
                 # IntegrityError that would abort the run.
                 con.execute(
-                    "INSERT OR IGNORE INTO odds_snapshots (game_id, sport, ts, book,"
-                    " away_ml, home_ml, snapshot_type, commence_time)"
-                    " VALUES (?,?,?,?,?,?,?,?)",
+                    "INSERT OR IGNORE INTO odds_snapshots (game_id, sport, ts,"
+                    " book, away_ml, home_ml, snapshot_type, commence_time,"
+                    " market_last_update) VALUES (?,?,?,?,?,?,?,?,?)",
                     (gid, sport, ts, bk["key"], prices.get(away), prices.get(home),
-                     snapshot_type, commence))
+                     snapshot_type, commence, last_up))
                 n += 1
     con.commit()
     con.close()
     remaining = r.headers.get("x-requests-remaining", "?")
+    used = r.headers.get("x-requests-used")
+    # Logged, not just printed. The console scrolls away and the only record
+    # of how fast the budget is going is gone with it.
+    con2 = connect()
+    con2.execute(
+        "INSERT INTO api_usage (ts, sport, endpoint, remaining, used)"
+        " VALUES (?,?,?,?,?)",
+        (utc_now(), sport, "odds/h2h",
+         int(remaining) if str(remaining).isdigit() else None,
+         int(used) if used and str(used).isdigit() else None))
+    con2.commit()
+    con2.close()
+    save_raw("odds", sport, r.text)
     print(f"[{sport}] {n} {snapshot_type} snapshots. Credits left: {remaining}")
     bad.report()
     return n
@@ -85,7 +104,7 @@ def pull(snapshot_type: str = "open"):
         try:
             pull_sport(sport, snapshot_type)
         except requests.RequestException as e:
-            print(f"[{sport}] pull failed: {e}")
+            print(f"[{sport}] pull failed: {redact(e)}")
 
 
 if __name__ == "__main__":

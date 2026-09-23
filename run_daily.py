@@ -16,6 +16,7 @@ import sys
 import datetime as dt
 import requests
 from ingest import mlb, odds, scores
+from ingest.http import redact
 from config import active_sports
 from bets import log as betlog
 
@@ -32,7 +33,7 @@ def morning():
         try:
             mlb.pull_day()      # probables come from MLB Stats API
         except requests.RequestException as e:
-            print(f"[mlb] probables unavailable: {e}")
+            print(f"[mlb] probables unavailable: {redact(e)}")
     scores.pull_all()           # schedules/finals for everything else
     odds.pull("open")
     if "mlb" in live:
@@ -144,12 +145,12 @@ def finals(days_back: int = 1):
         try:
             scores.pull_all(day)
         except requests.RequestException as e:
-            print(f"  [scores] unavailable: {e}")
+            print(f"  [scores] unavailable: {redact(e)}")
         if "mlb" in live:
             try:
                 mlb.pull_day(day)
             except requests.RequestException as e:
-                print(f"  [mlb] unavailable: {e}")
+                print(f"  [mlb] unavailable: {redact(e)}")
 
 
 def grade():

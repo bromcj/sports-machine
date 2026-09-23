@@ -102,6 +102,30 @@ CREATE TABLE IF NOT EXISTS market_scores (
     market_ll REAL NOT NULL
 );
 
+-- Write-only history. None of this can be reconstructed later, so it is
+-- collected now even though nothing reads most of it yet.
+CREATE TABLE IF NOT EXISTS api_usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts TEXT NOT NULL,
+    sport TEXT,
+    endpoint TEXT,
+    remaining INTEGER,             -- x-requests-remaining
+    used INTEGER                   -- x-requests-used
+);
+
+-- Every probable ever announced, not just the latest non-null. A late scratch
+-- is invisible once the row is overwritten, and "was the starter confirmed
+-- when we bet?" is unanswerable after the fact.
+CREATE TABLE IF NOT EXISTS probables_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    game_id TEXT NOT NULL,
+    seen_at TEXT NOT NULL,
+    away_starter TEXT,
+    away_starter_id INTEGER,
+    home_starter TEXT,
+    home_starter_id INTEGER
+);
+
 CREATE TABLE IF NOT EXISTS merged_files (
     name TEXT PRIMARY KEY,         -- archive/ filename, e.g. odds-2026-09-23-0053.csv
     bytes INTEGER NOT NULL,        -- size when merged; a changed size means re-read
@@ -306,6 +330,10 @@ def connect():
 # missing, so `python db.py` is safe to re-run and upgrades in place.
 MIGRATIONS = [
     ("odds_snapshots", "commence_time", "TEXT"),
+    # The Odds API's own market-level timestamp: when the BOOK last moved this
+    # price, as opposed to when we happened to pull it. Without it a price
+    # that has not moved for six hours is indistinguishable from a fresh one.
+    ("odds_snapshots", "market_last_update", "TEXT"),
     # MLBAM player ids for the probable starters. The names alone cannot be
     # joined to Statcast, which keys pitchers by id - so without these there is
     # no way to look up a probable starter's recent form before a game.
@@ -379,6 +407,13 @@ INDEXES = [
                              " ON predictions(game_id, created_at)"),
     ("ix_feat_game_created", "CREATE INDEX IF NOT EXISTS ix_feat_game_created"
                              " ON features(game_id, created_at)"),
+    ("ix_prob_game_seen", "CREATE INDEX IF NOT EXISTS ix_prob_game_seen"
+                          " ON probables_history(game_id, seen_at)"),
+    # Only one row per (game, pull) is worth keeping: the same probable seen
+    # again is not new information.
+    ("ux_prob_dedupe", "CREATE UNIQUE INDEX IF NOT EXISTS ux_prob_dedupe"
+                       " ON probables_history(game_id, away_starter_id,"
+                       " home_starter_id)"),
 ]
 # closing_snapshot() filters odds_snapshots on game_id alone; that is the
 # leading column of ux_snap_dedupe, so SQLite uses it. No separate index.

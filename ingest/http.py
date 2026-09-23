@@ -19,9 +19,23 @@ right trade at 3 pulls/day against a 500/month cap - losing a whole pull
 costs a day of closing lines - but it is a trade, which is why the retry
 count is small and visible rather than a library default.
 """
+import re
 import time
 
 import requests
+
+# requests puts the full URL in its exception text, and the odds API takes its
+# key as a QUERY PARAMETER. So an ordinary timeout printed the key into the
+# console, into logs\cronstatus-latest.txt, and into the GitHub Actions log -
+# which is public on a public repo. Every message out of here is redacted.
+_SECRET = re.compile(r"((?:apiKey|api_key|key|token)=)[^&\s'\"]+",
+                     re.IGNORECASE)
+
+
+def redact(text) -> str:
+    """Strip credentials out of anything before it is printed or logged."""
+    return _SECRET.sub(r"\1***", str(text))
+
 
 RETRY_ON = (requests.Timeout, requests.ConnectionError)
 ATTEMPTS = 3
@@ -51,7 +65,8 @@ def get(url, *, params=None, timeout=30, attempts=ATTEMPTS, label=""):
         if attempt < attempts:
             wait = BACKOFF * (2 ** (attempt - 1))
             tag = f"[{label}] " if label else ""
-            print(f"  {tag}attempt {attempt}/{attempts} failed ({type(last).__name__});"
+            print(f"  {tag}attempt {attempt}/{attempts} failed "
+                  f"({type(last).__name__}: {redact(last)[:120]});"
                   f" retrying in {wait:.0f}s")
             time.sleep(wait)
     raise last

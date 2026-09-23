@@ -9,6 +9,8 @@ import sys
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
 from db import connect
 from ingest import http, quality
+from ingest.http import redact
+from ingest.raw import save_raw
 from feeds import espn_status, et_date
 from config import SPORTS, active_sports
 
@@ -74,6 +76,7 @@ def pull_sport(sport: str, date: str | None = None) -> int:
         n += 1
     con.commit()
     con.close()
+    save_raw("espn", sport, r.text)
     print(f"[{sport}] upserted {n} games.")
     bad.report()
     return n
@@ -85,7 +88,7 @@ def pull_all(date: str | None = None):
         try:
             pull_sport(sport, date)
         except requests.RequestException as e:
-            print(f"[{sport}] scoreboard failed: {e}")
+            print(f"[{sport}] scoreboard failed: {redact(e)}")
 
 
 if __name__ == "__main__":

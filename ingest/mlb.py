@@ -5,8 +5,9 @@ Free, no key. Educational/non-commercial use per MLBAM terms.
 import datetime as dt
 import sys
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
-from db import connect
+from db import connect, utc_now
 from ingest import http, quality
+from ingest.raw import save_raw
 from feeds import et_date, stats_api_status
 
 SCHED = "https://statsapi.mlb.com/api/v1/schedule"
@@ -86,9 +87,19 @@ def pull_day(date: str | None = None):
                  away, home, away_sp, home_sp,
                  away_sp_id, home_sp_id, away_score, home_score, status),
             )
+            # Every probable ever announced. OR IGNORE keeps one row per
+            # distinct pair, so re-seeing the same names is not new
+            # information, but a CHANGE is recorded - which is the whole
+            # point: a late scratch is invisible once the row is overwritten.
+            con.execute(
+                "INSERT OR IGNORE INTO probables_history (game_id, seen_at,"
+                " away_starter, away_starter_id, home_starter, home_starter_id)"
+                " VALUES (?,?,?,?,?,?)",
+                (gid, utc_now(), away_sp, away_sp_id, home_sp, home_sp_id))
             n += 1
     con.commit()
     con.close()
+    save_raw("mlb", "mlb", r.text)
     print(f"Upserted {n} games for {date}.")
     bad.report()
 
