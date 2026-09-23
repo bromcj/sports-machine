@@ -375,10 +375,61 @@ Filled in as each experiment completes. Failures stay in the file.
 
 | experiment | run on | verdict | number |
 |---|---|---|---|
-| A1 | | | |
+| A1 | 2026-09-23 | **FAIL** (real signal, ~12x too small to bet) | see below |
 | E1 | | | |
 | E2 | | | |
 | E3 | | | |
 | E4 | | | |
 | E5 | | | |
 | E6 | | | |
+
+### A1, run 2026-09-23 on 6,513 games (2024-2026)
+
+**Verdict: no edge found.** Two of the three tests came out as predicted; the
+third did not, and then failed the bettable clause by a factor of about twelve.
+
+| test | predicted | measured | |
+|---|---|---|---|
+| b1, weight on our disagreement | 0, or negative | **+0.103**, CI [-0.073, +0.273], t = +1.20 | as predicted (indistinguishable from 0) |
+| anchored log loss vs the morning price | no improvement | **-0.00044**, CI [-0.00100, +0.00012], t = -1.52 | as predicted (no improvement) |
+| movement slope | 0 | **+0.0241**, CI [+0.0164, +0.0312], t = +6.48 | **NOT as predicted** |
+
+b1's per-season values (-0.005, +0.224, +0.061) are all over the place, which
+is what a coefficient with no signal behind it looks like.
+
+**The movement slope is real.** It survived both artifact checks:
+
+- *Shared denominator.* `logit(p_morning)` sits on both sides of the
+  regression, so morning-price measurement error manufactures a positive slope
+  for free. Measuring the morning price twice from independent sources
+  (Pinnacle vs the de-vigged NJ consensus) and using the unbiased
+  two-measurement estimator takes +0.0284 down to **+0.0241** - so the artifact
+  was real but small, about 15%. *(The obvious fix of simply swapping one
+  measurement for the other is itself biased, downward, and gave +0.0096. Both
+  naive versions straddle the right answer; the estimator in
+  `research/a1_movement.py` uses both measurements in both places.)*
+- *Late starters.* The model knows who actually started; the 10:00 price
+  sometimes does not. Refitting without the two starter features leaves
+  **+0.0104, t = +3.03** - smaller, but alive, and the stripped model disagrees
+  with the market MORE (sd 0.310 vs 0.277), so the drop is not a power
+  artifact. Trimming the games where the market moved most leaves +0.0126 at
+  the 90th percentile, t = +5.03: broad-based, not a handful of scratches.
+
+So the model does see something the market has not finished pricing at 10 a.m.,
+and roughly half of it is about starting pitchers - which is E1's hypothesis
+arriving early, by a different route.
+
+**It is not bettable, and it is not close.** A one-standard-deviation
+disagreement predicts the close moving 0.0068 logit toward us: **0.17
+percentage points** of probability. The NJ books' morning overround is
+3.9-4.6%, so a bet needs to be worth about **2 points** to break even. The
+signal is roughly **twelve times too small**.
+
+Betting it directly confirms that. Top decile of disagreement, at the best NJ
+morning price, vig paid: **633 bets, 34.3% won against a 37.5% break-even, ROI
+-9.5%** (sd of the mean 5.1).
+
+**Nothing was tuned in response to any of this.** The b1 and log-loss tests
+stand as pre-registered failures; the movement test stands as a pre-registered
+pass on significance that fails the bettable clause, which is the clause that
+was put there for exactly this case.
