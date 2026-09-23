@@ -12,6 +12,10 @@ __pycache__/
 # Trained models are rebuilt by the training scripts
 data/models/
 
+# Regenerated on every monitor run; tracking it would dirty the
+# working tree and make machine_daily.bat refuse to pull.
+ALERTS.md
+
 # Generated dashboard
 dashboard.html
 dashboard.png

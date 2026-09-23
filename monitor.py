@@ -17,7 +17,7 @@ Levels:
   WARNING   worth looking at; may resolve on its own
   INFO      normal state, recorded so its absence is noticeable
 
-Nothing here alerts anyone yet. See DELIVERY below.
+Findings are delivered by notify.py - see there for the channels.
 """
 import argparse
 import datetime as dt
@@ -32,18 +32,9 @@ from feeds import SQL_STATS_API, parse_utc
 
 LOG = ROOT / "logs" / "health.jsonl"
 
-# DELIVERY: nothing sends these anywhere yet, deliberately.
-#
-# The two options worth considering:
-#   ntfy.sh   a topic URL, one HTTP POST, no account and no credentials. It is
-#             a public topic unless you pay, so the message must not contain
-#             anything private - "ERROR: 3 games unsettled" is fine.
-#   email     Gmail with an app password. More private, but it means a
-#             credential on this machine, and I will not set that up or handle
-#             the password. You would create it and put it in an env var.
-#
-# I would start with ntfy: no credential, and the findings are not sensitive.
-# Say which you want and it is a few lines in run().
+# Delivery lives in notify.py: ALERTS.md always, a desktop notification for
+# anything serious, and ntfy.sh only if SPORTS_MACHINE_NTFY_TOPIC is set.
+# Nothing leaves this machine by default.
 ALERT_AT = ("CRITICAL", "ERROR")
 
 # A started game should be final long before this.
@@ -213,6 +204,11 @@ def run(quiet: bool = False) -> int:
     with open(LOG, "a", encoding="utf-8") as f:
         for x in findings:
             f.write(json.dumps({"ts": stamp, **x}) + "\n")
+    # Get it in front of the owner: ALERTS.md always, a desktop toast for
+    # anything serious, and ntfy only if they have opted in.
+    from notify import deliver
+    sent = deliver(findings, stamp)
+
     bad = [x for x in findings if x["level"] in ALERT_AT]
     if not quiet:
         for x in findings:
@@ -220,7 +216,12 @@ def run(quiet: bool = False) -> int:
                 print(f"  [{x['level']:8s}] {x['check']}: {x['detail']}")
         print(f"  {len(findings)} checks, {len(bad)} at {'/'.join(ALERT_AT)}")
         if bad:
-            print("  (nothing is sent anywhere yet - see DELIVERY in monitor.py)")
+            ch = ["ALERTS.md"]
+            if sent["toast"]:
+                ch.append("desktop notification")
+            if sent["ntfy"]:
+                ch.append("ntfy")
+            print(f"  delivered via: {', '.join(ch)}")
     return 1 if bad else 0
 
 

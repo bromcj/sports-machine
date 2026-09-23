@@ -207,6 +207,34 @@ That's expected, and the schedule is built to absorb it.
 
 ---
 
+## Is anything wrong?
+
+Open **`ALERTS.md`** in the project folder. It is rewritten every time the
+scheduled job runs, so it is never stale — if it says *All clear*, it is.
+
+Anything serious also pops a **desktop notification**.
+
+```
+python monitor.py              re-check right now
+python monitor.py --tail 40    what it has found recently
+python notify.py               send a test alert, to prove it reaches you
+```
+
+**Want it on your phone?** One command, no account and no password:
+
+```
+setx SPORTS_MACHINE_NTFY_TOPIC "sportsmachine-pick-something-random"
+```
+
+Then install the **ntfy** app and subscribe to that same topic. Nothing leaves
+this computer until you set that variable, and clearing it turns it off again.
+
+Pick something long and unguessable — a free ntfy topic has no password, so
+anyone who knows the name can read it. The messages are things like
+*"3 games unsettled"*, not anything private, but it is worth doing properly.
+
+---
+
 ## When something looks wrong
 
 **`No such file or directory`** — you are in the wrong folder.
