@@ -1,8 +1,24 @@
 # Separating production from development
 
-**You do this, not me.** I have not moved your data or touched the scheduled
-task. Follow the steps below and tell me what happens; the last section says
-exactly what to check.
+## Current state — already done for you
+
+| folder | role |
+|---|---|
+| `C:\Users\BromC\sports-machine` | **production**. Clean, holds the data, the scheduled task runs here. |
+| `C:\Users\BromC\sports-machine-dev` | **development**. Cloned, dependencies installed, 104 tests passing. |
+
+Nothing was moved and the scheduled task was not touched — it still points at
+production and next runs at 11:30am. Verified after setup:
+
+- dev has **no `data/`**, so it cannot reach the real database by accident
+- dev's `audit.py` reports **60 passed, 20 skipped, 0 failed** — it degrades
+  rather than crashing or falsely passing
+- dev reads production data only when you opt in, and that worked
+- production still shows 12,219 games and a clean working tree
+
+**What is left for you:** start editing in the dev folder instead of production.
+That is the only habit that has to change. Steps 1 and 2 below are kept for
+when you rebuild, not because you need to run them now.
 
 ---
 
@@ -37,9 +53,9 @@ actually lose something. This plan does neither.
 
 ---
 
-## Step 1 — make the development copy
+## Step 1 — make the development copy *(already done)*
 
-Open PowerShell and run these one at a time:
+Kept for reference, or if you ever need to rebuild it:
 
 ```powershell
 cd C:\Users\BromC
@@ -60,7 +76,7 @@ point of those tests.
 
 ---
 
-## Step 2 — decide what the dev copy can see
+## Step 2 — what the dev copy can see *(already set up)*
 
 The dev folder starts with **no `data/`**, so it cannot touch your real
 database, and `audit.py` there will mostly report SKIP. That is correct and
