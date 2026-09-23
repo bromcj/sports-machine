@@ -13,7 +13,9 @@ import gzip
 import os
 from pathlib import Path
 
-RAW = Path(__file__).parent.parent / "data" / "raw"
+import paths
+
+RAW = paths.RAW_DIR
 KEEP_DAYS = 45
 
 

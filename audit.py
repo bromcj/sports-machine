@@ -31,6 +31,7 @@ import warnings
 
 ROOT = pathlib.Path(__file__).parent
 sys.path.insert(0, str(ROOT))
+import paths
 warnings.filterwarnings("ignore")
 
 RESULTS = []
@@ -249,7 +250,7 @@ def main() -> int:
     #    days since the last HOME game. Live has always measured days since the
     #    last game of any kind. 16% of rows disagreed.
     import pandas as pd
-    mlb_tr = ROOT / "data" / "training_mlb.parquet"
+    mlb_tr = paths.training_table("mlb")
     if mlb_tr.exists():
         t = pd.read_parquet(mlb_tr)
         worst_rest = max(t["home_rest_days"].max(), t["away_rest_days"].max())
@@ -391,7 +392,7 @@ def main() -> int:
     # ------------------------------------------------------------ staleness
     section("STALENESS & REFRESH")
     import pandas as pd
-    sc = sorted((ROOT / "data" / "statcast").glob("*.parquet"))
+    sc = sorted(paths.STATCAST_DIR.glob("*.parquet"))
     if sc:
         # Normalise before comparing. A season that has been topped up used to
         # come back as datetime64 while untouched ones were strings, and the
@@ -420,11 +421,11 @@ def main() -> int:
     # The predicted symptom was truncated games; the real one on this data was
     # whole games missing (2026-09-21 held 3 of 5), which a pitch-count check
     # would not see. Both are checked.
-    if sc and (ROOT / "data" / "machine.db").exists():
+    if sc and paths.DB_PATH.exists():
         import sqlite3 as _sq
-        _c = _sq.connect(ROOT / "data" / "machine.db")
+        _c = _sq.connect(paths.DB_PATH)
         cur_year = max(int(f.stem) for f in sc)
-        pit = pd.read_parquet(ROOT / "data" / "statcast" / f"{cur_year}.parquet",
+        pit = pd.read_parquet(paths.STATCAST_DIR / f"{cur_year}.parquet",
                               columns=["game_pk", "game_date"])
         per_game = pit.groupby(["game_date", "game_pk"]).size()
         # Only judge SETTLED days. The newest ones are legitimately still
@@ -513,8 +514,8 @@ def main() -> int:
     a2, h2 = novig_probs(+150, -170)
     check("de-vig sums to 1 on +150/-170", abs(a2 + h2 - 1) < 1e-9)
 
-    mlb_p = ROOT / "data" / "training_mlb.parquet"
-    nfl_p = ROOT / "data" / "training_nfl.parquet"
+    mlb_p = paths.training_table("mlb")
+    nfl_p = paths.training_table("nfl")
     if mlb_p.exists():
         mlb = pd.read_parquet(mlb_p)
         check("no MLB ties (extra innings decide)", (mlb["run_diff"] == 0).sum() == 0)
@@ -854,7 +855,7 @@ def main() -> int:
     # The rules must also agree with everything already collected. A validator
     # that would have discarded real history is too aggressive, and this is the
     # only way to find that out without waiting for a quiet night.
-    dbp = ROOT / "data" / "machine.db"
+    dbp = paths.DB_PATH
     if dbp.exists():
         c2 = sqlite3.connect(dbp)
         c2.row_factory = sqlite3.Row
@@ -884,7 +885,7 @@ def main() -> int:
     # `backup` is rebound below as validation.json's saved text, so alias it.
     import backup as bkmod
     tmpdir = pathlib.Path(tempfile.mkdtemp())
-    db_file = ROOT / "data" / "machine.db"
+    db_file = paths.DB_PATH
     if db_file.exists():
         torn = tmpdir / "torn.db"
         raw = db_file.read_bytes()

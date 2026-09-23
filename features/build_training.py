@@ -33,6 +33,7 @@ import pandas as pd
 
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
+import paths
 from db import connect
 from features.sports.mlb_features import (
     load_statcast, pitcher_game_lines, bullpen_table, offense_table,
@@ -44,7 +45,7 @@ from model.persist import save as save_model, describe
 # Fallback only, for the earliest season, which has no prior season to
 # measure and is never scored anyway (walk_forward needs 2 training seasons).
 HOME_BASELINE_PRIOR = 0.5
-OUT = ROOT / "data" / "training_mlb.parquet"
+OUT = paths.training_table("mlb")
 
 
 def load_games() -> pd.DataFrame:

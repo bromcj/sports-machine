@@ -12,7 +12,9 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 
-NFL_DIR = Path(__file__).parent.parent.parent / "data" / "nfl"
+import paths
+
+NFL_DIR = paths.NFL_DIR
 
 ROLL_N = 8          # games of form
 MIN_PRIOR = 4       # required history before features emit

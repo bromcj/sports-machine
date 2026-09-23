@@ -8,7 +8,9 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 
-STATCAST_DIR = Path(__file__).parent.parent.parent / "data" / "statcast"
+import paths
+
+STATCAST_DIR = paths.STATCAST_DIR
 
 FEATURE_COLUMNS = [
     "home_pen_kbb_30d", "away_pen_kbb_30d",        # bullpen K-BB% (quality)

@@ -17,10 +17,11 @@ from pathlib import Path
 import requests
 
 sys.path.insert(0, str(Path(__file__).parent))
+import paths
 from db import connect
 
 SCHED = "https://statsapi.mlb.com/api/v1/schedule"
-STATCAST_DIR = Path(__file__).parent / "data" / "statcast"
+STATCAST_DIR = paths.STATCAST_DIR
 
 SEASON_DATES = {
     2022: ("2022-04-07", "2022-10-05"),

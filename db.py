@@ -5,7 +5,11 @@ import datetime as dt
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent / "data" / "machine.db"
+import paths
+
+# Default from paths.py. Stays a module-level name so audit.py and the
+# tests can reassign it to a temp file.
+DB_PATH = paths.DB_PATH
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS games (

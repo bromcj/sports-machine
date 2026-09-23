@@ -14,12 +14,14 @@ Resumable: skips pbp seasons already summarized.
 """
 import sys
 from pathlib import Path
+
+import paths
 import pandas as pd
 
 PBP_URL = ("https://github.com/nflverse/nflverse-data/releases/download/"
            "pbp/play_by_play_{year}.parquet")
 
-NFL_DIR = Path(__file__).parent / "data" / "nfl"
+NFL_DIR = paths.NFL_DIR
 SCHED_URL = "https://raw.githubusercontent.com/nflverse/nfldata/master/data/games.csv"
 PBP_COLS = ["game_id", "posteam", "defteam", "epa", "pass", "rush", "success"]
 

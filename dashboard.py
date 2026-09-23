@@ -37,6 +37,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
+import paths
 
 OUT = ROOT / "dashboard.html"
 
@@ -87,7 +88,7 @@ def gather():
 
     # ridge coefficients, refit on the current training table
     d["coef"] = []
-    tp = ROOT / "data" / "training_mlb.parquet"
+    tp = paths.training_table("mlb")
     if tp.exists():
         import pandas as pd
         from sklearn.linear_model import Ridge

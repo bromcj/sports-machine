@@ -19,6 +19,7 @@ from sklearn.metrics import log_loss, mean_squared_error
 
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
+import paths
 from features.sports.nfl_features_v1 import build_table, FEATURE_COLUMNS
 from model.calibrate import fit_k
 from model.validation import record, explain, REAL_MARKET
@@ -42,7 +43,7 @@ def main():
         print(f"Dropped {ties} tie(s): a draw is neither a home nor an away win.")
     print(f"{n0} regular-season games; {len(df)} with complete features+market "
           f"({n0 - len(df)} dropped).")
-    df.to_parquet(ROOT / "data" / "training_nfl.parquet", index=False)
+    df.to_parquet(paths.training_table("nfl"), index=False)
     print("Training table saved -> data/training_nfl.parquet\n")
 
     rows = []

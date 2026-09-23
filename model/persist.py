@@ -25,9 +25,10 @@ from sklearn.preprocessing import StandardScaler
 
 import sys as _sys
 _sys.path.insert(0, str(Path(__file__).parent.parent))
+import paths
 from config import SPORTS
 
-MODEL_DIR = Path(__file__).parent.parent / "data" / "models"
+MODEL_DIR = paths.MODELS_DIR
 FORMAT_VERSION = 1
 
 

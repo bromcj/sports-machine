@@ -27,6 +27,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
+import paths
 from db import connect
 from feeds import SQL_STATS_API, parse_utc
 
@@ -136,7 +137,7 @@ def run_checks() -> list[dict]:
                          count=late))
 
     # --- statcast freshness and completeness ------------------------------
-    sc = sorted((ROOT / "data" / "statcast").glob("*.parquet"))
+    sc = sorted(paths.STATCAST_DIR.glob("*.parquet"))
     if sc:
         import pandas as pd
         d = pd.read_parquet(sc[-1], columns=["game_pk", "game_date"])
