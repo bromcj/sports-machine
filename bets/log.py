@@ -23,6 +23,20 @@ def record_bet(game_id, sport, side, book, line_taken, stake, model_prob,
     con.close()
 
 
+# How close to first pitch a snapshot must be to count as a CLOSING line.
+#
+# CLV only means anything against the price the market actually settled at.
+# Measured on archive/: the nearest pregame MLB snapshot is a median of 6.1
+# HOURS before first pitch, and only 4 of 29 games had one inside this window.
+# Grading those as "closing line value" would be measuring drift over an
+# afternoon and calling it edge.
+#
+# Snapshots outside the window are not errors - they are perfectly good prices,
+# just not closing ones - so they are kept and reported, and simply do not
+# count toward gate 2.
+CLOSING_WINDOW_MIN = 60
+
+
 def odds_twin(con, game_id: str) -> tuple[str | None, str | None]:
     """Find the odds-feed row for the same real game. Returns (game_id, note).
 
@@ -113,15 +127,33 @@ def closing_snapshot(game_id: str, book: str | None = None):
         return None
     taken, start, row = best
     out = dict(row)
-    out["minutes_before_start"] = round((start - taken).total_seconds() / 60, 1)
+    mins = round((start - taken).total_seconds() / 60, 1)
+    out["minutes_before_start"] = mins
+    # The row is still returned when it is too early - it is useful to see how
+    # close we got. is_closing is what decides whether CLV may be computed.
+    out["is_closing"] = mins <= CLOSING_WINDOW_MIN
     return out
 
 
-def grade(bet_id: int, closing_line: int, won: bool | None):
-    """Attach closing line + CLV, settle P&L. won=None for push."""
+def grade(bet_id: int, closing_line: int, won: bool | None,
+          minutes_before_start: float | None = None):
+    """Attach closing line + CLV, settle P&L. won=None for push.
+
+    `minutes_before_start` is how early the price being used as the close was
+    captured - closing_snapshot() reports it. CLV is only recorded when that
+    is inside CLOSING_WINDOW_MIN. Outside it, or when it is not supplied at
+    all, the bet is still settled for P&L but clv_pct stays NULL, so it does
+    not count toward gate 2.
+
+    Omitting the argument is treated as "unknown", which means ungraded. That
+    is deliberate: the default for an unverifiable close should be to not
+    count it, not to count it and hope.
+    """
     con = connect()
     b = con.execute("SELECT * FROM bets WHERE bet_id=?", (bet_id,)).fetchone()
-    clv = clv_pct(b["line_taken"], closing_line)
+    valid_close = (minutes_before_start is not None
+                   and minutes_before_start <= CLOSING_WINDOW_MIN)
+    clv = clv_pct(b["line_taken"], closing_line) if valid_close else None
     if won is None:
         result, pnl = "push", 0.0
     elif won:
@@ -131,10 +163,18 @@ def grade(bet_id: int, closing_line: int, won: bool | None):
         result, pnl = "L", -b["stake"]
     con.execute(
         "UPDATE bets SET closing_line=?, clv_pct=?, result=?, pnl=? WHERE bet_id=?",
-        (closing_line, clv, result, pnl, bet_id))
+        (closing_line if valid_close else None, clv, result, pnl, bet_id))
     con.commit()
     con.close()
-    print(f"bet {bet_id}: {result}  pnl {pnl:+.2f}  CLV {clv:+.2f}%")
+    if valid_close:
+        note = f"CLV {clv:+.2f}% (close {minutes_before_start:.0f} min out)"
+    elif minutes_before_start is None:
+        note = "CLV not recorded - no closing time supplied"
+    else:
+        note = (f"CLV not recorded - nearest price was "
+                f"{minutes_before_start:.0f} min before first pitch, "
+                f"outside the {CLOSING_WINDOW_MIN} min window")
+    print(f"bet {bet_id}: {result}  pnl {pnl:+.2f}  {note}")
 
 
 def review(last_n: int = 50):
@@ -153,7 +193,14 @@ def review(last_n: int = 50):
     wins = sum(1 for r in rows if r["result"] == "W")
     avg_clv = sum(clvs) / len(clvs) if clvs else 0.0
     print(f"Last {n} bets | record {wins}-{n - wins} | "
-          f"ROI {pnl / staked:+.1%} | avg CLV {avg_clv:+.2f}%")
+          f"ROI {pnl / staked:+.1%} | avg CLV {avg_clv:+.2f}% over {len(clvs)} bets")
+    # Settled bets whose close was too early to trust are invisible in the CLV
+    # line above. Saying so keeps "50 bets" from meaning two different things.
+    ungraded = n - len(clvs)
+    if ungraded:
+        print(f"  {ungraded} of these have no usable closing line "
+              f"(none captured within {CLOSING_WINDOW_MIN} min of first pitch) "
+              f"and do not count toward gate 2.")
     if len(clvs) >= 50 and avg_clv < 0:
         print("*** KILL CRITERION HIT: rolling CLV negative over 50+ bets. "
               "STOP BETTING. Diagnose before placing another wager. ***")

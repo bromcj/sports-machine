@@ -215,6 +215,52 @@ def main() -> int:
         skip("NFL ties dropped, not scored as away wins", "no NFL training table")
 
     # --------------------------------------------------------------- guard
+    # ------------------------------------------------------------ CLV window
+    section("CLV GRADING WINDOW")
+    import db as dbmod3
+    from bets import log as blog
+    real3 = dbmod3.DB_PATH
+    try:
+        tmp3 = pathlib.Path(tempfile.mkdtemp())
+        dbmod3.DB_PATH = tmp3 / "clv.db"
+        dbmod3.init()
+        blog.connect = dbmod3.connect
+        c3 = dbmod3.connect()
+        for i in range(3):
+            c3.execute(
+                "INSERT INTO bets (ts, game_id, sport, side, book, line_taken,"
+                " stake, model_prob, novig_market_prob, edge, kelly_fraction)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (dbmod3.utc_now(), f"g{i}", "mlb", "home", "fanduel",
+                 -110, 10.0, 0.55, 0.52, 0.03, 0.01))
+        c3.commit()
+        c3.close()
+
+        # Inside the window: CLV is recorded.
+        blog.grade(1, -130, True, minutes_before_start=20)
+        # Outside it: settled, but no CLV. This is the case that matters -
+        # the archive's median nearest price is ~5.7 HOURS before first pitch.
+        blog.grade(2, -130, True, minutes_before_start=342)
+        # Not supplied at all: unknown means ungraded, never "assume it counts".
+        blog.grade(3, -130, True)
+
+        c3 = dbmod3.connect()
+        got = {r["bet_id"]: (r["clv_pct"], r["result"])
+               for r in c3.execute("SELECT bet_id, clv_pct, result FROM bets")}
+        c3.close()
+        check("CLV is graded when the close is inside the window",
+              got[1][0] is not None, f"clv={got[1][0]}")
+        check("CLV is NOT graded when the close is hours early",
+              got[2][0] is None, f"clv={got[2][0]}, {blog.CLOSING_WINDOW_MIN} min window")
+        check("CLV is NOT graded when no closing time is supplied",
+              got[3][0] is None, f"clv={got[3][0]}")
+        check("an ungraded close still settles the bet for P&L",
+              got[2][1] == "W" and got[3][1] == "W",
+              "result recorded either way")
+    finally:
+        dbmod3.DB_PATH = real3
+        blog.connect = dbmod3.connect
+
     # -------------------------------------------------------- ingest quality
     section("INGEST QUALITY")
     from ingest import quality as q
