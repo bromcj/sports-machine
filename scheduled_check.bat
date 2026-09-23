@@ -1,15 +1,26 @@
 @echo off
 REM ---------------------------------------------------------------------------
-REM Unattended daily check: did the cloud collector fire, and did it catch
-REM prices before first pitch? Run by Windows Task Scheduler; see
-REM COMMANDS.md for how to change the time or remove it.
+REM The unattended local job. Windows Task Scheduler runs it twice a day; see
+REM COMMANDS.md for how to change the times or remove it.
 REM
-REM Nothing here costs API credits and nothing here writes to the database.
-REM It pulls the repo, reads archive/, and writes a report you can open later.
+REM   ~11:30am   merge the cloud's morning pull, PLACE paper bets, report
+REM   ~10:00pm   merge the day's pulls, SETTLE finished paper bets, report
+REM
+REM One script, two triggers - bets/paper.py works out what is actually due,
+REM so neither run needs to know which one it is.
+REM
+REM Why this exists at all: placing a paper bet needs the trained model and
+REM the Statcast file, and both live in data/, which is gitignored and must
+REM stay out of a public repo. The cloud runner therefore CANNOT build
+REM predictions - its own log says "no predictions: No Statcast parquet" - so
+REM gate 2 can only ever be fed from this machine.
+REM
+REM Costs no API credits and never places a real bet. bets/engine.py still
+REM refuses every real wager until all three gates pass.
 REM
 REM Deliberately NOT machine_daily.bat: that one pauses for a keypress and
-REM refuses to run with uncommitted edits, both of which are correct for a
-REM double-click and wrong for a task running while nobody is watching.
+REM refuses to run with uncommitted edits, both correct for a double-click
+REM and wrong for a task running while nobody is watching.
 REM ---------------------------------------------------------------------------
 cd /d "%~dp0"
 
@@ -30,6 +41,16 @@ if errorlevel 1 (
 > "%LOG%" (
   echo Generated %DATE% %TIME%
   if defined PULLNOTE echo WARNING: %PULLNOTE%
+  echo.
+  REM Bring the cloud's pulls into the local database first, so paper bets
+  REM are placed against prices that actually arrived.
+  "%PY%" merge_archive.py
+  echo.
+  REM Build today's predictions locally - the cloud cannot, it has no
+  REM Statcast file or model. Free: no API credits.
+  "%PY%" run_daily.py predict
+  echo.
+  "%PY%" run_daily.py paper
   echo.
   "%PY%" run_daily.py cronstatus
 )

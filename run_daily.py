@@ -7,6 +7,7 @@
   python run_daily.py grade    -> finals + review
   python run_daily.py cronstatus -> did the cloud fire, and on time? free
   python run_daily.py backup     -> snapshot the database, verified. free
+  python run_daily.py predict    -> statcast top-up + today's predictions. free
   python run_daily.py paper      -> place/settle/score paper bets (gate 2). free
 """
 import sys
@@ -33,30 +34,38 @@ def morning():
     scores.pull_all()           # schedules/finals for everything else
     odds.pull("open")
     if "mlb" in live:
-        # Free steps: no API credits, all from data already on disk.
-        # The Statcast top-up matters most - the rolling windows are only as
-        # current as that file, and it is the one input nothing else refreshes.
-        try:
-            from backfill import topup_statcast
-            topup_statcast(allow_full_download=False)
-        except Exception as e:                      # never let this kill the run
-            print(f"(statcast top-up skipped: {e})")
-        try:
-            from features.build import build_for_date
-            from model.predict import predict_for_date
-            if build_for_date():
-                predict_for_date()
-                # Gate 2 evidence. Free - reads the database only. Placed here
-                # rather than later in the day on purpose: a paper bet has to
-                # be taken at a price a real bettor could actually have got,
-                # and by evening the only pregame prices left are ones much
-                # closer to the close, which would flatter the CLV.
-                from bets.paper import place
-                n = place()
-                print(f"Paper bets placed for gate 2: {n}")
-        except FileNotFoundError as e:
-            print(f"(no predictions: {e})")
+        predict()
     print("Morning run complete. Run `python run_daily.py picks` to see them.")
+
+
+def predict():
+    """Top up Statcast, build today's features, predict, place paper bets.
+
+    FREE - no API credits. Everything here reads data already on disk plus
+    odds already in the database.
+
+    Separated from morning() because morning() runs in the CLOUD, and the
+    cloud cannot do any of this: data/ is gitignored and must stay out of a
+    public repo, so the runner has no Statcast file and no trained model. Its
+    own log says so - "no predictions: No Statcast parquet". Gate 2 can
+    therefore only ever be fed from the machine that holds data/, which is
+    why the local scheduled task calls this.
+
+    The Statcast top-up matters most - the rolling windows are only as current
+    as that file, and it is the one input nothing else refreshes.
+    """
+    try:
+        from backfill import topup_statcast
+        topup_statcast(allow_full_download=False)
+    except Exception as e:                      # never let this kill the run
+        print(f"(statcast top-up skipped: {e})")
+    try:
+        from features.build import build_for_date
+        from model.predict import predict_for_date
+        if build_for_date():
+            predict_for_date()
+    except FileNotFoundError as e:
+        print(f"(no predictions: {e})")
 
 
 def close():
@@ -121,4 +130,4 @@ if __name__ == "__main__":
         bk.prune()
         raise SystemExit(0)
     {"morning": morning, "close": close, "picks": show_picks,
-     "refresh": refresh, "grade": grade}[mode]()
+     "refresh": refresh, "grade": grade, "predict": predict}[mode]()

@@ -60,6 +60,7 @@ models by retraining. What cannot be rebuilt is your `bets` table.
 ```
 python run_daily.py backup      same as backup.py, from the usual command
 python run_daily.py paper       place/settle/score paper bets (gate 2)
+python run_daily.py predict     statcast top-up + today's predictions
 python run_daily.py morning     schedules + odds + features + predictions
 python run_daily.py close       closing odds only
 python run_daily.py grade       final scores + bet review
@@ -100,12 +101,27 @@ of a made-up lateness.
 
 ### It also runs itself
 
-A Windows scheduled task, **SportsMachine-CronStatus**, runs this every night
-at **10:00 pm** and writes the report to `logs\cronstatus-latest.txt`. Open
-that file any time — you do not have to be at the computer when it runs.
+A Windows scheduled task, **SportsMachine-CronStatus**, runs **twice a day**
+and writes to `logs\cronstatus-latest.txt`. Open that file any time — you do
+not have to be at the computer when it runs.
 
-If your PC is off or asleep at 10, it runs the next time you log in rather
-than skipping the day. It costs nothing and never writes to the database.
+| Time | What it does |
+|---|---|
+| 11:30 am | merge the cloud's morning pull, build predictions, **place** paper bets |
+| 10:00 pm | merge the day's pulls, **settle** finished paper bets, score gate 2 |
+
+Both runs also write the cron report. Nothing costs API credits and no real
+bet is ever placed.
+
+**Why placing has to happen on your machine:** a paper bet needs the trained
+model and the Statcast file, both of which live in `data/` — gitignored, and
+it has to stay that way because the repo is public. The cloud runner literally
+cannot do it; its log says *"no predictions: No Statcast parquet"*. So gate 2
+can only ever be fed from this PC.
+
+If your PC is off or asleep, the run happens the next time you log in rather
+than skipping the day. A late catch-up places at a later (worse) price, which
+makes gate 2 harder rather than easier — the safe direction.
 
 To change the time, remove it, or check on it:
 
@@ -155,8 +171,8 @@ The Odds API free tier is **500 credits a month**, and one pull costs
 **Spends credits:** `morning`, `close`, and every cloud cron run. Nothing else.
 
 **Free:** `picks`, `audit`, `dashboard`, `grade`, `refresh`, `validation`,
-`healthcheck`, `backup`, `cronstatus`, `paper`, `machine_daily.bat`, and
-anything reading the database.
+`healthcheck`, `backup`, `cronstatus`, `paper`, `predict`, `machine_daily.bat`,
+and anything reading the database.
 
 `refresh` is free but slow — it re-downloads Statcast and retrains, and
 touches no odds API.
