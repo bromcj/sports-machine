@@ -7,7 +7,7 @@ import sys
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
 from db import connect
 from ingest import http, quality
-from feeds import et_date
+from feeds import et_date, stats_api_status
 
 SCHED = "https://statsapi.mlb.com/api/v1/schedule"
 
@@ -34,11 +34,16 @@ def pull_day(date: str | None = None):
             home_score = g["teams"]["home"].get("score")
             start_utc = g.get("gameDate")          # true first pitch, ISO Z
             venue = ((g.get("venue") or {}).get("id"))
-            # The Stats API already dates games locally, so game_date is right.
-            # Keep it, and record the instant as well.
-            status = g["status"]["abstractGameState"].lower()  # preview/live/final
-            if not bad.check(quality.game(away, home, date,
-                                          away_score, home_score)):
+            # NOT abstractGameState: it reads "Final" for a POSTPONED game
+            # while detailedState says "Postponed". Believing it is what made
+            # postponements permanent and impossible, and stranded
+            # mlb-823543 on a May date with a September start time.
+            status = stats_api_status(g.get("status") or {})
+            if status != "final":
+                away_score = home_score = None
+            if not bad.check(quality.game(away, home,
+                                          et_date(start_utc) or date,
+                                          away_score, home_score, status)):
                 continue
             con.execute(
                 """INSERT INTO games (game_id, sport, game_date, start_time_utc,
@@ -54,8 +59,16 @@ def pull_day(date: str | None = None):
                    -- assignment wiped a confirmed starter that features/build.py
                    -- requires before it will predict a game at all.
                    ON CONFLICT(game_id) DO UPDATE SET
-                     start_time_utc=COALESCE(excluded.start_time_utc,
-                                             games.start_time_utc),
+                     -- A game that has not finished may still be MOVED. A
+                     -- postponement keeps its gamePk and reappears on the
+                     -- make-up date, so freezing these is what stranded
+                     -- mlb-823543 on a May date with a September start.
+                     start_time_utc=CASE WHEN games.status='final'
+                                         THEN games.start_time_utc
+                                         ELSE COALESCE(excluded.start_time_utc,
+                                                       games.start_time_utc) END,
+                     game_date=CASE WHEN games.status='final' THEN games.game_date
+                                    ELSE excluded.game_date END,
                      venue_id=COALESCE(excluded.venue_id, games.venue_id),
                      away_starter=COALESCE(excluded.away_starter, games.away_starter),
                      home_starter=COALESCE(excluded.home_starter, games.home_starter),
@@ -69,7 +82,8 @@ def pull_day(date: str | None = None):
                                 ELSE COALESCE(excluded.home_score, games.home_score) END,
                      status=CASE WHEN games.status='final' THEN 'final'
                                  ELSE excluded.status END""",
-                (gid, "mlb", date, start_utc, venue, away, home, away_sp, home_sp,
+                (gid, "mlb", et_date(start_utc) or date, start_utc, venue,
+                 away, home, away_sp, home_sp,
                  away_sp_id, home_sp_id, away_score, home_score, status),
             )
             n += 1

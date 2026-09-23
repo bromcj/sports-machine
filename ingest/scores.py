@@ -9,7 +9,7 @@ import sys
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
 from db import connect
 from ingest import http, quality
-from feeds import et_date
+from feeds import espn_status, et_date
 from config import SPORTS, active_sports
 
 URL = "https://site.api.espn.com/apis/site/v2/sports/{path}/scoreboard"
@@ -27,17 +27,22 @@ def pull_sport(sport: str, date: str | None = None) -> int:
         teams = {c["homeAway"]: c for c in comp["competitors"]}
         home, away = teams["home"], teams["away"]
         gid = f"{sport}-espn-{ev['id']}"
-        status = comp["status"]["type"]["state"]  # pre | in | post
+        # state alone is 'post' for a postponement as well as a completion,
+        # and a missing score then became 0 - which is how TOR @ BAL
+        # 2026-09-22 was stored as a 0-0 FINAL, a result MLB cannot produce.
+        status = espn_status((comp.get("status") or {}).get("type") or {})
         away_name = away["team"]["displayName"]
         home_name = home["team"]["displayName"]
         # ev["date"] is the UTC instant. Its first 10 characters are the UTC
         # date, which is a day ahead for anything starting after 8pm ET.
         start_utc = ev.get("date")
         local_date = et_date(start_utc) or ev["date"][:10]
-        away_pts = int(away.get("score") or 0) if status != "pre" else None
-        home_pts = int(home.get("score") or 0) if status != "pre" else None
+        # Only a game that is being played or is finished has a score.
+        scored = status in ("live", "final")
+        away_pts = int(away.get("score") or 0) if scored else None
+        home_pts = int(home.get("score") or 0) if scored else None
         if not bad.check(quality.game(away_name, home_name, local_date,
-                                      away_pts, home_pts)):
+                                      away_pts, home_pts, status, sport)):
             continue
         con.execute(
             # 'final' is terminal, and a NULL never overwrites a real score.
@@ -65,7 +70,7 @@ def pull_sport(sport: str, date: str | None = None) -> int:
                              ELSE excluded.status END""",
             (gid, sport, local_date, start_utc, away_name, home_name,
              away_pts, home_pts,
-             {"pre": "scheduled", "in": "live", "post": "final"}[status]))
+             status))
         n += 1
     con.commit()
     con.close()

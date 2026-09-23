@@ -115,6 +115,59 @@ def main() -> int:
             skip("odds_twin bridges predictions to prices", "no predictions stored yet")
         con.close()
 
+    # ---------------------------------------------------------- game status
+    section("GAME STATUS")
+    from feeds import espn_status, stats_api_status
+    # Both feeds label a POSTPONED game as finished. The Stats API says
+    # abstractGameState "Final" while detailedState says "Postponed"; ESPN
+    # reports state 'post' with no score, which became 0-0.
+    cases = [
+        ("Stats API postponed is not final",
+         stats_api_status({"detailedState": "Postponed",
+                           "abstractGameState": "Final"}) == "postponed"),
+        ("Stats API suspended is not final",
+         stats_api_status({"detailedState": "Suspended",
+                           "abstractGameState": "Final"}) == "suspended"),
+        ("Stats API a real completion IS final",
+         stats_api_status({"detailedState": "Final",
+                           "abstractGameState": "Final"}) == "final"),
+        ("ESPN postponed is not final",
+         espn_status({"name": "STATUS_POSTPONED", "state": "post"}) == "postponed"),
+        ("ESPN a real completion IS final",
+         espn_status({"name": "STATUS_FINAL", "state": "post"}) == "final"),
+    ]
+    missed = [n for n, ok in cases if not ok]
+    check(f"status mapping handles all {len(cases)} feed cases", not missed,
+          "all correct" if not missed else "wrong: " + ", ".join(missed))
+
+    from ingest import quality as _q
+    rules = [
+        ("a final with no score", _q.game("A", "B", "2026-09-22", None, None, "final")),
+        ("an MLB final at 0-0", _q.game("A", "B", "2026-09-22", 0, 0, "final")),
+    ]
+    let_through = [n for n, r in rules if r is None]
+    check("ingest rejects a final that cannot have happened", not let_through,
+          "both rejected" if not let_through else "accepted: " + ", ".join(let_through))
+    keeps = [("a real final", _q.game("A", "B", "2026-09-22", 3, 2, "final")),
+             ("a postponed game with no score",
+              _q.game("A", "B", "2026-09-22", None, None, "postponed"))]
+    wrongly = [n for n, r in keeps if r is not None]
+    check("ingest still accepts real finals and postponements", not wrongly,
+          "both kept" if not wrongly else "rejected: " + ", ".join(wrongly))
+
+    con3 = connect()
+    if "games" in {r[0] for r in con3.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}:
+        n_bad = con3.execute(
+            "SELECT COUNT(*) FROM games WHERE status='final' AND ("
+            " away_score IS NULL OR home_score IS NULL OR"
+            " (sport='mlb' AND away_score=0 AND home_score=0))").fetchone()[0]
+        check("no stored final is missing or impossible", n_bad == 0,
+              f"{n_bad} impossible final(s)")
+    else:
+        skip("no stored final is missing or impossible", "no tables")
+    con3.close()
+
     # --------------------------------------------------------- feed matching
     section("FEED MATCHING")
     from feeds import SQL_STATS_API, et_date, odds_twin as _twin, parse_utc

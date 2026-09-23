@@ -85,7 +85,8 @@ def snapshot(away_ml, home_ml, away=None, home=None) -> str | None:
     return None
 
 
-def game(away, home, game_date, away_score=None, home_score=None) -> str | None:
+def game(away, home, game_date, away_score=None, home_score=None,
+         status=None, sport="mlb") -> str | None:
     """Reason to reject one game row, or None to keep it."""
     bad = teams(away, home)
     if bad:
@@ -96,6 +97,16 @@ def game(away, home, game_date, away_score=None, home_score=None) -> str | None:
         bad = score(v)
         if bad:
             return bad
+    # A completed game has a score. Both feeds report a POSTPONEMENT as
+    # finished - ESPN with no score, which the old code turned into 0-0, and
+    # the MLB Stats API with abstractGameState literally "Final" - so these
+    # two rules are what stop a postponement being stored as a result that
+    # cannot have happened.
+    if status == "final":
+        if away_score is None or home_score is None:
+            return "a final with no score is not a completed game"
+        if sport == "mlb" and int(away_score) == 0 and int(home_score) == 0:
+            return "0-0 cannot be an MLB final (extra innings decide)"
     return None
 
 

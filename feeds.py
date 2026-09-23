@@ -145,3 +145,64 @@ def pregame_books(con, game_id: str):
     if not latest:
         return [], "only in-play prices (game already started)"
     return [r for _, r in latest.values()], None
+
+
+# ---------------------------------------------------------------- status ---
+#
+# Both feeds call a postponed game "final", each in its own way, and the code
+# believed them. ESPN reports a postponement with state 'post' and no score,
+# which scores.py turned into 0-0: the archive holds TOR @ BAL 2026-09-22 as a
+# 0-0 FINAL, which cannot happen in MLB. The Stats API is worse, because
+# abstractGameState is literally "Final" while detailedState says "Postponed".
+#
+# Because final is terminal, the make-up game - same gamePk, new date - could
+# then never get its score or its real date. Two rows in this database were
+# stuck that way: mlb-823543 dated 2026-05-23 with a September start, and
+# mlb-824785 dated a day before the game it describes.
+#
+# So status is read from the DETAILED field, and only a real completion is
+# allowed to be final.
+TERMINAL = "final"
+
+_STATS_DETAIL = {
+    "postponed": "postponed",
+    "suspended": "suspended",
+    "cancelled": "cancelled",
+    "canceled": "cancelled",
+}
+
+_ESPN_NAME = {
+    "STATUS_SCHEDULED": "scheduled", "STATUS_IN_PROGRESS": "live",
+    "STATUS_FINAL": "final", "STATUS_POSTPONED": "postponed",
+    "STATUS_SUSPENDED": "suspended", "STATUS_CANCELED": "cancelled",
+    "STATUS_CANCELLED": "cancelled", "STATUS_DELAYED": "scheduled",
+    "STATUS_RAIN_DELAY": "live", "STATUS_END_PERIOD": "live",
+}
+
+
+def stats_api_status(status: dict) -> str:
+    """MLB Stats API status block -> scheduled|live|final|postponed|... ."""
+    detail = str(status.get("detailedState", "")).strip().lower()
+    for key, mapped in _STATS_DETAIL.items():
+        if key in detail:
+            return mapped
+    abstract = str(status.get("abstractGameState", "")).strip().lower()
+    if abstract == "final":
+        return "final"
+    if abstract == "live":
+        return "live"
+    return "scheduled"
+
+
+def espn_status(status_type: dict) -> str:
+    """ESPN status.type block -> the same vocabulary."""
+    name = str(status_type.get("name", "")).strip().upper()
+    if name in _ESPN_NAME:
+        return _ESPN_NAME[name]
+    # Fall back to the coarse state, but never let it invent a final.
+    state = str(status_type.get("state", "")).strip().lower()
+    if state == "in":
+        return "live"
+    if state == "post":
+        return "final"
+    return "scheduled"
