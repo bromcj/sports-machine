@@ -36,7 +36,7 @@ sys.path.insert(0, str(ROOT))
 from db import connect
 from features.sports.mlb_features import (
     load_statcast, pitcher_game_lines, bullpen_table, offense_table,
-    starter_table, park_factor_table, venue_id, TEAM_ABBR)
+    starter_table, park_factor_table, venue_id, venue_series, TEAM_ABBR)
 from model.train import walk_forward
 from model.validation import record, explain, PLACEHOLDER
 from model.persist import save as save_model, describe
@@ -114,7 +114,12 @@ def assemble() -> pd.DataFrame:
     # played in two parks inside this window and a static team->park map would
     # hand their Sacramento games the Oakland Coliseum's number.
     pf = park_factor_table(games)
-    df["venue"] = [venue_id(t, s) for t, s in zip(df["home_ab"], df["season"])]
+    # Same rule as the table itself: the venue the game was actually played
+    # at, from the Stats API, falling back to the map only where unknown.
+    vmap = dict(zip(games["game_id"], venue_series(games)))
+    df["venue"] = [vmap.get(gid) or v for gid, v in
+                   zip(df["game_id"], (venue_id(t, s) for t, s
+                                       in zip(df["home_ab"], df["season"])))]
     df["park_factor"] = [pf[(v, s)] for v, s in zip(df["venue"], df["season"])]
     # Placeholder baseline, expanding-window: each season is scored against the
     # home win rate of the seasons before it, never including itself. Matching

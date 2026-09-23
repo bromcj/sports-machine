@@ -76,6 +76,26 @@ def venue_id(team: str, season: int) -> str:
     return VENUES.get((team, season), team)
 
 
+def venue_series(g: pd.DataFrame):
+    """The venue each game was actually played at.
+
+    Prefers games.venue_id, which comes straight from the MLB Stats API, and
+    falls back to the VENUES map only where that is missing.
+
+    The map was a hand-maintained team -> park lookup that knew about exactly
+    one relocation, the Athletics. It therefore gave Tampa Bay's 2025 home
+    games Tropicana Field's park factor when they were played at Steinbrenner
+    Field (venue 12 in 2022-24 and 2026, venue 2523 in 2025), and it could not
+    represent a neutral site at all - the real data shows one Athletics "home"
+    game at a third venue in 2022 and six in 2026.
+    """
+    if "venue_id" in g.columns:
+        fallback = [venue_id(t, s) for t, s in zip(g["home_ab"], g["season"])]
+        return [v if v not in (None, "") and v == v else f
+                for v, f in zip(g["venue_id"], fallback)]
+    return [venue_id(t, s) for t, s in zip(g["home_ab"], g["season"])]
+
+
 def park_factor_table(games: pd.DataFrame) -> dict:
     """(venue, season) -> park factor, built from PRIOR seasons only.
 
@@ -93,7 +113,7 @@ def park_factor_table(games: pd.DataFrame) -> dict:
     """
     g = games.copy()
     g["total_runs"] = g["home_score"] + g["away_score"]
-    g["venue"] = [venue_id(t, s) for t, s in zip(g["home_ab"], g["season"])]
+    g["venue"] = venue_series(g)
 
     out = {}
     for season in sorted(g["season"].unique()):

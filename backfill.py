@@ -65,6 +65,39 @@ def backfill_schedule(year: int):
     print(f"[{year}] schedule: {n} final games stored.")
 
 
+def backfill_venues(year: int) -> int:
+    """Fill venue_id and start_time_utc on games already stored. Free.
+
+    Park factors were keyed on a hand-maintained team->park map that knew only
+    about the Athletics, so Tampa Bay's 2025 home games at Steinbrenner Field
+    were given Tropicana Field's factor, and any neutral-site game got the
+    "home" team's park. The Stats API has known the real venue all along.
+
+    Deliberately narrow: it writes ONLY those two columns and never touches
+    scores, status or dates. Re-runnable.
+    """
+    import requests as _rq
+    start, end = SEASON_DATES[year]
+    r = _rq.get(SCHED, params={"sportId": 1, "startDate": start, "endDate": end,
+                               "gameType": "R"}, timeout=90)
+    r.raise_for_status()
+    con = connect()
+    n = 0
+    for day in r.json().get("dates", []):
+        for g in day.get("games", []):
+            venue = (g.get("venue") or {}).get("id")
+            if venue is None:
+                continue
+            n += con.execute(
+                "UPDATE games SET venue_id=COALESCE(venue_id, ?),"
+                " start_time_utc=COALESCE(start_time_utc, ?) WHERE game_id=?",
+                (str(venue), g.get("gameDate"), f"mlb-{g['gamePk']}")).rowcount
+    con.commit()
+    con.close()
+    print(f"[{year}] venues: {n} games updated.")
+    return n
+
+
 def backfill_statcast(year: int):
     out = STATCAST_DIR / f"{year}.parquet"
     if out.exists():
