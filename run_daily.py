@@ -117,8 +117,29 @@ def finals(days_back: int = 1):
     """
     today = dt.date.today()
     live = active_sports(today.month)
-    for i in range(days_back, -1, -1):
-        day = (today - dt.timedelta(days=i)).isoformat()
+    days = [(today - dt.timedelta(days=i)).isoformat()
+            for i in range(days_back, -1, -1)]
+
+    # Also sweep any date that still holds a game which started long ago and
+    # never reached a final. A fixed yesterday-and-today window heals nothing
+    # older, so one night the job did not run leaves those games stuck
+    # forever - monitor.py found two from 2026-09-21 sitting at 'live'.
+    from db import connect as _c
+    from feeds import SQL_STATS_API as _S
+    _con = _c()
+    stuck = [r[0] for r in _con.execute(
+        f"SELECT DISTINCT game_date FROM games WHERE sport='mlb' AND ({_S})"
+        f" AND status IN ('scheduled','live') AND start_time_utc IS NOT NULL"
+        f" AND start_time_utc < datetime('now','-12 hour')"
+        f" ORDER BY game_date DESC LIMIT 10")]
+    _con.close()
+    for d in stuck:
+        if d not in days:
+            days.insert(0, d)
+    if stuck:
+        print(f"(also sweeping {len(stuck)} date(s) with unfinished games)")
+
+    for day in days:
         print(f"Results for {day}:")
         try:
             scores.pull_all(day)

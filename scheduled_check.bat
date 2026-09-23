@@ -63,6 +63,10 @@ if errorlevel 1 (
   "%PY%" run_daily.py market
   echo.
   "%PY%" run_daily.py cronstatus
+  echo.
+  REM Whole-system health, appended to logs\health.jsonl. Nothing is sent
+  REM anywhere yet - see DELIVERY in monitor.py.
+  "%PY%" monitor.py
 )
 
 REM Keep a dated copy so a bad night can be compared against a good one.
