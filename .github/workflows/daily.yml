@@ -72,6 +72,9 @@ jobs:
             *)            MODE=close   ;;
           esac
           echo "mode=$MODE  (schedule='$SCHEDULE' dispatch='$DISPATCH_MODE')"
+          # Later steps need to know which pull this was. A shell variable does
+          # not survive the step boundary; GITHUB_ENV does.
+          echo "RUN_MODE=$MODE" >> "$GITHUB_ENV"
           python run_daily.py "$MODE"
       - run: python export_snapshots.py
       - name: healthcheck
