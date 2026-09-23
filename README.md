@@ -10,7 +10,7 @@ in all four test seasons. `python model/validation.py` prints the current state.
 
 - **Running it:** see [COMMANDS.md](COMMANDS.md)
 - **Looking at it:** `python dashboard.py`
-- **Checking it:** `python audit.py` — 42 checks against live data
+- **Checking it:** `python audit.py` — 48 checks against live data
 - **Keeping it:** `python backup.py` — verified snapshot of the database
 
 ## Setup (once)
@@ -32,7 +32,7 @@ Recorded in `validation.json`, enforced by `bets/engine.py:evaluate()`:
 | Gate | Passes when | Recorded by |
 |---|---|---|
 | `walk_forward` | model beats a **real** de-vigged market in every test season | `model/validation.py:record()` |
-| `paper_trading` | 50+ graded paper bets whose mean CLV clears 2 SE | `record_paper()` |
+| `paper_trading` | 50+ graded paper bets, mean CLV clearing 3 SE, across 3+ start-time buckets | `record_paper()` |
 | `armed` | a human calls `arm()`, which refuses until the first two pass | `arm()` |
 
 Beating a **placeholder** baseline clears nothing, however large the margin —
@@ -66,7 +66,7 @@ bets/        engine.py (no-vig, Kelly, guardrails) · log.py (CLV grading)
              paper.py (places/settles/scores paper bets for gate 2)
 dashboard.py one-page visual summary → dashboard.html / .png
 backup.py    verified database snapshots; cronstatus.py checks the cloud
-audit.py     42 checks: leakage, identity, staleness, de-vig, gates,
+audit.py     48 checks: leakage, identity, staleness, de-vig, gates,
              backups, and that ingest rejects impossible values
 healthcheck.py  writes STATUS.md, fails the cloud run if something is wrong
 ```

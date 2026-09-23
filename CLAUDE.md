@@ -29,10 +29,15 @@ familiarity with jargon.
 - **Don't weaken the gates.** `bets/engine.py` returns `bet: False` until all
   three pass. That refusal is the product, not an obstacle. Making it easier
   to bet is never the fix.
+  Every threshold in `model/validation.py` was set by simulation, not taste,
+  and the reasoning sits beside the constant. `PAPER_CLV_SIGMA` is 3.0 rather
+  than the usual 2.0 because gate 2 is re-tested nightly and optional stopping
+  turns a 2.5% false-pass rate into 15%. If you change a sigma, rerun the
+  simulation in the SEQUENTIAL TESTING section of `audit.py`.
 
 ## Before you claim anything is fixed
 
-`python audit.py` must come back **28 passed, 0 failed**. It re-derives its
+`python audit.py` must come back **48 passed, 0 failed**. It re-derives its
 answers from live data rather than trusting comments, and it is the fastest
 way to know whether a change broke something.
 

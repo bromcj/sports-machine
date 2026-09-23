@@ -13,7 +13,7 @@ bar, type `powershell`, press Enter.
 |---|---|
 | `python dashboard.py` | Builds the visual page and opens it. Add `--png` for a shareable image. |
 | `python run_daily.py picks` | Tonight's games in the terminal — model vs bookmakers. |
-| `python audit.py` | 42 checks. All green = everything is sound. |
+| `python audit.py` | 48 checks. All green = everything is sound. |
 | **`machine_daily.bat`** | **Double-click.** Pulls what the cloud collected into your local database, then backs it up. |
 
 ---
