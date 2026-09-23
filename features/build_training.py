@@ -39,7 +39,7 @@ from features.sports.mlb_features import (
     load_statcast, pitcher_game_lines, bullpen_table, offense_table,
     starter_table, park_factor_table, venue_id, venue_series, TEAM_ABBR)
 from model.train import walk_forward
-from model.validation import record, explain, PLACEHOLDER
+from model.validation import record, explain, PLACEHOLDER, REAL_MARKET
 from model.persist import save as save_model, describe
 
 # Fallback only, for the earliest season, which has no prior season to
@@ -139,20 +139,56 @@ def assemble() -> pd.DataFrame:
                    zip(df["game_id"], (venue_id(t, s) for t, s
                                        in zip(df["home_ab"], df["season"])))]
     df["park_factor"] = [pf[(v, s)] for v, s in zip(df["venue"], df["season"])]
-    # Placeholder baseline, expanding-window: each season is scored against the
-    # home win rate of the seasons before it, never including itself. Matching
-    # walk_forward's own train/test split keeps the comparison leakage-free.
-    # Still a PLACEHOLDER - a well-calibrated constant is not a market, and
-    # beating it clears nothing.
+    # The baseline each season is scored against.
+    #
+    # Where a REAL de-vigged closing price exists it is used. Where it does not
+    # - 2022 and 2023, which were never bought, because walk_forward reads
+    # novig_home_prob only for the TEST season - the fallback is the home win
+    # rate of prior seasons, which is a placeholder and clears nothing.
+    #
+    # A season with real coverage requires it per game: a row with no close is
+    # DROPPED rather than quietly compared against a constant, because mixing
+    # the two inside one season would make the result mean nothing.
     seasons_sorted = sorted(df["season"].unique())
     prior_rate = {}
     for idx, yr in enumerate(seasons_sorted):
         earlier = df[df["season"].isin(seasons_sorted[:idx])]
         prior_rate[yr] = (float(earlier["home_won"].mean()) if len(earlier)
                           else HOME_BASELINE_PRIOR)
-    df["novig_home_prob"] = df["season"].map(prior_rate)
-    print("Placeholder baseline (home win rate of prior seasons): "
-          + ", ".join(f"{y}:{prior_rate[y]:.3f}" for y in seasons_sorted))
+
+    con = connect()
+    mc = {r["game_id"]: (r["p_fair_home"], r["source"])
+          for r in con.execute("SELECT game_id, p_fair_home, source FROM market_close")}
+    con.close()
+    df["market_close"] = df["game_id"].map(lambda g: (mc.get(g) or (None,))[0])
+    df["market_source"] = df["game_id"].map(lambda g: (mc.get(g) or (None, None))[1])
+
+    covered = {}
+    for yr in seasons_sorted:
+        sub = df[df["season"] == yr]
+        covered[yr] = float(sub["market_close"].notna().mean())
+    REAL = 0.5
+    real_seasons = [y for y in seasons_sorted if covered[y] >= REAL]
+    print("Baseline per season:")
+    for yr in seasons_sorted:
+        if covered[yr] >= REAL:
+            print(f"  {yr}: REAL de-vigged close, {covered[yr]:.1%} of games")
+        else:
+            print(f"  {yr}: placeholder {prior_rate[yr]:.3f} "
+                  f"(home rate of prior seasons)")
+    before = len(df)
+    df = df[~(df["season"].isin(real_seasons) & df["market_close"].isna())]
+    if before - len(df):
+        print(f"  dropped {before - len(df)} game(s) in a real-market season "
+              f"with no closing price - never compared against a placeholder")
+    df["novig_home_prob"] = [
+        m if (s in real_seasons and m == m and m is not None) else prior_rate[s]
+        for m, s in zip(df["market_close"], df["season"])]
+    BASELINE_KIND = (REAL_MARKET
+                     if set(seasons_sorted[2:]) <= set(real_seasons)
+                     else PLACEHOLDER)
+    print(f"  -> recording as {BASELINE_KIND.upper()}")
+    globals()["_BASELINE_KIND"] = BASELINE_KIND
 
     feats = [c for c in df.columns if any(
         c.startswith(p) for p in ("home_pen", "away_pen", "home_off", "away_off",
@@ -176,7 +212,7 @@ if __name__ == "__main__":
         # Recorded as PLACEHOLDER: novig_home_prob is a 0.54 constant, not a
         # market. bets.engine keeps refusing MLB however well this scores,
         # which is correct - beating a constant is not evidence of edge.
-        record("mlb", PLACEHOLDER,
+        record("mlb", globals().get("_BASELINE_KIND", PLACEHOLDER),
                results.rename(columns={"test_season": "season"}).to_dict("records"))
         print()
         print(explain("mlb"))
@@ -186,7 +222,13 @@ if __name__ == "__main__":
         # data has no better answer - see model/train.py).
         alpha = float(results.iloc[-1]["alpha"])
         path = save_model("mlb", df, feats, "run_diff", alpha)
-        print(f"Saved model -> {path.relative_to(ROOT)}")
+        # Not relative_to(ROOT): with SPORTS_MACHINE_DATA_DIR set, the model
+        # lives outside this checkout entirely.
+        try:
+            shown = path.relative_to(ROOT)
+        except ValueError:
+            shown = path
+        print(f"Saved model -> {shown}")
         print("  " + describe("mlb"))
         print()
         print("Bar: logloss_model < logloss_market on REAL de-vigged closing"

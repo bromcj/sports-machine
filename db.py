@@ -144,6 +144,21 @@ CREATE TABLE IF NOT EXISTS odds_history_progress (
     note TEXT
 );
 
+-- The de-vigged closing probability for each finished game, resolved once.
+-- Building it is a per-game walk over snapshots, which is far too slow to
+-- repeat inside every training run - and materialising it also means the
+-- number gate 1 is judged on can be inspected directly rather than recomputed
+-- differently by each reader.
+CREATE TABLE IF NOT EXISTS market_close (
+    game_id TEXT PRIMARY KEY,      -- the Stats API game
+    odds_game_id TEXT NOT NULL,
+    snapshot_ts TEXT NOT NULL,
+    minutes_before_start REAL,
+    p_fair_home REAL NOT NULL,     -- de-vigged, Pinnacle where available
+    source TEXT NOT NULL,          -- pinnacle | consensus
+    resolved_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS merged_files (
     name TEXT PRIMARY KEY,         -- archive/ filename, e.g. odds-2026-09-23-0053.csv
     bytes INTEGER NOT NULL,        -- size when merged; a changed size means re-read

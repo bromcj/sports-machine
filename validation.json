@@ -1,48 +1,48 @@
 {
   "mlb": {
     "armed": false,
-    "baseline_kind": "placeholder",
+    "baseline_kind": "market",
     "cleared": false,
     "leave_one_season_out": {
       "all": {
-        "2024": 1.155833304676664,
-        "2025": 2.347856976208495,
-        "2026": 2.226018949189814
+        "2024": -4.221533903805689,
+        "2025": -4.5880635137115435,
+        "2026": -4.567366965021906
       },
-      "worst_season": 2024,
-      "worst_t": 1.155833304676664
+      "worst_season": 2025,
+      "worst_t": -4.5880635137115435
     },
     "pooled": {
-      "mean_ll_diff": 0.003754,
-      "n_games": 6456,
-      "se": 0.001583,
-      "t_stat": 2.372
+      "mean_ll_diff": -0.009887,
+      "n_games": 6519,
+      "se": 0.00181,
+      "t_stat": -5.461
     },
-    "reason": "baseline is a placeholder, not a real market - beating it proves the model learned something, not that it has edge",
-    "recorded_at": "2026-09-23T06:41:13+00:00",
+    "reason": "lost to market in 3 of 3 seasons (2024, 2025, 2026)",
+    "recorded_at": "2026-09-23T08:34:58+00:00",
     "seasons": [
       {
-        "beat_market": true,
-        "ll_diff_sd": 0.145547,
-        "logloss_market": 0.692386,
-        "logloss_model": 0.685282,
-        "n_games": 2167,
+        "beat_market": false,
+        "ll_diff_sd": 0.157666,
+        "logloss_market": 0.674005,
+        "logloss_model": 0.685682,
+        "n_games": 2189,
         "season": 2024
       },
       {
-        "beat_market": true,
-        "ll_diff_sd": 0.12158,
-        "logloss_market": 0.689789,
-        "logloss_model": 0.687824,
-        "n_games": 2173,
+        "beat_market": false,
+        "ll_diff_sd": 0.151762,
+        "logloss_market": 0.678337,
+        "logloss_model": 0.688015,
+        "n_games": 2192,
         "season": 2025
       },
       {
-        "beat_market": true,
-        "ll_diff_sd": 0.111685,
-        "logloss_market": 0.69126,
-        "logloss_model": 0.6891,
-        "n_games": 2116,
+        "beat_market": false,
+        "ll_diff_sd": 0.126886,
+        "logloss_market": 0.68146,
+        "logloss_model": 0.68973,
+        "n_games": 2138,
         "season": 2026
       }
     ]

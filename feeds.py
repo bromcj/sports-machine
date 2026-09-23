@@ -74,6 +74,27 @@ def et_date(value) -> str | None:
     return when.astimezone(ET).date().isoformat() if when else None
 
 
+# Clubs the two feeds spell differently, and when.
+#
+# The Athletics dropped "Oakland" for 2025. The MLB Stats API changed with
+# them; the odds feed kept "Oakland Athletics" for that season and only
+# switched for 2026. So for 2025 ONLY, the same club has two names, and a
+# match on the raw string silently lost every Athletics game - 169 of them,
+# 7% of the season, and a distinctive team (poor, in a hitter-friendly
+# temporary park) whose absence would not be neutral.
+#
+# Matching canonicalises the name rather than the abbreviation, so feeds.py
+# stays independent of the feature modules.
+TEAM_ALIASES = {
+    "oakland athletics": "athletics",
+}
+
+
+def canon_team(name) -> str:
+    n = " ".join(str(name or "").split()).lower()
+    return TEAM_ALIASES.get(n, n)
+
+
 def odds_twin(con, game_id: str) -> tuple[str | None, str | None]:
     """The odds-feed row for the same real game. Returns (game_id, note).
 
@@ -90,15 +111,23 @@ def odds_twin(con, game_id: str) -> tuple[str | None, str | None]:
     if start is None:
         return None, "no start_time_utc on this game - cannot match by time"
 
+    # Candidates by TIME in SQL, then teams in Python on canonical names -
+    # a raw string comparison cannot survive a club being renamed mid-history.
+    lo = (start - dt.timedelta(minutes=MATCH_WINDOW_MIN)).isoformat()
+    hi = (start + dt.timedelta(minutes=MATCH_WINDOW_MIN)).isoformat()
     rows = con.execute(
-        f"SELECT DISTINCT g.game_id, g.start_time_utc FROM games g"
-        f" WHERE g.sport=? AND g.away=? AND g.home=? AND ({SQL_ODDS_FEED})"
+        f"SELECT DISTINCT g.game_id, g.away, g.home, g.start_time_utc FROM games g"
+        f" WHERE g.sport=? AND ({SQL_ODDS_FEED})"
         f"   AND g.start_time_utc IS NOT NULL"
+        f"   AND g.start_time_utc >= ? AND g.start_time_utc <= ?"
         f"   AND EXISTS (SELECT 1 FROM odds_snapshots o WHERE o.game_id=g.game_id)",
-        (g["sport"], g["away"], g["home"])).fetchall()
+        (g["sport"], lo, hi)).fetchall()
 
+    want = (canon_team(g["away"]), canon_team(g["home"]))
     near = []
     for r in rows:
+        if (canon_team(r["away"]), canon_team(r["home"])) != want:
+            continue
         other = parse_utc(r["start_time_utc"])
         if other is None:
             continue
