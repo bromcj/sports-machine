@@ -69,3 +69,11 @@ def test_an_unknown_espn_status_never_invents_a_final_from_nothing():
 
 def test_stats_api_predicate_excludes_odds_ids():
     assert "NOT GLOB" in SQL_STATS_API
+
+
+def test_feed_of_is_sport_agnostic():
+    # 'nfl-espn-401872947' was classified as oddsfeed because the check
+    # hard-coded the 'mlb-' prefix.
+    assert feed_of("nfl-espn-401872947") == "espn"
+    assert feed_of("nfl-espn-401872947") == feed_of("mlb-espn-401817028")
+    assert feed_of("nfl-823494") == "statsapi"

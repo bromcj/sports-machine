@@ -273,6 +273,28 @@ def normalize_timestamps(con):
     return fixed
 
 
+def normalize_game_dates(con):
+    """game_date := the LOCAL date of first pitch, wherever we know it.
+
+    Self-healing rather than a one-off. The upsert freezes game_date once a
+    game is final, so an OLD row that gains a start_time_utc for the first
+    time - which happens whenever a feed starts supplying one, or a backfill
+    fills it in - keeps whatever date it was written with. That date may be a
+    UTC one from before the fix. This puts it right on the next `python db.py`.
+    """
+    from feeds import et_date
+    fixed = 0
+    for r in con.execute(
+            "SELECT game_id, game_date, start_time_utc FROM games"
+            " WHERE start_time_utc IS NOT NULL").fetchall():
+        want = et_date(r["start_time_utc"])
+        if want and want != r["game_date"]:
+            con.execute("UPDATE games SET game_date=? WHERE game_id=?",
+                        (want, r["game_id"]))
+            fixed += 1
+    return fixed
+
+
 def connect():
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(DB_PATH)
@@ -408,6 +430,7 @@ def init():
     applied = migrate(con)
     indexed = index(con)
     fixed = normalize_timestamps(con)
+    redated = normalize_game_dates(con)
     con.commit()
     con.close()
     if rebuilt:
@@ -418,6 +441,8 @@ def init():
         print(f"Indexed: created {', '.join(indexed)}")
     if fixed:
         print(f"Normalized timestamps: {', '.join(fixed)}")
+    if redated:
+        print(f"Re-dated {redated} game(s) to their local first-pitch date")
     print(f"DB initialized at {DB_PATH}")
 
 

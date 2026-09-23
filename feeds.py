@@ -46,9 +46,11 @@ SQL_ODDS_FEED = ("game_id NOT LIKE 'mlb-espn-%'"
 
 
 def feed_of(game_id: str) -> str:
-    if game_id.startswith("mlb-espn-"):
+    """Which feed minted this id. Sport-agnostic: 'nfl-espn-...' is ESPN too."""
+    rest = game_id.split("-", 1)[1] if "-" in game_id else game_id
+    if rest.startswith("espn-"):
         return "espn"
-    return "statsapi" if game_id[4:].isdigit() else "oddsfeed"
+    return "statsapi" if rest.isdigit() else "oddsfeed"
 
 
 def parse_utc(value: str | None) -> dt.datetime | None:
