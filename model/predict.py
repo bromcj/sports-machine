@@ -32,9 +32,10 @@ import pandas as pd
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 from bets.engine import evaluate, novig_probs
-from db import connect
+from db import LATEST_FEATURE, LATEST_PREDICTION, code_sha, connect
 from feeds import SQL_STATS_API, pregame_books
-from model.persist import load as load_model, predict_margin, win_prob
+from model.persist import (load as load_model, predict_margin,
+                           register_model, win_prob)
 
 
 def predict_for_date(date: str | None = None, sport: str = "mlb",
@@ -44,10 +45,13 @@ def predict_for_date(date: str | None = None, sport: str = "mlb",
     bundle = load_model(sport)
 
     con = connect()
+    # The LATEST feature row per game. features is append-only now, so a game
+    # built twice in a day has two rows and "the features" has to say which.
     rows = con.execute(
-        "SELECT f.game_id, f.payload, g.away, g.home FROM features f"
-        " JOIN games g ON g.game_id = f.game_id"
-        " WHERE f.sport = ? AND g.game_date = ?", (sport, date)).fetchall()
+        f"SELECT f.feature_row_id, f.game_id, f.payload, g.away, g.home"
+        f" FROM ({LATEST_FEATURE}) f"
+        f" JOIN games g ON g.game_id = f.game_id"
+        f" WHERE f.sport = ? AND g.game_date = ?", (sport, date)).fetchall()
     if not rows:
         con.close()
         if verbose:
@@ -59,11 +63,17 @@ def predict_for_date(date: str | None = None, sport: str = "mlb",
     probs = win_prob(bundle, margins)
 
     ts = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+    sha = code_sha()
+    model_id = register_model(con, sport, bundle)
     for r, m, p in zip(rows, margins, probs):
+        # APPEND, with the lineage attached: which model, which code, which
+        # feature row. model_version alone was identical for two different
+        # fits on the same data, so it could not identify anything.
         con.execute(
-            "INSERT OR REPLACE INTO predictions (game_id, sport, ts,"
-            " model_version, proj_margin, home_win_prob) VALUES (?,?,?,?,?,?)",
-            (r["game_id"], sport, ts,
+            "INSERT INTO predictions (game_id, sport, created_at, model_id,"
+            " code_sha, feature_row_id, model_version, proj_margin,"
+            " home_win_prob) VALUES (?,?,?,?,?,?,?,?,?)",
+            (r["game_id"], sport, ts, model_id, sha, r["feature_row_id"],
              f"ridge-{sport}-{bundle['trained_through']}", float(m), float(p)))
     con.commit()
 
@@ -104,9 +114,9 @@ def picks(date: str | None = None, bankroll: float = 1000.0,
     date = date or dt.date.today().isoformat()
     con = connect()
     preds = con.execute(
-        "SELECT p.game_id, p.home_win_prob, p.proj_margin, g.away, g.home"
-        " FROM predictions p JOIN games g ON g.game_id = p.game_id"
-        " WHERE p.sport=? AND g.game_date=?", (sport, date)).fetchall()
+        f"SELECT p.game_id, p.home_win_prob, p.proj_margin, g.away, g.home"
+        f" FROM ({LATEST_PREDICTION}) p JOIN games g ON g.game_id = p.game_id"
+        f" WHERE p.sport=? AND g.game_date=?", (sport, date)).fetchall()
 
     out = []
     print(f"\n{'matchup':40s} {'model':>7s} {'market':>7s} {'edge':>7s}  verdict")

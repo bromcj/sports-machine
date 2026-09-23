@@ -107,3 +107,43 @@ def describe(sport: str) -> str:
 if __name__ == "__main__":
     for sp in ("mlb", "nfl"):
         print(describe(sp))
+
+
+def model_id(sport: str = "mlb") -> str | None:
+    """sha256 of the saved model file. Two fits on the same data differ here.
+
+    model_version was "ridge-<sport>-<trained_through>", which is identical for
+    two different fits over the same seasons - so it could not identify which
+    model made a prediction. The file's own hash can.
+    """
+    import hashlib
+    path = MODEL_DIR / f"{sport}.joblib"
+    if not path.exists():
+        return None
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def register_model(con, sport: str, bundle: dict) -> str | None:
+    """Record this model in `models` if it is not already there. Returns its id."""
+    import json as _json
+    from db import code_sha, utc_now
+    mid = model_id(sport)
+    if mid is None:
+        return None
+    if con.execute("SELECT 1 FROM models WHERE model_id=?", (mid,)).fetchone():
+        return mid
+    con.execute(
+        "INSERT INTO models (model_id, sport, trained_at, code_sha,"
+        " data_through, alpha, k, n_train_rows, metrics_json)"
+        " VALUES (?,?,?,?,?,?,?,?,?)",
+        (mid, sport, bundle.get("trained_at") or utc_now(), code_sha(),
+         bundle.get("trained_through"), bundle.get("alpha"), bundle.get("k"),
+         bundle.get("n_train_rows"),
+         _json.dumps({k: v for k, v in bundle.items()
+                      if isinstance(v, (int, float, str, type(None)))})))
+    con.commit()
+    return mid

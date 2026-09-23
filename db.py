@@ -39,18 +39,47 @@ CREATE TABLE IF NOT EXISTS odds_snapshots (
                                    -- identify a true closing line per game.
 );
 
+-- LINEAGE: features, predictions and models are APPEND-ONLY.
+--
+-- They used to be INSERT OR REPLACE keyed on game_id, so every rerun erased
+-- the previous one. The 11:30am prediction was overwritten by the 10pm run,
+-- and model_version ("ridge-mlb-<date>") was identical for two different fits
+-- on the same data. When a result looked too good or too bad there was no way
+-- to answer "what did the system know at the time?" - it could not even say
+-- which of the day's two predictions a paper bet came from.
+--
+-- "Latest" is now a query, not an overwrite.
 CREATE TABLE IF NOT EXISTS features (
-    game_id TEXT PRIMARY KEY,
+    feature_row_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    game_id TEXT NOT NULL,
     sport TEXT NOT NULL,
-    asof_ts TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    inputs_through TEXT,           -- how current the Statcast file was
     payload TEXT NOT NULL          -- JSON feature vector
 );
 
-CREATE TABLE IF NOT EXISTS predictions (
-    game_id TEXT PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS models (
+    model_id TEXT PRIMARY KEY,     -- sha256 of the joblib file: two fits on the
+                                   -- same data are two different models
     sport TEXT NOT NULL,
-    ts TEXT NOT NULL,
-    model_version TEXT NOT NULL,
+    trained_at TEXT NOT NULL,
+    code_sha TEXT,                 -- git commit the fit ran from
+    data_through TEXT,
+    alpha REAL,
+    k REAL,
+    n_train_rows INTEGER,
+    metrics_json TEXT
+);
+
+CREATE TABLE IF NOT EXISTS predictions (
+    prediction_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    game_id TEXT NOT NULL,
+    sport TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    model_id TEXT,
+    code_sha TEXT,
+    feature_row_id INTEGER,
+    model_version TEXT NOT NULL,   -- kept for display; model_id is the identity
     proj_margin REAL NOT NULL,     -- home minus away, sport-native units
     home_win_prob REAL NOT NULL
 );
@@ -85,6 +114,32 @@ CREATE TABLE IF NOT EXISTS bets (
     model_version TEXT
 );
 """
+
+
+# "Latest" for an append-only table. One definition, so no reader invents its
+# own and they cannot disagree about which prediction a bet acted on.
+LATEST_FEATURE = """
+    SELECT f.* FROM features f
+    JOIN (SELECT game_id, MAX(feature_row_id) AS m FROM features GROUP BY game_id) x
+      ON x.game_id = f.game_id AND x.m = f.feature_row_id
+"""
+LATEST_PREDICTION = """
+    SELECT p.* FROM predictions p
+    JOIN (SELECT game_id, MAX(prediction_id) AS m FROM predictions GROUP BY game_id) x
+      ON x.game_id = p.game_id AND x.m = p.prediction_id
+"""
+
+
+def code_sha() -> str | None:
+    """The git commit this is running from, for prediction lineage."""
+    import subprocess
+    try:
+        r = subprocess.run(["git", "rev-parse", "--short", "HEAD"],
+                           capture_output=True, text=True, timeout=10,
+                           cwd=Path(__file__).parent)
+        return r.stdout.strip() or None if r.returncode == 0 else None
+    except Exception:
+        return None
 
 
 def utc_now() -> str:
@@ -133,6 +188,41 @@ def as_utc(value: str | None) -> str | None:
 # format. commence_time is NOT here - that is the odds API's value, already
 # 'Z'-suffixed, and normalising it would rewrite upstream data.
 TS_COLUMNS = [("odds_snapshots", "id", "ts"), ("bets", "bet_id", "ts")]
+
+
+def _rebuild_append_only(con):
+    """Move features/predictions from game_id-keyed to append-only. Idempotent.
+
+    SQLite cannot drop a PRIMARY KEY, so the table is rebuilt and the existing
+    rows copied into it. Both tables are small and regenerable, so this is
+    cheap - but it still copies rather than discarding, because throwing away
+    the only record of what the system predicted is the opposite of the point.
+    """
+    done = []
+    cols = {r["name"] for r in con.execute("PRAGMA table_info(features)")}
+    if cols and "feature_row_id" not in cols:
+        con.execute("ALTER TABLE features RENAME TO features_old")
+        con.executescript(SCHEMA)
+        con.execute(
+            "INSERT INTO features (game_id, sport, created_at, payload)"
+            " SELECT game_id, sport, asof_ts, payload FROM features_old")
+        n = con.execute("SELECT COUNT(*) FROM features_old").fetchone()[0]
+        con.execute("DROP TABLE features_old")
+        done.append(f"features ({n} rows carried over)")
+
+    cols = {r["name"] for r in con.execute("PRAGMA table_info(predictions)")}
+    if cols and "prediction_id" not in cols:
+        con.execute("ALTER TABLE predictions RENAME TO predictions_old")
+        con.executescript(SCHEMA)
+        con.execute(
+            "INSERT INTO predictions (game_id, sport, created_at, model_version,"
+            " proj_margin, home_win_prob)"
+            " SELECT game_id, sport, ts, model_version, proj_margin,"
+            " home_win_prob FROM predictions_old")
+        n = con.execute("SELECT COUNT(*) FROM predictions_old").fetchone()[0]
+        con.execute("DROP TABLE predictions_old")
+        done.append(f"predictions ({n} rows carried over)")
+    return done
 
 
 def normalize_timestamps(con):
@@ -212,6 +302,9 @@ MIGRATIONS = [
     ("bets", "shop_pct", "REAL"),
     ("bets", "info_pct", "REAL"),
     ("bets", "fair_source", "TEXT"),        # 'pinnacle' | 'consensus'
+    # Which prediction this bet acted on. Two predictions a day were possible
+    # and nothing recorded which one a bet came from.
+    ("bets", "prediction_id", "INTEGER"),
 ]
 
 
@@ -241,6 +334,11 @@ INDEXES = [
     # settle() sweeps ungraded paper bets every run; gate 2 reads graded ones.
     ("ix_bets_mode_sport", "CREATE INDEX IF NOT EXISTS ix_bets_mode_sport"
                            " ON bets(mode, sport, result)"),
+    # "the latest row for this game" is now a query, so it needs an index.
+    ("ix_pred_game_created", "CREATE INDEX IF NOT EXISTS ix_pred_game_created"
+                             " ON predictions(game_id, created_at)"),
+    ("ix_feat_game_created", "CREATE INDEX IF NOT EXISTS ix_feat_game_created"
+                             " ON features(game_id, created_at)"),
 ]
 # closing_snapshot() filters odds_snapshots on game_id alone; that is the
 # leading column of ux_snap_dedupe, so SQLite uses it. No separate index.
@@ -287,11 +385,15 @@ def migrate(con):
 def init():
     con = connect()
     con.executescript(SCHEMA)
+    rebuilt = _rebuild_append_only(con)
+    con.executescript(SCHEMA)
     applied = migrate(con)
     indexed = index(con)
     fixed = normalize_timestamps(con)
     con.commit()
     con.close()
+    if rebuilt:
+        print(f"Rebuilt append-only: {', '.join(rebuilt)}")
     if applied:
         print(f"Migrated: added {', '.join(applied)}")
     if indexed:

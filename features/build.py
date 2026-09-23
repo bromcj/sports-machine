@@ -152,8 +152,13 @@ def build_for_date(date: str | None = None, verbose: bool = True) -> int:
         vec["_statcast_through"] = str(latest.date())
         vec["_stale_days"] = stale_days
         con.execute(
-            "INSERT OR REPLACE INTO features (game_id, sport, asof_ts, payload)"
-            " VALUES (?,?,?,?)", (g["game_id"], "mlb", ts, json.dumps(vec)))
+            # APPEND. The 11:30am feature row and the 10pm one are different
+            # facts about different moments, and overwriting destroyed the
+            # first one.
+            "INSERT INTO features (game_id, sport, created_at, inputs_through,"
+            " payload)"
+            " VALUES (?,?,?,?,?)",
+            (g["game_id"], "mlb", ts, str(latest.date()), json.dumps(vec)))
         written += 1
     con.commit()
     con.close()

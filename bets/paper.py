@@ -27,7 +27,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from db import connect
+from db import LATEST_PREDICTION, connect
 from bets.engine import evaluate, novig_probs
 from bets.engine import american_to_decimal
 from bets.log import (CLOSING_WINDOW_MIN, closing_snapshot, fair_prob,
@@ -58,10 +58,10 @@ def place(date: str | None = None, sport: str = "mlb") -> int:
     date = date or dt.date.today().isoformat()
     con = connect()
     preds = con.execute(
-        "SELECT p.game_id, p.home_win_prob, p.model_version, g.away, g.home,"
-        " g.start_time_utc, g.status"
-        " FROM predictions p JOIN games g ON g.game_id = p.game_id"
-        " WHERE p.sport=? AND g.game_date=?", (sport, date)).fetchall()
+        f"SELECT p.prediction_id, p.game_id, p.home_win_prob, p.model_version,"
+        f" g.away, g.home, g.start_time_utc, g.status"
+        f" FROM ({LATEST_PREDICTION}) p JOIN games g ON g.game_id = p.game_id"
+        f" WHERE p.sport=? AND g.game_date=?", (sport, date)).fetchall()
 
     now = dt.datetime.now(dt.timezone.utc)
     placed = skipped_started = 0
@@ -121,8 +121,10 @@ def place(date: str | None = None, sport: str = "mlb") -> int:
                                       r["kelly_fraction"], p["model_version"],
                                       mode="placebo"))
         for bid in new_ids:
-            con.execute("UPDATE bets SET odds_snapshot_id=? WHERE bet_id=?",
-                        (b["id"], bid))
+            # Which price AND which prediction. Two predictions a day were
+            # possible and nothing recorded which one a bet acted on.
+            con.execute("UPDATE bets SET odds_snapshot_id=?, prediction_id=?"
+                        " WHERE bet_id=?", (b["id"], p["prediction_id"], bid))
         con.commit()
         placed += 1
         print(f"  paper: {p['away'][:18]} @ {p['home'][:18]}  "

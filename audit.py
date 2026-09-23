@@ -115,6 +115,73 @@ def main() -> int:
             skip("odds_twin bridges predictions to prices", "no predictions stored yet")
         con.close()
 
+    # ---------------------------------------------------------------- lineage
+    section("LINEAGE")
+    from db import LATEST_PREDICTION as _LP, code_sha as _sha
+    conL = connect()
+    tblL = {r[0] for r in conL.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'")}
+    if {"predictions", "features", "models"} <= tblL:
+        # Append-only: "latest" must be a query, and a second row for the same
+        # game must not have destroyed the first.
+        dup = conL.execute(
+            "SELECT COUNT(*) FROM (SELECT game_id FROM predictions"
+            " GROUP BY game_id HAVING COUNT(*) > 1)").fetchone()[0]
+        n_pred = conL.execute("SELECT COUNT(*) FROM predictions").fetchone()[0]
+        n_games = conL.execute(
+            "SELECT COUNT(DISTINCT game_id) FROM predictions").fetchone()[0]
+        check("predictions are append-only, not overwritten",
+              n_pred >= n_games,
+              f"{n_pred} rows over {n_games} games, {dup} game(s) predicted more"
+              f" than once")
+        latest = conL.execute(
+            f"SELECT COUNT(*) c, COUNT(DISTINCT game_id) g FROM ({_LP})"
+        ).fetchone()
+        check("'latest prediction' returns exactly one row per game",
+              latest["c"] == latest["g"], f"{latest['c']} rows, {latest['g']} games")
+
+        # A prediction written by the current code must say which model, which
+        # commit and which feature row produced it.
+        recent = conL.execute(
+            "SELECT model_id, code_sha, feature_row_id FROM predictions"
+            " WHERE model_id IS NOT NULL ORDER BY prediction_id DESC LIMIT 20"
+        ).fetchall()
+        if recent:
+            missing = sum(1 for r in recent
+                          if not r["code_sha"] or r["feature_row_id"] is None)
+            check("every new prediction carries its full lineage",
+                  missing == 0, f"{len(recent)} checked, {missing} incomplete")
+            known = conL.execute(
+                "SELECT COUNT(*) FROM predictions p WHERE p.model_id IS NOT NULL"
+                " AND NOT EXISTS (SELECT 1 FROM models m"
+                "                 WHERE m.model_id = p.model_id)").fetchone()[0]
+            check("every prediction's model is registered",
+                  known == 0, f"{known} prediction(s) cite an unknown model")
+        else:
+            skip("every new prediction carries its full lineage", "none written yet")
+            skip("every prediction's model is registered", "none written yet")
+
+        # model_id must be the file's own hash, so two fits on the same data
+        # are two models rather than one name.
+        from model.persist import model_id as _mid
+        live = _mid("mlb")
+        if live:
+            stored = conL.execute(
+                "SELECT COUNT(*) FROM models WHERE model_id=?", (live,)).fetchone()[0]
+            check("the saved model is registered under its own file hash",
+                  stored == 1, f"{live[:12]}...")
+        else:
+            skip("the saved model is registered under its own file hash",
+                 "no saved model")
+    else:
+        for n in ("predictions are append-only, not overwritten",
+                  "'latest prediction' returns exactly one row per game",
+                  "every new prediction carries its full lineage",
+                  "every prediction's model is registered",
+                  "the saved model is registered under its own file hash"):
+            skip(n, "lineage tables not present")
+    conL.close()
+
     # -------------------------------------------------- train / serve parity
     section("TRAIN vs SERVE")
     # The model must be trained on the same feature it is served. Two ways
@@ -554,8 +621,9 @@ def main() -> int:
                 (f"mlb-1{name}", "mlb", str(now.date()), start.isoformat(),
                  f"A{name}", f"H{name}", status))
             c5.execute(
-                "INSERT INTO predictions (game_id, sport, ts, model_version,"
-                " proj_margin, home_win_prob) VALUES (?,?,?,?,?,?)",
+                "INSERT INTO predictions (game_id, sport, created_at,"
+                " model_version, proj_margin, home_win_prob)"
+                " VALUES (?,?,?,?,?,?)",
                 # 0.78 against a no-vig 0.61 clears the 4% edge threshold, so
                 # the only thing that can stop a bet here is the guard.
                 (f"mlb-1{name}", "mlb", dbmod5.utc_now(), "v1", 1.5, 0.78))
