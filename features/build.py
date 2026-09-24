@@ -1,8 +1,13 @@
 """Build the feature vector for games that have NOT been played yet.
 
 features/build_training.py answers "what did the numbers look like before each
-past game." This answers the same question for tonight's slate, using the same
-functions, so the model sees inputs shaped exactly like the ones it learned on.
+past game." This answers the same question for tonight's slate. It shares the
+Statcast loader, the pitcher-game lines and the park-factor table with
+training, but the rolling windows are DIFFERENT functions here
+(bullpen_asof, offense_asof, starters_asof, rest_days_asof against training's
+bullpen_table, offense_table, starter_table, rest_days) that have to agree
+with them. They nearly do: after a team's off day, training's 3- and 30-day
+windows reach one day further back than these (see mlb_features._stale).
 
 Two things make the live path different from the training path, and both are
 places to be careful rather than clever:

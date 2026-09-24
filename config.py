@@ -1,8 +1,10 @@
 """Sport registry. Add or disable leagues here — everything else reads this.
 
 margin      : what the model predicts (home minus away)
-k_default   : starting logistic steepness for margin -> win prob
-              (refit per sport in model/calibrate.py; these are sane priors)
+k_default   : logistic steepness for margin -> win prob. MLB trains, grades
+              and serves with this value as is (model/train.py reports a
+              fitted k_fit only as a diagnostic); only the NFL walk-forward
+              refits k per fold, via model/calibrate.py
 min_edge    : per-sport bet threshold vs no-vig market prob
 months      : in-season months (used by run_daily to skip dead leagues)
 espn        : ESPN scoreboard path for schedule/finals (keyless)

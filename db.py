@@ -35,7 +35,8 @@ CREATE TABLE IF NOT EXISTS odds_snapshots (
     book TEXT NOT NULL,
     away_ml INTEGER,
     home_ml INTEGER,
-    snapshot_type TEXT NOT NULL,   -- 'open' | 'bettime' | 'close'
+    snapshot_type TEXT NOT NULL,   -- 'open' | 'close' (live pulls) |
+                                   -- 'hist_open' | 'hist_close' (bought history)
     commence_time TEXT             -- ISO first-pitch time, from the odds API.
                                    -- snapshot_type records WHICH PULL this came
                                    -- from; this records how close to the actual
@@ -89,9 +90,9 @@ CREATE TABLE IF NOT EXISTS predictions (
 );
 
 -- Every finished game scored against the market, whether or not a bet was
--- ever placed on it. Gate 1 runs on a PLACEHOLDER baseline and will until
--- enough real closing lines accumulate; this is the running head-to-head
--- against the actual market in the meantime. It clears nothing by itself.
+-- ever placed on it. Gate 1 is judged on the bought closes in market_close;
+-- this is the running head-to-head for games as they finish, using the
+-- prediction actually made before first pitch. It clears nothing by itself.
 CREATE TABLE IF NOT EXISTS market_scores (
     game_id TEXT PRIMARY KEY,
     sport TEXT NOT NULL,
@@ -168,7 +169,7 @@ CREATE TABLE IF NOT EXISTS merged_files (
 
 CREATE TABLE IF NOT EXISTS bets (
     bet_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    mode TEXT NOT NULL DEFAULT 'real',   -- 'paper' | 'real'; gate 2 counts paper
+    mode TEXT NOT NULL DEFAULT 'real',   -- paper|real|placebo|manual; gate 2 counts paper
     ts TEXT NOT NULL,
     game_id TEXT NOT NULL,
     sport TEXT NOT NULL,
@@ -372,7 +373,9 @@ MIGRATIONS = [
     # no way to look up a probable starter's recent form before a game.
     ("games", "away_starter_id", "INTEGER"),
     ("games", "home_starter_id", "INTEGER"),
-    # 'paper' | 'real'. Gate 2 counts PAPER bets only - it is the evidence
+    # 'paper' | 'real' | 'placebo' (the same pipeline on a random side, gate
+    # 2's control) | 'manual' (your own bets, Phase 2 - bets/manual.py).
+    # Gate 2 counts PAPER bets only - it is the evidence
     # gathered BEFORE any money is staked, so letting real wagers feed it
     # would let money already at risk justify risking more. NULL on rows
     # written before this column existed is read as 'real', which is the

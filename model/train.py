@@ -23,8 +23,10 @@ def margin_to_win_prob(margin: np.ndarray, sport: str = "mlb",
                        k: float | None = None, a: float = 0.0) -> np.ndarray:
     """Logistic mapping from projected margin (home - away) to home win prob.
 
-    k defaults per sport from config (MLB runs vs NBA points differ ~2.5x);
-    refit empirically in calibrate.py per sport.
+    k defaults per sport from config (MLB runs vs NBA points differ ~2.5x).
+    MLB trains, grades and serves with that default unchanged: walk_forward
+    reports a fitted k_fit only as a diagnostic (see below). Only the NFL
+    walk-forward in features/build_training_nfl.py refits k, per fold.
 
     `a` is a home intercept. Without it this returns exactly 0.500 at a
     predicted margin of zero, but home teams win ~53% of MLB games while the
@@ -131,11 +133,13 @@ def walk_forward(df: pd.DataFrame, feature_cols: list[str],
 
         y = test["home_won"].values
         # Per-game paired losses, so a season's margin can be judged against
-        # its own noise. Season AVERAGES cannot: two of MLB's three test
-        # seasons beat the baseline by less than one standard error, which is
-        # indistinguishable from luck, and a gate comparing only the means
-        # could not tell. model/validation.py pools (n, mean, sd) across
-        # seasons exactly, so the arrays do not need to travel.
+        # its own noise. Season AVERAGES cannot: against the old placeholder
+        # baseline, two of MLB's three test seasons won by less than one
+        # standard error, which is indistinguishable from luck, and a gate
+        # comparing only the means could not tell. (Against the real closing
+        # line MLB now loses every season - validation.json.)
+        # model/validation.py pools (n, mean, sd) across seasons exactly, so
+        # the arrays do not need to travel.
         pm = np.clip(pred_prob, 1e-6, 1 - 1e-6)
         bm = np.clip(test["novig_home_prob"].values, 1e-6, 1 - 1e-6)
         ll_model_each = -(y * np.log(pm) + (1 - y) * np.log(1 - pm))

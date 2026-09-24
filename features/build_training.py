@@ -14,17 +14,18 @@ Every join is by explicit key. Never assign a merge result back positionally
 frame reshuffles same-day games and silently pairs each team with another
 team's numbers.
 
-Baseline note (honesty): free odds tiers don't include historical closing
-lines, so the market column here is a HOME-CONSTANT baseline, not a market.
-It is the home win rate of the seasons BEFORE the one being scored - the
-same thing build_training_nfl.py uses, and leakage-free because a season
-never contributes to its own baseline.
+Baseline: each test season is scored against the REAL de-vigged closing
+price in market_close (bought historical odds, resolved by
+resolve_market_close.py - Pinnacle where it priced the game). A season counts
+as real when at least half its games have a close; inside such a season a game
+with no close is dropped rather than compared against a stand-in.
 
-It used to be a flat 0.54, which was simply wrong: the actual rate over
-this window is 52.3-52.9%. A miscalibrated constant is an easier target,
-so part of any margin over it was the constant being off rather than the
-model being good. True market comparison begins with the closing lines
-your own daily runs are now archiving.
+Seasons with no bought closes (2022 and 2023, which are only ever training
+seasons) fall back to the home win rate of the seasons BEFORE them -
+leakage-free, because a season never contributes to its own baseline. That
+fallback is a placeholder: if any TEST season needed it, the run is recorded
+as PLACEHOLDER and clears nothing. (It used to be a flat 0.54, which was
+simply wrong: the actual rate over this window is 52.3-52.9%.)
 """
 import sys
 from pathlib import Path
@@ -217,9 +218,10 @@ if __name__ == "__main__":
                                season_col="season", sport="mlb",
                                intercept=True)
         print(results.to_string(index=False))
-        # Recorded as PLACEHOLDER: novig_home_prob is a 0.54 constant, not a
-        # market. bets.engine keeps refusing MLB however well this scores,
-        # which is correct - beating a constant is not evidence of edge.
+        # Recorded as REAL_MARKET when every test season has real closes
+        # (assemble() decides, and prints which), otherwise PLACEHOLDER - and
+        # a placeholder clears nothing however well this scores, which is
+        # correct: beating a constant is not evidence of edge.
         record("mlb", globals().get("_BASELINE_KIND", PLACEHOLDER),
                results.rename(columns={"test_season": "season"}).to_dict("records"))
         print()

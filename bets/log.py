@@ -58,9 +58,10 @@ def record_bet(game_id, sport, side, book, line_taken, stake, model_prob,
 # starts scheduled runs hours late, so the 5:09pm pull is either ~2h early (too
 # soon) or lands in-play (rejected), and the queue decides which.
 #
-# Left as-is on purpose. It blocks nothing today - MLB cannot pass gate 1
-# either, because its baseline is still a placeholder - and the standard is
-# right even when the schedule cannot meet it.
+# Left as-is on purpose. It blocks nothing today - MLB fails gate 1 anyway,
+# losing to the real closing line in all three test seasons - and the
+# standard is right even when the schedule cannot meet it. (Its cost is
+# visible: on 2026-09-24 gate 2 had graded 1 of 8 settled paper bets.)
 #
 # Do NOT widen this to make the schedule look adequate. That would make gate 2
 # measure an afternoon of drift and call it closing-line value, which is the

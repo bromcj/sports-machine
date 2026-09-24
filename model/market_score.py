@@ -2,10 +2,10 @@
 
     python run_daily.py market
 
-Gate 1 currently runs on a PLACEHOLDER baseline - the home win rate of prior
-seasons - because free odds tiers carry no historical closing lines. It will
-stay that way until enough real ones accumulate. This is the running
-head-to-head against the actual market in the meantime.
+Gate 1 is judged on bought historical closing lines (market_close), which
+only change when resolve_market_close.py is run by hand. This is the running
+head-to-head against the market for games as they finish, scored with the
+prediction the live system actually made before first pitch.
 
 It uses every finished game with a usable close, not only games that were bet.
 That matters: paper bets exist only where the model found an edge, which is a

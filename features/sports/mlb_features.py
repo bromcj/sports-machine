@@ -180,8 +180,17 @@ def _stale(index, days: int):
     live produces no feature and skips the game entirely. Training kept the row.
     The model was learning from rows production never generates.
 
-    This marks exactly those rows, so they can be nulled and dropped - which is
-    what live already does to them.
+    This marks the rows across a gap longer than the window, so they can be
+    nulled and dropped - which is what live already does to them.
+
+    It does NOT make the two paths identical. Training's window for a game is
+    the one ending at the team's previous game; live's ends the day before the
+    game itself. After games on consecutive days those are the same window.
+    After a single off day they are not: training's 3-day and 30-day windows
+    reach one day further back than live's. Checked with bullpen_table against
+    features/build.bullpen_asof on a made-up schedule: 3-day pitches 60 vs 40
+    after one off day. Not leakage - both use only earlier games - but the
+    training rows after an off day are not the rows live produces.
 
     Note it is only the CALENDAR windows that diverge. sp_kbb_5s uses a count
     window (the last 5 starts) in both paths, so the two already agree there.

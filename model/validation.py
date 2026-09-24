@@ -15,12 +15,14 @@ betting into, disagreement is noise and the threshold just sells it back to
 you as confidence.
 
 Clearing takes THREE gates, mirroring the README build order. Beating the
-market out of sample is step 2 of five; letting that alone open the tap would
+market out of sample is step 2 of four; letting that alone open the tap would
 skip calibration and paper trading entirely, and a model can edge past the
 market on log-loss and still lose to the vig.
 
-  gate 1  walk_forward   beat a REAL market in every test season   record()
-  gate 2  paper_trading  50+ graded paper bets at positive CLV     record_paper()
+  gate 1  walk_forward   beat a REAL market in every test season,  record()
+                         pooled t > 2, no one season carrying it
+  gate 2  paper_trading  50+ graded paper bets, mean INFO 3 SE     record_paper()
+                         above zero, coverage, slots, placebo
   gate 3  armed          a human deliberately switched it on       arm()
 
 The first two are measured and pass on their own. The third cannot: arm() is a
@@ -87,7 +89,9 @@ def slot_of(et_hour: int) -> str:
 #
 # The simulations behind both numbers are in docs/gates.md. They are empirical:
 # if score() runs more often than nightly, or paper volume changes a lot, rerun
-# the SEQUENTIAL TESTING section of audit.py before touching these.
+# the SEQUENTIAL TESTING section of audit.py before touching these. Both have
+# happened (score() runs at 11:30 and 22:00; see docs/gates.md), and the
+# simulation has not yet been rerun for it.
 PAPER_CLV_SIGMA = 3.0
 WALK_FORWARD_SIGMA = 2.0
 
@@ -139,11 +143,13 @@ def _pooled_diff(rows: list[dict]) -> dict | None:
     the between-season variation of the means.
 
     Why pooled rather than per-season: a model can beat the market in every
-    season by a margin that is noise in every season, which is what MLB does -
-    at the time of writing 2025 is 0.75 SE and 2026 is 0.89 SE. Pooling uses
-    all the games at once and is the honest test of "is there anything here at
-    all". Those per-season figures move whenever the model or the baseline
-    changes; audit.py recomputes them rather than trusting this note.
+    season by a margin that is noise in every season, which is what MLB did
+    against its old placeholder baseline (2025 at 0.75 SE, 2026 at 0.89 SE).
+    Against the real closing line it now loses every season outright - see
+    validation.json. Pooling uses all the games at once and is the honest test
+    of "is there anything here at all". Per-season figures move whenever the
+    model or the baseline changes; audit.py recomputes them rather than
+    trusting this note.
     """
     usable = [r for r in rows if r.get("n_games") and "ll_diff_sd" in r]
     if len(usable) != len(rows) or not usable:
@@ -168,10 +174,11 @@ def leave_one_season_out(rows: list[dict]) -> dict | None:
     """Pooled margin with each season dropped in turn. None if not computable.
 
     Pooling answers "is there anything here", but not "does it rest on one
-    season". MLB's pooled margin clears 2 SE almost entirely on 2024: drop
-    that season and t falls from 2.37 to 1.16, which is nothing. A model whose
-    whole case is one year out of three has not shown an edge, it has shown a
-    year.
+    season". Against its old placeholder baseline, MLB's pooled margin cleared
+    2 SE almost entirely on 2024: drop that season and t fell from 2.37 to
+    1.16, which is nothing. (Against the real closing line every
+    leave-one-out t is negative - validation.json.) A model whose whole case
+    is one year out of three has not shown an edge, it has shown a year.
 
     Returns {"worst_season": s, "worst_t": t, "all": {season: t}}.
     """
@@ -304,7 +311,8 @@ def record_paper(sport: str, clvs, slots=None, coverage=None,
 
     So the bar is the average beating zero by PAPER_CLV_SIGMA standard
     errors, which needs the spread of the individual bets, not just their
-    mean. `clvs` is the list of per-bet CLV percentages.
+    mean. `clvs` is the list of per-bet info percentages (see the top of this
+    docstring); the name is older than the switch from CLV to info.
 
     Simulated against this archive's spread, 20k trials per cell:
 

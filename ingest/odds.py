@@ -1,12 +1,16 @@
 """Pull moneylines for every active in-season sport from The Odds API.
 
-Snapshot types: open (morning) | bettime (at wager) | close (CLV anchor).
+Snapshot types written here: open (the morning pull) | close (the close pulls).
+(backfill_odds_history.py writes hist_open / hist_close; nothing writes the
+'bettime' the schema once listed.)
 These label WHICH PULL a row came from. Because a single pull returns tonight's
 games alongside games days away, the label alone does not mean "near the close" -
 each row also stores commence_time, so the true closing snapshot for any one
 game is the latest row before its first pitch. See bets.log.closing_snapshot.
-Requires ODDS_API_KEY. Each sport pull costs credits — budget accordingly
-(4 active sports x 2 snapshots/day fits easily in the $30/mo tier).
+Requires ODDS_API_KEY. Each pull costs one credit per in-season sport (one
+region, one market). The cloud runs three a day on a 500-credit-a-month key:
+a projected 372 in October, when all four sports are in season (4 x 3 x 31).
+Run on the owner's PC, it spends the paid key instead. See COMMANDS.md.
 """
 import os
 import requests
