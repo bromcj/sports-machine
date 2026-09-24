@@ -22,12 +22,13 @@ import datetime as dt
 import requests
 from ingest import mlb, odds, scores
 from ingest.http import redact
+from feeds import et_today
 from config import active_sports
 from bets import log as betlog
 
 
 def morning():
-    month = dt.date.today().month
+    month = et_today().month
     live = active_sports(month)
     print(f"In-season sports today: {', '.join(live) or 'none'}")
     if "mlb" in live:

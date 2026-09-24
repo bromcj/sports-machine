@@ -9,7 +9,6 @@ Requires ODDS_API_KEY. Each sport pull costs credits — budget accordingly
 (4 active sports x 2 snapshots/day fits easily in the $30/mo tier).
 """
 import os
-import datetime as dt
 import requests
 import sys
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
@@ -17,7 +16,7 @@ from db import connect, utc_now
 from ingest import http, quality
 from ingest.http import redact
 from ingest.raw import save_raw
-from feeds import et_date
+from feeds import et_date, et_today
 from config import SPORTS, active_sports
 
 API_KEY = os.environ.get("ODDS_API_KEY", "")
@@ -105,7 +104,7 @@ def pull(snapshot_type: str = "open") -> list:
     """
     if not API_KEY:
         raise SystemExit("Set ODDS_API_KEY env var first.")
-    month = dt.date.today().month
+    month = et_today().month
     failed = []
     for sport in active_sports(month):
         try:

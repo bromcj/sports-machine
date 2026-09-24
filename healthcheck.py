@@ -20,6 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from db import connect
+from feeds import et_today
 from config import active_sports
 
 ROOT = Path(__file__).parent
@@ -33,7 +34,7 @@ def check() -> int:
     # RUN_MODE, which is how the audit and a bare `python healthcheck.py` call
     # it - is still held to the odds check.
     expect_odds = os.environ.get("RUN_MODE", "") != "grade"
-    month = dt.date.today().month
+    month = et_today().month
     live = active_sports(month)
     con = connect()
     problems, lines = [], []
@@ -47,7 +48,7 @@ def check() -> int:
             "SELECT COUNT(*) c FROM games WHERE sport=?", (sport,)).fetchone()
         today = con.execute(
             "SELECT COUNT(*) c FROM games WHERE sport=? AND game_date=?",
-            (sport, dt.date.today().isoformat())).fetchone()
+            (sport, et_today().isoformat())).fetchone()
         priced = snaps["c"] > 0 and (snaps["p"] or 0) > 0
         # An empty slate is not a fault. config.py marks a sport in-season by
         # MONTH, so there are long dead windows inside an "active" month -

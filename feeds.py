@@ -64,6 +64,17 @@ def parse_utc(value: str | None) -> dt.datetime | None:
     return when if when.tzinfo else when.replace(tzinfo=dt.timezone.utc)
 
 
+def et_today() -> dt.date:
+    """Today's date in Eastern time, which is what game_date means.
+
+    Not dt.date.today(): the cloud runner's clock is UTC, and its evening pulls
+    fire up to four hours late - the 23:51 UTC cron ran at 01:40 UTC - so its
+    "today" was already tomorrow while the games were still today's. On Oct 31
+    that would ask active_sports() for November and drop MLB from the close.
+    """
+    return dt.datetime.now(ET).date()
+
+
 def et_date(value) -> str | None:
     """The LOCAL (Eastern) calendar date a game belongs to.
 

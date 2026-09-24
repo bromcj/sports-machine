@@ -3,7 +3,6 @@
 Keyless and covers NFL/NBA/NHL/NCAA; MLB keeps ingest/mlb.py as the primary
 source (probable pitchers), with this as a scores fallback.
 """
-import datetime as dt
 import requests
 import sys
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
@@ -11,7 +10,7 @@ from db import connect
 from ingest import http, quality
 from ingest.http import redact
 from ingest.raw import save_raw
-from feeds import espn_status, et_date
+from feeds import espn_status, et_date, et_today
 from config import SPORTS, active_sports
 
 URL = "https://site.api.espn.com/apis/site/v2/sports/{path}/scoreboard"
@@ -83,7 +82,7 @@ def pull_sport(sport: str, date: str | None = None) -> int:
 
 
 def pull_all(date: str | None = None):
-    month = dt.date.today().month
+    month = et_today().month
     for sport in active_sports(month):
         try:
             pull_sport(sport, date)
