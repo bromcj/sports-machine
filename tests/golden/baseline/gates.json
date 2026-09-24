@@ -1,0 +1,68 @@
+[
+ [
+  "gate1 placeholder, big margin",
+  false,
+  "baseline is a placeholder, not a real market - beating it proves the model learned something, not that it has edge"
+ ],
+ [
+  "gate1 real market, beats every season",
+  true,
+  "beat market in all 3 test seasons; pooled margin +0.00334, 9.38 SE above zero, 6.86 SE with 2024 dropped"
+ ],
+ [
+  "gate1 real market, loses one season",
+  false,
+  "lost to market in 1 of 3 seasons (2025)"
+ ],
+ [
+  "gate1 real market, inside the noise",
+  false,
+  "beat market in all 3 seasons, but the pooled margin +0.00334 is only 0.14 SE above zero (needs 2) - inside the noise"
+ ],
+ [
+  "gate2 at 2 SE",
+  false,
+  "mean info +0.26% over 60 bets is within noise (SE 0.13%, needs to clear 3 SE; t=1.98)"
+ ],
+ [
+  "gate2 at 3.5 SE",
+  true,
+  "mean info +0.45% over 60 bets, 3.5 SE above zero, at 90% coverage"
+ ],
+ [
+  "gate2 at 3.5 SE, 49 bets",
+  false,
+  "only 49 graded paper bets, need 50"
+ ],
+ [
+  "gate2 at 3.5 SE, coverage 0.74",
+  false,
+  "COVERAGE is the blocker: only 74% of settled paper bets could be graded (need 75%). The graded ones are whichever games a cron happened to land near, not a random sample. Fix pre-game collection before reading anything into the +0.45% info over 60 bets"
+ ],
+ [
+  "gate2 at 3.5 SE, placebo passes too",
+  false,
+  "mean info +0.45% over 60 bets clears the bar, but SO DOES A RANDOM-SIDE PLACEBO (+0.45% over 60) - whatever this is measuring, it is not the model"
+ ],
+ [
+  "gate2 at 3.5 SE, all late games",
+  false,
+  "mean info +0.45% over 60 bets clears the noise at 80% coverage, but 100% of them are 'late' games (max 60%) - that validates a slate slot, not the model"
+ ],
+ [
+  "arm, gate 1 failed",
+  "REFUSED - gate 1 not passed. c: NOT CLEARED - walk-forward FAIL (lost to market in 1 of 3 seasons (2025)); paper-trading FAIL (nothing recorded); armed NO (a human must call arm())"
+ ],
+ [
+  "arm, both passed",
+  "ARMED - f may now stake money. Undo with disarm('f')."
+ ],
+ [
+  "cleared after arm",
+  true
+ ],
+ [
+  "cleared, placeholder",
+  false
+ ]
+]

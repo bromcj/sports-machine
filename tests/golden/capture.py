@@ -1,79 +1,77 @@
-"""The golden test: prove the cleanup changed nothing. Free, read-only.
+"""The golden test: pin behaviour so a change that should move nothing can
+prove it. Free; never writes to data_golden/.
 
-    python tests/golden/capture.py --write     # capture the baseline, once
+    python tests/golden/capture.py --write     # capture the baseline
     python tests/golden/capture.py             # recapture and diff
     python -m pytest tests/golden/             # the same, as a test
 
-WHAT THIS IS FOR. Phase 1 moves code, deletes code, splits functions and
-rewrites docstrings. Every one of those is supposed to be behaviour-preserving,
-and "supposed to be" is not a standard this project accepts. So the behaviour
-is pinned down first, from the copied database and the saved model, and every
-later commit has to reproduce it exactly.
-
 WHAT IT PINS, and why each one:
 
-  validation.json         the gates' own record. If this moves, the gates moved.
-  model/validation.py     the human-readable verdict, which is what a person
-                          actually reads before believing anything.
-  feeds.odds_twin         every game -> its odds twin. The three feeds mint
-                          incompatible ids and this resolution is the join the
-                          whole system stands on; a silent change here would
-                          not fail anything, it would just quietly match
-                          different games.
-  predict_for_date        three fixed past dates, to 1e-9. Catches any change
-                          to features, model loading or the margin mapping.
-  market_score            season totals, plus a checksum of market_close.
-  paper-bet grading       ev_fair_close / shop / info re-derived per bet.
-  monitor.run_checks      the operational view, normalized.
+  gates                   record(), record_paper() and arm() run on FIXED
+                          inputs - including a result at 2 SE, which must fail
+                          the 3 SE bar. This pins the gate CODE; editing a
+                          sigma or a condition fails here.
+  validation.json         the gates' own record, read from the repo. A RECORD,
+  model/validation.py     not behaviour: it moves when the machine runs, and a
+                          difference must be explained before re-capturing.
+  feeds.odds_twin         every final Stats API game of the 2026 season -> its
+                          odds twin or the reason there is none. Real matches,
+                          refusals and doubleheaders are all in the set.
+  predict_for_date        stored feature rows for two past dates -> the saved
+                          model's margin and probability, to 1e-9. Pins model
+                          loading and the margin mapping (home intercept
+                          included). It does NOT rebuild features:
+                          tests/test_live_park_factor.py and audit.py cover the
+                          live feature path.
+  market_score            season totals from score_finished(), plus a checksum
+                          of market_close.
+  paper-bet grading       every settled paper/placebo bet is un-settled on the
+                          scratch copy and settled again by the real
+                          bets.paper.settle() - closing_snapshot, fair_prob,
+                          grade and _decompose_bet all run.
+  monitor.run_checks      the operational view, with the clock frozen.
 
-TIMESTAMPS ARE EXCLUDED, not tolerated. Anything that legitimately changes
-every run - a `recorded_at`, a run duration, a "3 days behind" - is normalized
-to a fixed token before comparison, so a real change cannot hide behind one.
+EVERYTHING RUNS ON A SCRATCH COPY of data_golden/, made fresh for each
+capture. score_finished() and settle() write to the database; the first
+version of this test ran them against data_golden itself, so one failing run
+left the baseline data changed and the next run failed even after the code
+was fixed.
 
-FLOATING POINT. If an order-of-operations change moves a number at the last
-bits, the difference and its cause go in the phase report and TOLERANCE is set
-to the smallest value that passes. It is one visible constant. It is never
-widened silently and never above 1e-9.
+THE CLOCK IS FROZEN at FROZEN_NOW for monitor and market scoring, which ask
+"what is 12 hours ago" and "what is today". Unfrozen, the monitor pin started
+failing on 2026-09-24 about seven hours after capture with no code change.
 
-SPEED. The full capture includes `python audit.py`, which takes minutes. Every
-commit runs the fast set; the audit text is captured at the start of the phase
-and re-checked before the merge. `--with-audit` forces it.
+TIMESTAMPS in human-readable output are normalized to a token; structured
+captures are not normalized, because there the values are what is pinned.
 
-BEHAVIOUR VERSUS STATE. Most of what is pinned here is behaviour - the same
-inputs must give the same outputs. `validation.json` is different: it is a
-RECORD, and it legitimately moves when the machine runs. Gate 2 went from
-"nothing recorded" to "only 1 graded paper bets" the first time the scheduled
-job settled a real paper bet, and the golden test correctly flagged it.
+FLOATING POINT. TOLERANCE is one visible constant, never above 1e-9.
 
-That is not a false alarm and the answer is not to stop pinning it. The answer
-is that a difference here has to be EXPLAINED before the baseline is
-re-captured: if the explanation is "the machine ran", re-baseline and say so in
-the phase report; if there is no explanation, something moved that should not
-have. Re-baselining without reading the diff is how a golden test becomes
-decoration.
-
-WHICH COPY. `data_golden/`, restored from a verified backup and NEVER written
-to - not `data_phase1/`, which is the playground the command sweep runs
-against. That distinction was learned the hard way: running every command once
-against the same copy the baseline came from changed the data underneath it,
-and the golden test then reported a difference that was the sweep's writes
-rather than any change to the code. A baseline that moves is not a baseline.
+WHICH COPY. data_golden/ is restored from a verified backup and never
+written to. It lives only in the development checkout; without it the test
+skips, and this script refuses rather than create an empty one.
 """
 import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(ROOT))
 
 BASELINE = Path(__file__).parent / "baseline"
+GOLDEN = ROOT / "data_golden"
 
 # The smallest tolerance that passes. Never widened silently, never above 1e-9.
 TOLERANCE = 1e-9
+
+# The instant data_golden was captured around (the 23:58 ET backup, re-baselined
+# at 00:50 ET on 2026-09-24).
+FROZEN_NOW = "2026-09-24T04:50:00+00:00"
 
 # Things that legitimately differ between two runs of identical code.
 NORMALIZE = [
@@ -82,9 +80,34 @@ NORMALIZE = [
     (re.compile(r"\d{4}-\d{2}-\d{2}"), "<DATE>"),
     (re.compile(r"\b\d+\.\d+s\b"), "<DUR>"),
     (re.compile(r"\b\d+ day\(s\) behind"), "<LAG> day(s) behind"),
+    (re.compile(r"\b\d+ day\(s\) old"), "<AGE> day(s) old"),
     (re.compile(r"\b\d{2,3},?\d{3} left of"), "<CREDITS> left of"),
     (re.compile(r"[A-Za-z]:\\[^\s\"']+"), "<PATH>"),
 ]
+
+# Prepended to subprocess code that must not see the real clock. The modules
+# do `import datetime as dt` and call dt.datetime.now() / dt.date.today(), so
+# swapping their `dt` for a shim freezes exactly those calls.
+FREEZE = r"""
+import datetime as _real
+class _DT(_real.datetime):
+    @classmethod
+    def now(cls, tz=None):
+        t = _real.datetime.fromisoformat(%r)
+        return t if tz is not None else t.replace(tzinfo=None)
+class _D(_real.date):
+    @classmethod
+    def today(cls):
+        return _real.datetime.fromisoformat(%r).date()
+class _Shim:
+    datetime, date = _DT, _D
+    timedelta, timezone = _real.timedelta, _real.timezone
+def freeze(*mods):
+    for m in mods:
+        m.dt = _Shim
+""" % (FROZEN_NOW, FROZEN_NOW)
+
+_DATA = None                      # the scratch copy for the current capture
 
 
 def normalize(text: str) -> str:
@@ -95,8 +118,9 @@ def normalize(text: str) -> str:
 
 def _env():
     e = dict(os.environ)
-    e["SPORTS_MACHINE_DATA_DIR"] = str(ROOT / "data_golden")
+    e["SPORTS_MACHINE_DATA_DIR"] = str(_DATA or GOLDEN)
     e["PYTHONIOENCODING"] = "utf-8"
+    e.pop("ODDS_API_KEY", None)
     return e
 
 
@@ -113,26 +137,16 @@ def _run(args) -> str:
 
 
 def _json(args, fallback):
-    """A structured capture. NOT normalized.
+    """A structured capture. NOT normalized: the values are what is pinned.
 
-    The first version ran every capture through normalize(), including the JSON
-    ones - which rewrote the dates that were the dictionary KEYS, collapsing
-    three fixed prediction dates into one entry called "<DATE>". Normalization
-    belongs on prose, where a timestamp is noise; on structured output the
-    values are the thing being pinned.
+    The payload is the LAST line of output, so anything a function prints on
+    the way cannot be mistaken for it.
     """
-    txt = _raw(args).strip()
-    # Parse from the first opening brace to the end, not line by line: a
-    # pretty-printed payload spans many lines and the line-wise version failed
-    # on every indented one, then reported PARSE_FAILED for output that was
-    # perfectly good JSON.
-    for i, ch in enumerate(txt):
-        if ch in "{[":
-            try:
-                return json.loads(txt[i:])
-            except json.JSONDecodeError:
-                break
-    return fallback(txt)
+    lines = [l for l in _raw(args).strip().splitlines() if l.strip()]
+    try:
+        return json.loads(lines[-1])
+    except (IndexError, json.JSONDecodeError):
+        return fallback("\n".join(lines))
 
 
 # --------------------------------------------------------------- captures --
@@ -162,26 +176,68 @@ def cap_audit_text() -> str:
     return _run(["audit.py"])
 
 
-def cap_monitor() -> str:
-    code = ("import monitor, json;"
-            "print(json.dumps([{k: v for k, v in f.items() if k != 'detail'}"
-            " | {'detail': f.get('detail','')} for f in monitor.run_checks()],"
-            " indent=1, sort_keys=True, default=str))")
+def cap_gates() -> list:
+    """The gate code on fixed inputs, against a temp validation.json."""
+    code = r"""
+import json, tempfile, pathlib
+import model.validation as v
+v.PATH = pathlib.Path(tempfile.mkdtemp()) / "validation.json"
+out = []
+def rec(name, r):
+    out.append([name, r.get("cleared", r.get("passed")), r["reason"]])
+seasons = [
+    {"season": 2024, "logloss_model": 0.670, "logloss_market": 0.674, "n_games": 2400, "ll_diff_sd": 0.03},
+    {"season": 2025, "logloss_model": 0.672, "logloss_market": 0.675, "n_games": 2400, "ll_diff_sd": 0.03},
+    {"season": 2026, "logloss_model": 0.675, "logloss_market": 0.678, "n_games": 2300, "ll_diff_sd": 0.03}]
+rec("gate1 placeholder, big margin", v.record("a", v.PLACEHOLDER, seasons))
+rec("gate1 real market, beats every season", v.record("b", v.REAL_MARKET, seasons))
+lost = [dict(s) for s in seasons]; lost[1]["logloss_model"] = 0.676
+rec("gate1 real market, loses one season", v.record("c", v.REAL_MARKET, lost))
+noisy = [dict(s, ll_diff_sd=2.0) for s in seasons]
+rec("gate1 real market, inside the noise", v.record("d", v.REAL_MARKET, noisy))
+slots = [v.SLOTS[i % 3] for i in range(60)]
+def series(mean, sd, n=60):
+    return [mean + sd * (1 if i % 2 else -1) for i in range(n)]
+se = 1.0 / 60 ** 0.5                                    # sd 1 -> SE 0.129
+rec("gate2 at 2 SE", v.record_paper("e", series(2 * se, 1.0), slots, 0.9))
+rec("gate2 at 3.5 SE", v.record_paper("f", series(3.5 * se, 1.0), slots, 0.9))
+rec("gate2 at 3.5 SE, 49 bets", v.record_paper("g", series(3.5 * se, 1.0, 49), slots[:49], 0.9))
+rec("gate2 at 3.5 SE, coverage 0.74", v.record_paper("h", series(3.5 * se, 1.0), slots, 0.74))
+rec("gate2 at 3.5 SE, placebo passes too", v.record_paper("i", series(3.5 * se, 1.0), slots, 0.9, placebo=series(3.5 * se, 1.0)))
+rec("gate2 at 3.5 SE, all late games", v.record_paper("j", series(3.5 * se, 1.0), ["late"] * 60, 0.8))
+out.append(["arm, gate 1 failed", v.arm("c")])
+v.record("f", v.REAL_MARKET, seasons)
+out.append(["arm, both passed", v.arm("f")])
+out.append(["cleared after arm", v.is_cleared("f")])
+out.append(["cleared, placeholder", v.is_cleared("a")])
+print(json.dumps(out))
+"""
+    return _json(["-c", code], lambda t: [["PARSE_FAILED", t[:400]]])
+
+
+def cap_monitor() -> list:
+    code = FREEZE + r"""
+import json, monitor
+freeze(monitor)
+print(json.dumps([{k: v for k, v in f.items() if k != 'detail'}
+                  | {'detail': f.get('detail', '')} for f in monitor.run_checks()],
+                 sort_keys=True, default=str))
+"""
     return _json(["-c", code], lambda t: [{"PARSE_FAILED": t[:400]}])
 
 
 def cap_twins() -> list:
-    """Every MLB game -> its odds twin. The join the system stands on."""
+    """Every final Stats API game of 2026 -> its odds twin, or why not."""
     code = r"""
-import sys, json
+import json
 from db import connect
 from feeds import odds_twin, SQL_STATS_API
 con = connect()
 rows = con.execute(
-    "SELECT game_id FROM games WHERE sport='mlb' AND (%s) "
-    "AND status='final' ORDER BY game_id" % SQL_STATS_API).fetchall()
+    "SELECT game_id FROM games WHERE sport='mlb' AND (%s) AND status='final'"
+    " AND game_date >= '2026-01-01' ORDER BY game_id" % SQL_STATS_API).fetchall()
 out = []
-for r in rows[:4000]:
+for r in rows:
     twin, note = odds_twin(con, r["game_id"])
     out.append([r["game_id"], twin or "", note or ""])
 print(json.dumps(out))
@@ -190,19 +246,13 @@ print(json.dumps(out))
 
 
 def cap_predictions() -> dict:
-    """Three fixed past dates: stored features + saved model -> probability.
+    """Two fixed past dates: stored features + saved model -> probability.
 
     Re-derived rather than replayed. `predict_for_date` returns a COUNT and
-    WRITES to the predictions table, which is append-only - so calling it would
-    both fail to give the numbers and grow the table a little every time the
-    golden test ran. This takes the same path it takes internally (latest
-    feature row, predict_margin, win_prob) without the write, which is what
-    "behaviour-preserving" actually needs pinned: features, model loading and
-    the margin mapping including the home intercept.
+    WRITES to the append-only predictions table; this takes the same path it
+    takes internally (latest feature row, predict_margin, win_prob) without
+    the write.
     """
-    # Dates chosen because they HAVE stored feature rows; the first
-    # three picked were before the feature table existed and pinned
-    # three empty lists, which would have passed forever.
     dates = ["2026-09-22", "2026-09-23"]
     code = r"""
 import json
@@ -234,10 +284,11 @@ print(json.dumps(out))
 
 
 def cap_market() -> dict:
-    code = r"""
+    code = FREEZE + r"""
 import json, hashlib
 from db import connect
-from model.market_score import score_finished
+import model.market_score as ms
+freeze(ms)
 con = connect()
 rows = con.execute("SELECT game_id, odds_game_id, ROUND(p_fair_home, 10),"
                    " source FROM market_close ORDER BY game_id").fetchall()
@@ -246,7 +297,7 @@ for r in rows:
     h.update(("|".join(str(x) for x in tuple(r))).encode())
 out = {"market_close_rows": len(rows), "market_close_sha": h.hexdigest()}
 try:
-    s = score_finished("mlb", limit_days=100000)
+    s = ms.score_finished("mlb", limit_days=100000)
     out["score_finished"] = {k: (round(v, 10) if isinstance(v, float) else v)
                              for k, v in s.items()} if isinstance(s, dict) else str(s)
 except Exception as e:
@@ -257,23 +308,34 @@ print(json.dumps(out, sort_keys=True))
 
 
 def cap_grading() -> list:
-    """Re-derive the decomposition for every settled bet."""
+    """Un-settle every paper/placebo bet on the scratch copy, settle again with
+    the real code, and pin what comes out."""
     code = r"""
-import json
+import contextlib, io, json
 from db import connect
+from bets import paper
+con = connect()
+con.execute("UPDATE bets SET result=NULL, pnl=NULL, closing_line=NULL,"
+            " clv_pct=NULL, ev_fair_close=NULL, shop_pct=NULL, info_pct=NULL,"
+            " fair_source=NULL WHERE mode IN ('paper','placebo')")
+con.commit()
+con.close()
+with contextlib.redirect_stdout(io.StringIO()):
+    tally = paper.settle("mlb")
 con = connect()
 rows = con.execute(
-    "SELECT bet_id, mode, side, line_taken, model_prob, novig_market_prob,"
-    " clv_pct, ev_fair_close, shop_pct, info_pct, fair_source, result, pnl"
+    "SELECT bet_id, mode, side, line_taken, closing_line, clv_pct,"
+    " ev_fair_close, shop_pct, info_pct, fair_source, result, pnl"
     " FROM bets ORDER BY bet_id").fetchall()
 def r10(x):
     return round(x, 10) if isinstance(x, float) else x
-print(json.dumps([[r10(v) for v in tuple(r)] for r in rows]))
+print(json.dumps([sorted(tally.items())] + [[r10(v) for v in tuple(r)] for r in rows]))
 """
     return _json(["-c", code], lambda t: [["PARSE_FAILED", t[:400]]])
 
 
 FAST = {
+    "gates": cap_gates,
     "validation_json": cap_validation_json,
     "validation_text": cap_validation_text,
     "twins": cap_twins,
@@ -286,10 +348,21 @@ SLOW = {"audit_text": cap_audit_text}
 
 
 def capture(with_audit: bool) -> dict:
-    out = {name: fn() for name, fn in FAST.items()}
-    if with_audit:
-        out.update({name: fn() for name, fn in SLOW.items()})
-    return out
+    global _DATA
+    if not (GOLDEN / "machine.db").exists():
+        raise SystemExit(f"No golden data at {GOLDEN} - see the module "
+                         "docstring. Refusing rather than create an empty one.")
+    tmp = Path(tempfile.mkdtemp(prefix="golden-"))
+    try:
+        _DATA = tmp / "data"
+        shutil.copytree(GOLDEN, _DATA)
+        out = {name: fn() for name, fn in FAST.items()}
+        if with_audit:
+            out.update({name: fn() for name, fn in SLOW.items()})
+        return out
+    finally:
+        _DATA = None
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 # ------------------------------------------------------------- comparison --
@@ -327,8 +400,13 @@ def _diff(a, b, path="") -> list:
                 if x != y:
                     bad.append(f"{path}: line {i + 1}\n  was: {x}\n  now: {y}")
                     break
-            if len(al) != len(bl):
-                bad.append(f"{path}: {len(al)} lines != {len(bl)}")
+            else:
+                if len(al) != len(bl):
+                    bad.append(f"{path}: {len(al)} lines != {len(bl)}")
+                else:
+                    # Same lines, different string: line endings or a
+                    # trailing newline. Still a difference.
+                    bad.append(f"{path}: whitespace or line endings differ")
         else:
             bad.append(f"{path}: {a!r} != {b!r}")
     return bad

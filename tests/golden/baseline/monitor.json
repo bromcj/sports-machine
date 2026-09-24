@@ -43,15 +43,15 @@
  },
  {
   "check": "most of the slate is predicted",
-  "detail": "0/0 predicted, 0% skipped",
+  "detail": "11/12 predicted, 8% skipped",
   "level": "INFO",
-  "skipped_share": 0.0
+  "skipped_share": 0.083
  },
  {
   "check": "mean predicted home probability is sane",
-  "detail": "0.497 over 54 predictions (expect 0.50-0.56)",
-  "level": "WARNING",
-  "mean_home_prob": 0.4966
+  "detail": "0.501 over 65 predictions (expect 0.50-0.56)",
+  "level": "INFO",
+  "mean_home_prob": 0.5007
  },
  {
   "check": "odds API credits",
