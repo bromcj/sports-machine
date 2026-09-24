@@ -304,11 +304,11 @@ for games inside their lead window that have not already been recorded.
 ### Checking the machine agrees with itself
 
 ```
-python research/tools/integration_matrix.py          regenerate the matrix
-python research/tools/integration_matrix.py --check  fail if a mode is undocumented
-python research/tools/inventory.py                   dead code, prose, duplication
-python research/tools/run_all_commands.py            run every command against a copy
-python tests/golden/capture.py                       prove behaviour has not moved
+python -m pytest tests/ -q          includes tests/test_entry_points.py: every
+                                    run_daily mode documented here, every module
+                                    reachable from an entry point (CI runs it)
+python tests/golden/capture.py      prove behaviour has not moved (dev only:
+                                    needs data_golden/)
 ```
 
 ---

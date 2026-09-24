@@ -230,10 +230,9 @@ drifts back under 0.50, the intercept is not reaching the serving path.
 `picks`, `refresh`, `grade`, `predict`, `finals`, `cronstatus`, `market`,
 `bet`, `shop`, `scoreboard`, `paper` and `backup`. It needs one; with none, or
 an unknown word, it prints that list and exits. Of these, only `morning` and
-`close` spend credits. [integration-matrix.md](integration-matrix.md) is a generated
-report of every entry point and the tables it can touch. It was last generated
-before the review and misses the `backup` mode, so read it as a map, not a
-check.
+`close` spend credits. `tests/test_entry_points.py` checks, in CI, that
+every mode is documented in COMMANDS.md and every module is reachable from
+an entry point.
 
 `bet` and `scoreboard` are the Phase 2 addition: they record a bet you
 placed anywhere and grade it the way the model's paper bets are graded. A
@@ -278,7 +277,6 @@ scheduled run refuses until `validation.json` is reset. **Costs credits:** `morn
 | [experiments.md](experiments.md) | the pre-registration. Failures stay in it, with numbers. |
 | [gates.md](gates.md) | every threshold, and the simulation that set it |
 | [decisions.md](decisions.md) | one dated entry per decision — the history |
-| [integration-matrix.md](integration-matrix.md) | every entry point, what it touches, what covers it (generated; see above) |
 | [cleanup-findings.md](cleanup-findings.md) | things that look wrong and were left alone, with file:line |
 | [part-e-results.md](part-e-results.md), [b3-results.md](b3-results.md) | the two full write-ups |
 | [reports/](reports/) | one per phase of the last brief, plus the 2026-09-24 review (`review-independent.md`, `review-claims.md`) |
