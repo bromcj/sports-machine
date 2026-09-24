@@ -35,3 +35,14 @@ def test_the_daily_cap_shrinks_the_last_stake_rather_than_overshooting():
 def test_a_normal_bet_is_still_capped_per_bet():
     r = evaluate("mlb", 0.99, +150, -170, 1000, allow_unvalidated=True)
     assert r["stake"] <= 1000 * MAX_STAKE_PCT + 1e-9
+
+
+def test_innings_come_from_outs_not_batters_faced():
+    # Seven batters: two singles, a walk and four outs is 1.33 innings, not
+    # the 2.33 that batters-faced / 3 claimed.
+    import pandas as pd
+    from bets.guardrails import innings_per_start
+    sc = pd.DataFrame({"pitcher": [7] * 7, "game_pk": [1] * 7,
+                       "events": ["single", "strikeout", "walk", "field_out",
+                                  "single", "grounded_into_double_play", None]})
+    assert abs(innings_per_start(sc, 7, [1]) - 4 / 3) < 1e-12

@@ -72,10 +72,28 @@ def _is_opener(pitcher_id) -> bool:
                  & lines["is_starter"]].sort_values("game_date").tail(5)
     if len(mine) < OPENER_MIN_STARTS:
         return False
-    # Three outs to an inning; batters faced is the closest proxy Statcast
-    # gives without parsing the linescore.
-    innings = mine["pa"].mean() / 3.0
-    return bool(innings < OPENER_MAX_IP)
+    return bool(innings_per_start(sc, int(pitcher_id), mine["game_pk"])
+                < OPENER_MAX_IP)
+
+
+# Outs recorded by each plate-appearance outcome. Batters faced / 3 counted
+# every hit and walk as a third of an inning and overstated innings by ~40%:
+# it gave Richard Lovelady 2.07 innings a start (not an opener) where these
+# outs give 1.40, and Framber Valdez 8.2 where they give 5.9. Outs made on the
+# bases (caught stealing, pickoffs) are not plate appearances and are missed,
+# which errs toward flagging.
+OUTS = {"field_out": 1, "strikeout": 1, "force_out": 1, "sac_fly": 1,
+        "sac_bunt": 1, "fielders_choice_out": 1, "grounded_into_double_play": 2,
+        "double_play": 2, "strikeout_double_play": 2, "sac_fly_double_play": 2,
+        "triple_play": 3}
+
+
+def innings_per_start(sc, pitcher_id: int, game_pks) -> float:
+    """Average innings over those games, from the outs this pitcher recorded."""
+    ev = sc[(sc["pitcher"] == pitcher_id) & sc["game_pk"].isin(list(game_pks))
+            & sc["events"].notna()]
+    n = len(set(game_pks))
+    return ev["events"].map(OUTS).fillna(0).sum() / 3.0 / n if n else 0.0
 
 
 def daily_exposure(con, sport: str, date: str, bankroll: float) -> float:
