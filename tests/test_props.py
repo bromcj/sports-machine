@@ -235,3 +235,42 @@ def test_calibration_table_is_sorted_and_sums():
     cal = calibration_by_decile(p, y)
     assert cal["n"].sum() == 500
     assert cal["predicted"].is_monotonic_increasing
+
+
+# ------------------------------------------------------- NFL team names -----
+# The Athletics rename cost this project 169 games because a team-name join
+# failed silently. These are cheap and the failure mode is expensive.
+
+def test_every_nfl_abbreviation_round_trips():
+    from props.nfl_teams import ABBR_TO_NAME, to_name, to_abbr
+    assert len(ABBR_TO_NAME) == 32
+    for abbr, name in ABBR_TO_NAME.items():
+        assert to_name(abbr) == name
+        assert to_abbr(name) == abbr
+
+
+def test_nfl_names_are_unique():
+    """Two abbreviations mapping to one name would merge two clubs."""
+    from props.nfl_teams import ABBR_TO_NAME
+    assert len(set(ABBR_TO_NAME.values())) == 32
+
+
+def test_nfl_aliases_resolve_to_a_current_team():
+    from props.nfl_teams import ALIASES, to_name
+    for alias in ALIASES:
+        assert to_name(alias) is not None, alias
+    assert to_name("LAR") == "Los Angeles Rams"
+    assert to_name("OAK") == "Las Vegas Raiders"
+    assert to_name("WSH") == "Washington Commanders"
+
+
+def test_unknown_nfl_abbreviation_returns_none_rather_than_guessing():
+    from props.nfl_teams import to_name, to_abbr
+    assert to_name("XXX") is None
+    assert to_name("") is None
+    assert to_abbr("Toronto Argonauts") is None
+
+
+def test_nfl_abbreviation_lookup_is_case_and_space_insensitive():
+    from props.nfl_teams import to_name
+    assert to_name(" kc ") == "Kansas City Chiefs"
