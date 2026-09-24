@@ -24,8 +24,9 @@ has no row in the week's player stats, so the join found nothing.
 
 THE BOOK LIST IS NAMED, NEVER `regions=us`. Pinnacle is not US-licensed and
 sits in the `eu` region, so a `regions=us` pull returns no sharp price and no
-error. A named list counts as ONE region however long it is - measured: ten
-named books, one market, one credit. So naming every book we can is free.
+error. Cost is the number of REGIONS the named books span, not the number of
+books - so asking for Pinnacle doubles every request, and once doubled the
+extra US books are free. See the BOOKS constant for the measurements.
 
 CREDIT CAP, ENFORCED IN CODE. The brief allows 3,000 credits. Every response
 carries `x-requests-remaining`; the run records it, and stops before any
@@ -56,6 +57,7 @@ ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 import paths
 from db import connect, utc_now
+from feeds import parse_utc
 from ingest import http
 
 API = "https://api.the-odds-api.com/v4"
@@ -215,10 +217,8 @@ def due(events: list, lead_hours: float, now=None) -> list:
     done = already_pulled()
     out = []
     for e in events:
-        try:
-            ct = dt.datetime.fromisoformat(e["commence_time"]
-                                           .replace("Z", "+00:00"))
-        except Exception:
+        ct = parse_utc(e.get("commence_time"))
+        if ct is None:
             continue
         hours = (ct - now).total_seconds() / 3600.0
         if 0 < hours <= lead_hours and e["id"] not in done:

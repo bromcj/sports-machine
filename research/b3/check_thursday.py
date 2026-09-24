@@ -57,7 +57,7 @@ ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 import paths
 from ingest import http
-from props.preflight import BOOKS, API
+from research.b3.preflight import BOOKS, API
 
 SPORT = "americanfootball_nfl"
 ET = ZoneInfo("America/New_York")

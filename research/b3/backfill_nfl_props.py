@@ -53,10 +53,10 @@ sys.path.insert(0, str(ROOT))
 import paths
 from db import connect, utc_now
 from ingest import http
-from props.b3_dryrun import schedule, snapshot_plan, MARKETS, SPORT, API
-from props.check_thursday import _key
+from research.b3.b3_dryrun import schedule, snapshot_plan, MARKETS, SPORT, API
+from research.b3.check_thursday import _key
 from props.nfl_teams import to_name, to_abbr
-from props.preflight import BOOKS
+from research.b3.preflight import BOOKS
 
 OUT_DIR = paths.DATA_DIR / "props"
 RAW_DIR = OUT_DIR / "raw"

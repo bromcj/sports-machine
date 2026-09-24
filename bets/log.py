@@ -7,6 +7,7 @@ import datetime as dt
 import sys
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
 from db import connect, utc_now
+from feeds import parse_utc
 from bets.engine import clv_pct, american_to_decimal, novig_probs
 
 
@@ -117,13 +118,14 @@ def closing_snapshot(game_id: str, book: str | None = None):
     # or an old copy of the file can still hand this function one.
     best = None
     for row in rows:
-        try:
-            start = dt.datetime.fromisoformat(row["commence_time"].replace("Z", "+00:00"))
-            taken = dt.datetime.fromisoformat(row["ts"])
-        except (ValueError, AttributeError):
+        # feeds.parse_utc is the one place a stored timestamp becomes an aware
+        # UTC datetime. It does exactly what the copy here did - Z to +00:00,
+        # fromisoformat, default to UTC when naive - and returns None rather
+        # than raising, so the unparseable-row skip is the same skip.
+        start = parse_utc(row["commence_time"])
+        taken = parse_utc(row["ts"])
+        if start is None or taken is None:
             continue                      # unparseable timestamp; ignore the row
-        if taken.tzinfo is None:
-            taken = taken.replace(tzinfo=dt.timezone.utc)
         if taken >= start:
             continue                      # taken at or after first pitch
         if best is None or taken > best[0]:

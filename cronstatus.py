@@ -17,6 +17,7 @@ archive CSVs already on disk. No API credits, no database writes.
 """
 import csv
 import datetime as dt
+from feeds import parse_utc
 import json
 import re
 import subprocess
@@ -170,8 +171,7 @@ def report() -> int:
             stale = False
             print(f"  {'fired':22s} {'was due':14s} {'late':>7s}  result")
             for r in fired:
-                started = dt.datetime.fromisoformat(
-                    r["startedAt"].replace("Z", "+00:00"))
+                started = parse_utc(r["startedAt"])
                 if changed and started < changed:
                     stale = True
                     print(f"  {_clock(started) + ' ET':22s} "
