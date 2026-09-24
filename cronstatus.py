@@ -103,7 +103,10 @@ def schedule_changed() -> dt.datetime | None:
 
 
 def runs(limit: int = 20) -> tuple[list[dict], str | None]:
-    cmd = ["gh", "run", "list", "--limit", str(limit),
+    # --workflow, or the test runs from every push crowd the scheduled pulls
+    # out of the last `limit`: on 2026-09-24 all 20 were tests.yml and this
+    # reported "none yet" with five scheduled runs in the history.
+    cmd = ["gh", "run", "list", "--workflow", "daily.yml", "--limit", str(limit),
            "--json", "event,conclusion,status,startedAt,databaseId"]
     try:
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
@@ -125,6 +128,12 @@ def capture(path: Path) -> dict | None:
         rows = [r for r in csv.DictReader(f) if r.get("commence_time")]
     if not rows:
         return None
+    # One cloud run is one pull per sport, seconds apart. A file whose
+    # timestamps span hours is a dump of a whole database (export_snapshots
+    # run locally), and measuring it as a pull reports history as tonight's.
+    stamps = [t for t in (parse_utc(r["ts"]) for r in rows) if t]
+    if stamps and (max(stamps) - min(stamps)).total_seconds() > 3600:
+        return {"not_a_pull": True}
     pulled = parse_utc(rows[0]["ts"])
     lead = {}
     for r in rows:
@@ -207,6 +216,9 @@ def report() -> int:
         c = capture(p)
         if not c:
             print(f"  {p.name}  (no games on its own slate)")
+            continue
+        if c.get("not_a_pull"):
+            print(f"  {p.name}  (not a single pull - skipped)")
             continue
         pct = 100 * c["pregame"] / c["total"]
         flag = "" if pct == 100 else ("  <-- in-play, unusable for CLV"
