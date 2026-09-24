@@ -204,6 +204,9 @@ if __name__ == "__main__":
         except EntryError as e:
             raise SystemExit(f"REFUSED: {e}")
         raise SystemExit(0)
+    if mode == "shop":
+        from bets.sharp_line import report as shop_report
+        raise SystemExit(shop_report(historical="--historical" in sys.argv))
     if mode == "scoreboard":
         from bets.manual import grade_all, report
         t = grade_all()

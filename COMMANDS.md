@@ -181,6 +181,18 @@ same three-gate verdict. Tags: `boost`, `promo`, `research`, `sgp-leg`.
 It refuses a game it cannot resolve, a game that has already started, an
 impossible price, and a prop with no player. It never stakes money.
 
+### Sharp vs soft (the control)
+
+```
+python run_daily.py shop                what the collected prices flag, free
+python run_daily.py shop --historical   plus the E4 cross-check on the archive
+```
+
+Flags any book paying more than 1.5% EV against Pinnacle's de-vigged price.
+It is +EV by construction, so a negative result over a real sample means the
+fair-line or grading code is broken — that is its main job. It never stakes
+money and never feeds a gate.
+
 ### Collection (Phase 0)
 
 ```
