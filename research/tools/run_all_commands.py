@@ -97,8 +97,10 @@ def _sweep() -> int:
         mark = "0" if r.returncode == 0 else f"**{r.returncode}**"
         if r.returncode != 0:
             failures.append((label, r.returncode, out[-8:]))
-        print(f"| {i} | `{' '.join(argv[1:])}` | {mark} | {dur:.1f} | "
-              f"{first[:92].replace('|', '\\|')} |")
+        # Escaped outside the f-string: a backslash inside {} is a syntax
+        # error before Python 3.12, and CI runs 3.11.
+        cell = first[:92].replace("|", "\\|")
+        print(f"| {i} | `{' '.join(argv[1:])}` | {mark} | {dur:.1f} | {cell} |")
     if failures:
         print("\n## Non-zero exits\n")
         for label, code, tail in failures:
