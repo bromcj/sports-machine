@@ -369,6 +369,63 @@ stakes money on its own.
 
 ---
 
+## F1 — vacated targets, pre-registered 2026-09-24, BLIND TO 2026 DATA
+
+**Registered before a single 2026 prop price had been collected, let alone
+looked at.** That is the whole point of writing it now: B3 found that the one
+place its model was least beaten was games where a team-mate had been ruled
+out, and scoring that idea on the 2023-25 sample that suggested it would be
+fitting the same data twice. So the question gets a fresh season, recorded in
+advance, and the season is being collected from today.
+
+**Question.** In games where a team's leading receiver by **prior-four-week
+target share** is ruled OUT before the pull, does the prop framework's number
+beat the fair close on that team's **remaining** receivers?
+
+**Population.** 2026 NFL regular season, from week 4 onward (collection starts
+2026-09-24). A team-game qualifies when the player with the highest
+prior-four-week target share on that team appears on the pre-pull injury report
+with status `Out`. Scored rows are the *other* receivers on that team with a
+posted line.
+
+**Data.** `props/collect.py` pulls `player_receptions` and
+`player_reception_yds` once per game near kickoff, with Pinnacle named, plus a
+timestamped injury snapshot at each pull. The injury status used is the one
+**recorded at pull time**, never a later correction — B3's feature died because
+a player ruled out has no row in the week's player stats, so the status was
+being reconstructed after the fact from a table that could not contain him.
+
+**Metric and pass rule.** Unchanged from the common rules: pooled paired
+per-prop log loss against the de-vigged fair close, bootstrapped **by game**,
+better by more than 2 SE, and positive in **both** fair-price definitions
+(Pinnacle at the same line; consensus fallback). Also reported on the
+complement — the same teams' receivers in weeks when nobody was out — because
+a result that appears in both groups is not about vacated targets.
+
+**Predicted direction.** Positive, but small. B3's measurement was
+−0.0092 against −0.0162 on the sharp subset: less bad, never good. The honest
+prior is that this closes part of the gap and not all of it, and the most
+likely single outcome remains "no edge found".
+
+**Two fixes that must be made BEFORE the test, and cannot be tuned on 2026
+data.** Both are recorded here so that making them later cannot be mistaken for
+tuning:
+
+1. **Negative-binomial dispersion.** One pooled `Var/mean` is wrong: for a
+   negative binomial that ratio grows with the mean, so a single number fits
+   the crowded low-projection rows and leaves the high ones far too confident.
+   The fitted variance function `Var = a·μ + b·μ²` is already in
+   `props/nfl_receiving.py:calibrate_walk_forward` and must be used.
+2. **The `vacated_share` join.** Must come from each absent player's most
+   recent as-of share, taken from before that week — never from a join onto the
+   week's player table, which by construction contains only players who played.
+
+**What will not happen afterwards.** No feature added, no window changed, no
+threshold moved, no switch of fair-price definition after seeing the result.
+The four-week lookback and the `Out` status are fixed here and now.
+
+---
+
 ## Results log
 
 Part E is written up in full in [part-e-results.md](part-e-results.md);
