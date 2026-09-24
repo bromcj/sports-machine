@@ -1,6 +1,5 @@
 """Sport registry. Add or disable leagues here — everything else reads this.
 
-margin      : what the model predicts (home minus away)
 k_default   : logistic steepness for margin -> win prob. MLB trains, grades
               and serves with this value as is (model/train.py reports a
               fitted k_fit only as a diagnostic); only the NFL walk-forward
@@ -16,7 +15,6 @@ SPORTS = {
         "active": True,
         "odds_key": "baseball_mlb",
         "espn": "baseball/mlb",
-        "margin": "run_diff",
         "k_default": 0.30,
         "min_edge": 0.035,
         "months": [3, 4, 5, 6, 7, 8, 9, 10],
@@ -25,7 +23,6 @@ SPORTS = {
         "active": True,
         "odds_key": "americanfootball_nfl",
         "espn": "football/nfl",
-        "margin": "point_diff",
         "k_default": 0.16,
         "min_edge": 0.040,   # sharpest US market; demand more edge
         "months": [9, 10, 11, 12, 1, 2],
@@ -34,7 +31,6 @@ SPORTS = {
         "active": True,
         "odds_key": "basketball_nba",
         "espn": "basketball/nba",
-        "margin": "point_diff",
         "k_default": 0.13,
         "min_edge": 0.040,
         "months": [10, 11, 12, 1, 2, 3, 4, 5, 6],
@@ -43,29 +39,9 @@ SPORTS = {
         "active": True,
         "odds_key": "icehockey_nhl",
         "espn": "hockey/nhl",
-        "margin": "goal_diff",
         "k_default": 0.85,
         "min_edge": 0.035,
         "months": [10, 11, 12, 1, 2, 3, 4, 5, 6],
-    },
-    # Flip active=True to expand. Feature modules required first.
-    "ncaaf": {
-        "active": False,
-        "odds_key": "americanfootball_ncaaf",
-        "espn": "football/college-football",
-        "margin": "point_diff",
-        "k_default": 0.14,
-        "min_edge": 0.045,
-        "months": [8, 9, 10, 11, 12, 1],
-    },
-    "ncaab": {
-        "active": False,
-        "odds_key": "basketball_ncaab",
-        "espn": "basketball/mens-college-basketball",
-        "margin": "point_diff",
-        "k_default": 0.13,
-        "min_edge": 0.045,
-        "months": [11, 12, 1, 2, 3, 4],
     },
 }
 

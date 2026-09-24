@@ -90,8 +90,8 @@ Only MLB is wired end to end. NFL has a walk-forward model
 (`features/build_training_nfl.py`, `features/sports/nfl_features_v1.py`), built
 to have something real to test against back when football had years of public
 closing lines and baseball had none. It is tested, not served: nothing saves
-or predicts with it. NBA and NHL are feature contracts only — `build_row()`
-returns all `None`.
+or predicts with it. NBA and NHL have no model at all; their odds are
+collected in season (config.py) and nothing else.
 
 ## Three things that are easy to get wrong
 
