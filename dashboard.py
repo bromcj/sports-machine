@@ -69,9 +69,21 @@ def gather():
     today = dt.date.today().isoformat()
     d["n_games"] = con.execute("SELECT COUNT(*) c FROM games").fetchone()["c"]
     d["n_odds"] = con.execute("SELECT COUNT(*) c FROM odds_snapshots").fetchone()["c"]
+    # A CLOSING line is the last price before first pitch, which is what
+    # market_close stores after resolving it per game. snapshot_type='close' is
+    # only the LABEL on a pull, and one pull returns tonight's games alongside
+    # games days out - so it counted prices nowhere near a close, and missed
+    # every hist_close row the Phase 5 backfill bought.
     d["n_close"] = con.execute(
-        "SELECT COUNT(*) c FROM odds_snapshots WHERE snapshot_type='close'").fetchone()["c"]
-    d["n_pred"] = con.execute("SELECT COUNT(*) c FROM predictions").fetchone()["c"]
+        "SELECT COUNT(*) c FROM market_close").fetchone()["c"]
+    # predictions is append-only: a game scored twice in a day has two rows, so
+    # counting rows counts reruns. The only place this number is used says
+    # "tonight's N predicted games", so it is today's DISTINCT games - which is
+    # what the sentence claimed all along and what it now counts.
+    d["n_pred"] = con.execute(
+        "SELECT COUNT(DISTINCT p.game_id) c FROM predictions p"
+        " JOIN games g ON g.game_id = p.game_id WHERE g.game_date = ?",
+        (today,)).fetchone()["c"]
     con.close()
 
     # picks() prints its own table; we want the returned rows, not the noise
@@ -84,6 +96,12 @@ def gather():
     d["gates"] = {s: v.gates(s) for s in ("mlb", "nfl") if v.status(s)}
     d["reasons"] = {s: (v.status(s) or {}).get("reason", "") for s in d["gates"]}
     d["seasons"] = {s: (v.status(s) or {}).get("seasons", []) for s in d["gates"]}
+    # The pooled walk-forward result, read from what validation.py recorded
+    # rather than typed into the prose. If the model is ever retrained, this
+    # sentence moves with it.
+    d["pooled"] = {s: (v.status(s) or {}).get("pooled", {}) for s in d["gates"]}
+    d["baseline_kind"] = {s: (v.status(s) or {}).get("baseline_kind", "")
+                          for s in d["gates"]}
 
     # ridge coefficients, refit on the current training table
     d["coef"] = []
@@ -169,9 +187,14 @@ FEATURE_DEF = {
 
 # The three gates, in the order they must fall.
 GATES = [
-    ("walk_forward", "Beat bookmaker predictions",
-     "Score better than the bookmakers on seasons the model never saw while "
-     "it was being built."),
+    # Not "beat bookmaker predictions" any more. That wording came from the
+    # era when the baseline was a home-rate placeholder and nobody had bought
+    # a real closing line. Real de-vigged closes now exist for 2024-2026, MLB
+    # was measured against them, and it LOST in all three seasons. The gate
+    # fails for a real reason and the label should say which.
+    ("walk_forward", "Beat the real closing line",
+     "Score better than the market's own de-vigged closing price, on seasons "
+     "the model never saw while it was being built."),
     ("paper_trading", "Show it would actually make money",
      "Track 50 or more picks at real prices, with no money down, and end up "
      "ahead of the closing line."),
@@ -461,6 +484,33 @@ def bl_importance(scaled):
     return bl(f"{GROUP_NAME[top]} has the biggest effect.")
 
 
+def mlb_verdict(d):
+    """The baseball headline, computed from validation.json. Never typed in.
+
+    The page used to say baseball "cannot sit this test yet - its bookmaker
+    prices are only being collected now". That stopped being true when real
+    de-vigged closes were bought for 2024-2026 and the model was measured
+    against them. It lost in all three seasons, and a dashboard whose job is to
+    lead with the verdict was leading with an excuse instead.
+    """
+    pooled = (d.get("pooled") or {}).get("mlb") or {}
+    seasons = (d.get("seasons") or {}).get("mlb") or []
+    kind = (d.get("baseline_kind") or {}).get("mlb", "")
+    lost = [s for s in seasons if not s.get("beat_market")]
+    if kind != "market" or not pooled:
+        return ('<strong>Baseball has not been measured against a real market '
+                'yet.</strong> The football results below are the same test '
+                'where years of real bookmaker prices are on public record.')
+    return (
+        f'<strong>Baseball has now sat this test, and failed it.</strong> '
+        f'Real de-vigged closing prices were bought and the model lost in '
+        f'<strong>{len(lost)} of {len(seasons)} seasons</strong> &mdash; '
+        f'pooled {pooled.get("mean_ll_diff", 0):+.4f} log loss, '
+        f't&nbsp;=&nbsp;{pooled.get("t_stat", 0):+.1f} over '
+        f'{pooled.get("n_games", 0):,} games. The football results below are '
+        f'the same test, and it lost every season there too.')
+
+
 # ==================================================================== page
 def legend(a, b):
     return (f'<div class="legend"><span><i class="sw1"></i>{a}</span>'
@@ -738,11 +788,7 @@ def build(d):
 <section>
   <p class="eyebrow">The test that matters &mdash; American football</p>
   <h2>Has it ever beaten the bookmakers?</h2>
-  <p class="callout"><strong>These are football results, not baseball.</strong>
-  Baseball cannot sit this test yet — its bookmaker prices are only being collected
-  now, so there is no history to grade against. The same program was therefore run on
-  <strong>American football, seasons 2022&ndash;2025</strong>, where years of real
-  bookmaker prices are already on public record.</p>
+  <p class="callout">{mlb_verdict(d)}</p>
   <p class="note">For each season we compare Sports Machine's predictions against
   the bookmakers' predictions for the same games. Lower prediction error is
   better.</p>
