@@ -44,7 +44,7 @@ from pathlib import Path
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 from db import connect, utc_now
-from feeds import parse_utc
+from feeds import feed_of, odds_twin, parse_utc
 from bets.engine import american_to_prob, american_to_decimal
 from bets.log import fair_prob, closing_snapshot, CLOSING_WINDOW_MIN
 
@@ -84,6 +84,17 @@ def resolve_game(con, sport: str, date: str, game: str):
         raise EntryError(
             f"{game!r} matched no {sport} game on {date}. Stored that day: "
             + "; ".join(f"{r['away']} at {r['home']}" for r in rows[:6]))
+    # Each real game is stored once per feed (Stats API, ESPN, odds), so a
+    # matchup string always used to hit two or three rows and be refused. The
+    # score feed's row is the one a result arrives on; prices are found from
+    # it through feeds.odds_twin. Only two SCORE rows - a doubleheader - are a
+    # real ambiguity.
+    if len(hits) > 1:
+        rank = {"statsapi": 0, "espn": 1}
+        scored = [r for r in hits if feed_of(r["game_id"]) in rank]
+        if scored:
+            best = min(rank[feed_of(r["game_id"])] for r in scored)
+            hits = [r for r in scored if rank[feed_of(r["game_id"])] == best]
     if len(hits) > 1:
         raise EntryError(
             f"{game!r} matched {len(hits)} games: "
@@ -98,12 +109,48 @@ def resolve_game(con, sport: str, date: str, game: str):
     return r
 
 
+def team_side(g, side) -> str | None:
+    """'home' / 'away' for a side naming one team, else None.
+
+    Exact team name, 'home'/'away', or words that appear in exactly one of the
+    two names ('Packers'). It used to be "does the text appear inside the home
+    team's name, else away", which read 'GB', 'SF' or 'NYG' - and any
+    misspelling - as the AWAY team.
+    """
+    if g is None or not side:
+        return None
+    t = " ".join(str(side).split()).lower()
+    home, away = (g["home"] or "").lower(), (g["away"] or "").lower()
+    if t in ("home", "away"):
+        return t
+    if t == home:
+        return "home"
+    if t == away:
+        return "away"
+    in_home = all(w in home.split() for w in t.split())
+    in_away = all(w in away.split() for w in t.split())
+    if in_home != in_away:
+        return "home" if in_home else "away"
+    return None
+
+
 def market_context(con, game_id: str, side: str):
     """(best_available, p_fair, fair_source) across whatever books we hold.
 
     Best available is the LONGEST price on that side - the most money back for
-    the same outcome - which is what "could I have done better" means.
+    the same outcome - which is what "could I have done better" means. Only
+    moneyline prices are stored, so this is for h2h bets only. A score-feed
+    game id is followed to its odds row through feeds.odds_twin.
     """
+    g_score = None
+    if not con.execute("SELECT 1 FROM odds_snapshots WHERE game_id=? LIMIT 1",
+                       (game_id,)).fetchone():
+        twin, _ = odds_twin(con, game_id)
+        if twin is None:
+            return None, None, None
+        g_score = con.execute("SELECT away, home FROM games WHERE game_id=?",
+                              (game_id,)).fetchone()
+        game_id = twin
     row = con.execute(
         "SELECT ts FROM odds_snapshots WHERE game_id=? ORDER BY ts DESC"
         " LIMIT 1", (game_id,)).fetchone()
@@ -113,9 +160,11 @@ def market_context(con, game_id: str, side: str):
     prices = con.execute(
         "SELECT book, away_ml, home_ml FROM odds_snapshots WHERE game_id=?"
         " AND ts=? AND away_ml IS NOT NULL", (game_id, ts)).fetchall()
-    g = con.execute("SELECT away, home FROM games WHERE game_id=?",
-                    (game_id,)).fetchone()
-    which = "home" if g and side.lower() in (g["home"] or "").lower() else "away"
+    g = g_score or con.execute("SELECT away, home FROM games WHERE game_id=?",
+                               (game_id,)).fetchone()
+    which = team_side(g, side)
+    if which is None:
+        return None, None, None
     best = None
     for p in prices:
         ml = p["home_ml"] if which == "home" else p["away_ml"]
@@ -133,10 +182,18 @@ def enter(sport, date, game, market, side, price, book, stake,
     """Record one bet. Refuses anything it cannot resolve. Returns bet_id."""
     if tag not in TAGS:
         raise EntryError(f"tag must be one of {TAGS}, got {tag!r}")
+    if not side:
+        raise EntryError("side is required (a team, or over/under)")
+    if stake is None:
+        raise EntryError("stake is required")
     try:
         price = int(price)
     except (TypeError, ValueError):
         raise EntryError(f"price must be American odds, got {price!r}")
+    try:
+        stake = float(stake)
+    except (TypeError, ValueError):
+        raise EntryError(f"stake must be a number, got {stake!r}")
     if price in (0, -100, 100) or -100 < price < 100:
         raise EntryError(f"{price} is not a valid American price")
     if float(stake) <= 0:
@@ -149,7 +206,14 @@ def enter(sport, date, game, market, side, price, book, stake,
 
     con = connect()
     g = resolve_game(con, sport, date, game)
-    best, p_fair, src = market_context(con, g["game_id"], side)
+    if market == "h2h" and team_side(g, side) is None:
+        con.close()
+        raise EntryError(f"side {side!r} does not name exactly one of "
+                         f"{g['away']} / {g['home']}")
+    # Only moneylines are stored, so only an h2h bet gets a fair price and
+    # the shop/info split. Anything else is graded on its result alone.
+    best, p_fair, src = (market_context(con, g["game_id"], side)
+                         if market == "h2h" else (None, None, None))
 
     # model_prob, novig_market_prob, edge and kelly_fraction are NOT NULL, and
     # a manual bet has none of them: the human did not hand us a probability.
@@ -224,50 +288,59 @@ def grade_all(sport: str | None = None) -> dict:
         args.append(sport)
     tally = {"graded": 0, "no_close": 0, "no_result": 0, "outside_window": 0}
     for b in con.execute(q, args).fetchall():
-        snap = closing_snapshot(b["game_id"])
-        if snap is None:
-            tally["no_close"] += 1
-            continue
         g = con.execute("SELECT away, home, away_score, home_score, status"
                         " FROM games WHERE game_id=?",
                         (b["game_id"],)).fetchone()
-        which = "home" if g and (b["side"] or "").lower() in (
-            g["home"] or "").lower() else "away"
-        p_close, src = fair_prob(con, snap["game_id"], snap["ts"], which)
-        if not p_close or not b["p_fair_at_bet"]:
-            tally["no_close"] += 1
-            continue
-        dec = american_to_decimal(b["line_taken"])
-        shop = dec * b["p_fair_at_bet"] - 1
-        info = p_close / b["p_fair_at_bet"] - 1
-        ev = (1 + shop) * (1 + info) - 1
-        inside = (snap.get("minutes_before_start") is not None
-                  and snap["minutes_before_start"] <= CLOSING_WINDOW_MIN)
-        if not inside:
-            tally["outside_window"] += 1
+        h2h = b["market"] in (None, "h2h")
+        which = team_side(g, b["side"]) if h2h else None
 
-        # Result: from scores where we hold them, else the typed-in one.
-        won = None
-        if b["market"] in (None, "h2h") and g and g["status"] == "final" \
-                and g["away_score"] is not None:
+        # Result: from the score where we hold it (h2h only), else typed in.
+        won, push = None, False
+        typed = str(b["manual_result"] or "").strip().lower()
+        if (h2h and which and g and g["status"] == "final"
+                and g["away_score"] is not None):
             home_won = g["home_score"] > g["away_score"]
             won = home_won if which == "home" else not home_won
-        elif b["manual_result"]:
-            won = str(b["manual_result"]).strip().lower() in (
-                "w", "win", "won", "1", "true", "yes")
-        if won is None:
+        elif typed in ("push", "void", "p"):
+            push = True
+        elif typed:
+            won = typed in ("w", "win", "won", "1", "true", "yes")
+        dec = american_to_decimal(b["line_taken"])
+        if push:
+            result, pnl = "push", 0.0
+        elif won is None:
+            result, pnl = None, None
             tally["no_result"] += 1
-        pnl = (None if won is None
-               else round(b["stake"] * (dec - 1), 2) if won
-               else -round(b["stake"], 2))
+        else:
+            result = "win" if won else "loss"
+            pnl = (round(b["stake"] * (dec - 1), 2) if won
+                   else -round(b["stake"], 2))
+
+        # Shop/info/EV: moneyline only, through the same fair-close path the
+        # paper bets use, and in percent like the paper bets.
+        ev = shop = info = p_close = src = None
+        snap = closing_snapshot(b["game_id"]) if (h2h and which) else None
+        if snap is not None and b["p_fair_at_bet"]:
+            p_close, src = fair_prob(con, snap["game_id"], snap["ts"], which)
+        if p_close:
+            shop = round((dec * b["p_fair_at_bet"] - 1) * 100, 4)
+            inside = (snap.get("minutes_before_start") is not None
+                      and snap["minutes_before_start"] <= CLOSING_WINDOW_MIN)
+            info = (round((p_close / b["p_fair_at_bet"] - 1) * 100, 4)
+                    if inside else None)
+            ev = round((dec * p_close - 1) * 100, 4)
+            if not inside:
+                tally["outside_window"] += 1
+        elif h2h:
+            tally["no_close"] += 1
+
         con.execute(
             "UPDATE bets SET ev_fair_close=?, shop_pct=?, info_pct=?,"
-            " novig_closing_prob=?, fair_source=?, result=?, pnl=?"
-            " WHERE bet_id=?",
-            (ev, shop, info if inside else None, p_close, src,
-             (None if won is None else ("win" if won else "loss")), pnl,
-             b["bet_id"]))
-        tally["graded"] += 1
+            " novig_closing_prob=?, fair_source=COALESCE(?, fair_source),"
+            " result=?, pnl=? WHERE bet_id=?",
+            (ev, shop, info, p_close, src, result, pnl, b["bet_id"]))
+        if result is not None or ev is not None:
+            tally["graded"] += 1
     con.commit()
     con.close()
     return tally
@@ -364,6 +437,11 @@ def _stdev(xs):
     return (sum((x - m) ** 2 for x in xs) / (len(xs) - 1)) ** 0.5
 
 
+def _pct(v):
+    """A value already in percent (ev, shop, info - as paper bets store them)."""
+    return "     -" if v is None else f"{v:+6.2f}%"
+
+
 def _fmt(v, pct=True):
     if v is None:
         return "     -"
@@ -386,9 +464,9 @@ def report(sport: str | None = None) -> int:
           f"for CLV  (coverage {100 * s['coverage']:.0f}%)")
     print(f"\n  ROI      {_fmt(o['roi'])}  "
           f"[{_fmt(o['roi_lo'])}, {_fmt(o['roi_hi'])}]  bootstrap 95%")
-    print(f"  EV       {_fmt(o['ev'])}   against the fair close")
-    print(f"  shop     {_fmt(o['shop'])}   the price you got")
-    print(f"  info     {_fmt(o['info'])}   what you knew")
+    print(f"  EV       {_pct(o['ev'])}   against the fair close")
+    print(f"  shop     {_pct(o['shop'])}   the price you got")
+    print(f"  info     {_pct(o['info'])}   what you knew")
     print("\n  shop is real money and books limit it. info is the half that "
           "means\n  you knew something. They multiply to EV.")
 
@@ -399,8 +477,8 @@ def report(sport: str | None = None) -> int:
               f"{'EV':>8s} {'shop':>8s} {'info':>8s}")
         for k, v in sorted(s[key].items()):
             print(f"  {str(k):14s} {v['n']:>4} {v['settled']:>8} "
-                  f"{_fmt(v['roi'])} {_fmt(v['ev'])} {_fmt(v['shop'])} "
-                  f"{_fmt(v['info'])}")
+                  f"{_fmt(v['roi'])} {_pct(v['ev'])} {_pct(v['shop'])} "
+                  f"{_pct(v['info'])}")
 
     v = s["verdict"]
     print("\n" + "-" * 74)
