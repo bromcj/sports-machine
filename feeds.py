@@ -225,7 +225,6 @@ def pregame_books(con, game_id: str):
 #
 # So status is read from the DETAILED field, and only a real completion is
 # allowed to be final.
-TERMINAL = "final"
 
 _STATS_DETAIL = {
     "postponed": "postponed",
@@ -269,10 +268,3 @@ def espn_status(status_type: dict) -> str:
     if state == "post":
         return "final"
     return "scheduled"
-
-
-def slot_or_none(value):
-    """ET slate slot for a first-pitch instant, or None if unusable."""
-    from model.validation import slot_of
-    when = parse_utc(value)
-    return slot_of(when.astimezone(ET).hour) if when else None

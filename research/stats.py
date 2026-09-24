@@ -102,14 +102,3 @@ def fmt(r: dict, scale: float = 1.0, places: int = 5) -> str:
     return (f"{r['mean'] * scale:+.{places}f}  "
             f"[{r['lo'] * scale:+.{places}f}, {r['hi'] * scale:+.{places}f}]  "
             f"t={r['t']:+.2f}  n={r['n']:,}")
-
-
-def passes(r: dict, direction: int = 1, min_t: float = 2.0) -> bool:
-    """The screening threshold: |t| > min_t IN THE PRE-REGISTERED DIRECTION.
-
-    A large effect with the wrong sign is a failure, not a discovery. That is
-    the whole reason directions were written down before looking.
-    """
-    if not np.isfinite(r.get("t", np.nan)):
-        return False
-    return (r["t"] * direction) > min_t

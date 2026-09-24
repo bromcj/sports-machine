@@ -76,8 +76,6 @@ OFFSET_MIN = 45
 # Cluster width. See the module docstring: 45 + 15 = 60, which is
 # CLOSING_WINDOW_MIN, so every game's price is a closing line.
 CLUSTER_MIN = 15
-# Morning snapshot, in ET, for the "where a bettor actually gets in" report.
-OPEN_HOUR_ET = 10
 
 TEST_SEASONS = ("2024", "2025", "2026")
 RAW_DIR = paths.RAW_DIR / "odds_history"
@@ -142,7 +140,6 @@ def fetch_one(api_key: str, when: dt.datetime):
 def _store(con, payload, kind: str, snapshot_ts: str) -> int:
     """Write events and prices. Same shape as a live pull, different type."""
     from ingest import quality
-    from ingest.http import redact as _r   # noqa: F401  (kept for symmetry)
     n = 0
     bad = quality.Rejects("hist")
     for ev in payload.get("data", []) or []:

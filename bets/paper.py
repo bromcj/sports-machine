@@ -289,32 +289,6 @@ def score(sport: str = "mlb") -> dict | None:
                         placebo=placebo)
 
 
-def summary(sport: str = "mlb") -> dict | None:
-    """Mean shop / info / ev across graded paper bets, for reporting.
-
-    Replaces an earlier decompose() that measured the wrong thing twice over:
-    it averaged AMERICAN odds across books, which is meaningless across the
-    +/-100 boundary (taking +104 against -105/+100/-102/+104 reported a
-    "premium" of 104.75 where the real advantage is about 2.3%), and it
-    compared against peers at the CLOSING snapshot rather than the one the bet
-    was placed from, mixing line movement into "shopping".
-    """
-    con = connect()
-    rows = con.execute(
-        "SELECT shop_pct, info_pct, ev_fair_close, fair_source FROM bets"
-        " WHERE mode='paper' AND sport=? AND info_pct IS NOT NULL",
-        (sport,)).fetchall()
-    con.close()
-    if not rows:
-        return None
-    n = len(rows)
-    return {"n": n,
-            "shop": sum(r["shop_pct"] for r in rows) / n,
-            "info": sum(r["info_pct"] for r in rows) / n,
-            "ev": sum(r["ev_fair_close"] for r in rows) / n,
-            "sources": sorted({r["fair_source"] for r in rows})}
-
-
 def run(sport: str = "mlb", date: str | None = None):
     print(f"Paper trading [{sport}]")
     n = place(date, sport)

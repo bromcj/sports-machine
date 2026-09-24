@@ -19,9 +19,6 @@ ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 from feeds import parse_utc
 
-# A probable announced this close to first pitch and then changed is the
-# classic late-scratch, which is exactly when the market knows and you do not.
-CONFIRM_WINDOW_HOURS = 6
 # Under this many innings per recent start, the "starter" is an opener. The
 # model's sp_kbb_5s describes a pitcher who will face a lineup twice; an
 # opener faces it once, and the bullpen pitches the rest.
@@ -44,7 +41,7 @@ def flags_for_game(con, game_id: str, side: str, now=None) -> dict:
     pid = g["home_starter_id"] if side == "home" else g["away_starter_id"]
     out = {"sp_unconfirmed": not name or pid is None}
 
-    # Close to first pitch with nothing announced is a scratch, not a lag.
+    # A game already under way cannot be bet: treat its starter as unconfirmed.
     start = parse_utc(g["start_time_utc"])
     if start is not None and not out["sp_unconfirmed"]:
         hours = (start - now).total_seconds() / 3600

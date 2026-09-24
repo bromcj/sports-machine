@@ -90,8 +90,3 @@ def build_table() -> pd.DataFrame:
 #   travel / time-zone crossing
 #   dome and wind over 15mph    (dome is in, wind is not)
 #   late-season elimination     (a team with nothing to play for)
-
-
-def build_row(game) -> dict:
-    """Live-slate hook (daily predictions); training uses build_table()."""
-    return {c: None for c in FEATURE_COLUMNS}

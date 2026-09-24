@@ -51,7 +51,6 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -63,7 +62,6 @@ from feeds import parse_utc
 from ingest import http
 
 API = "https://api.the-odds-api.com/v4"
-ET = ZoneInfo("America/New_York")
 OUT = paths.DATA_DIR / "props_live"
 RAW = OUT / "raw"
 LOG = OUT / "requests.jsonl"

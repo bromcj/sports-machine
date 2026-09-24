@@ -72,9 +72,7 @@ def record_bet(game_id, sport, side, book, line_taken, stake, model_prob,
 CLOSING_WINDOW_MIN = 60
 
 
-# Matching lives in feeds.py now: same teams, first pitch within a window,
-# never date strings. Re-exported so callers do not all have to change.
-from feeds import odds_twin           # noqa: E402,F401
+from feeds import odds_twin           # noqa: E402 - closing_snapshot uses it
 
 
 def closing_snapshot(game_id: str, book: str | None = None):

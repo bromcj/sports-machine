@@ -31,11 +31,6 @@ MODELS_DIR = DATA_DIR / "models"
 NFL_DIR = DATA_DIR / "nfl"
 RAW_DIR = DATA_DIR / "raw"
 
-# These two are NOT under DATA_DIR. archive/ is committed to git and is the
-# same for every checkout; logs/ belong to whichever copy produced them.
-ARCHIVE_DIR = ROOT / "archive"
-LOGS_DIR = ROOT / "logs"
-
 
 def training_table(sport: str) -> Path:
     return DATA_DIR / f"training_{sport}.parquet"

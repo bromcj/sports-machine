@@ -15,7 +15,6 @@ _sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
 from config import SPORTS
 from model.calibrate import fit_k
 
-MODEL_VERSION = "ridge-margin-v2"  # one architecture, per-sport models
 ALPHAS = [0.1, 1.0, 10.0, 50.0, 100.0]
 
 
@@ -62,7 +61,6 @@ def fit_intercept(margin: np.ndarray, home_won: np.ndarray, k: float) -> float:
 
     return float(minimize_scalar(nll, bounds=(-1.0, 1.0), method="bounded").x)
 
-run_diff_to_win_prob = margin_to_win_prob  # backward-compat alias
 
 
 def walk_forward(df: pd.DataFrame, feature_cols: list[str],

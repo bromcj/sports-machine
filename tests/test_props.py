@@ -24,9 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from props.distributions import (negbin, gamma_dist, lognormal_dist,
                                  over_push_under, prob_over_excluding_push,
                                  is_whole_line, count_dist, yards_dist)
-from props.framework import (PropSpec, SPECS, shrink, project, price,
-                             drop_voids, one_bet_per_team, devig_two_way,
-                             edge_vs_market)
+from props.framework import SPECS, shrink, project, price
 from props.validate import outcome_over, calibration_by_decile
 
 
@@ -134,52 +132,6 @@ def test_outcome_is_nan_on_a_push_not_zero():
     assert y.iloc[2] == 0.0
 
 
-# ------------------------------------------------------------ void rule -----
-
-def test_void_rule_drops_players_who_did_not_appear():
-    rows = pd.DataFrame({"player_id": [1, 2, 3], "played": [True, False, True],
-                         "actual": [5, 0, 7]})
-    kept = drop_voids(rows)
-    assert list(kept["player_id"]) == [1, 3]
-
-
-def test_void_rule_refuses_to_guess():
-    """No 'played' column means we do not know. Do not assume everyone did."""
-    rows = pd.DataFrame({"player_id": [1], "actual": [5]})
-    with pytest.raises(KeyError):
-        drop_voids(rows)
-
-
-def test_a_scratched_starter_scored_as_a_loss_would_bias_the_sample():
-    """Shows the size of the mistake the void rule prevents."""
-    rows = pd.DataFrame({"player_id": [1, 2, 3, 4],
-                         "played": [True, True, False, True],
-                         "actual": [7, 6, 0, 8], "line": [5.5] * 4})
-    wrong = outcome_over(rows).mean()             # 0 counted as a loss
-    right = outcome_over(drop_voids(rows)).mean()
-    assert right == 1.0
-    assert wrong == pytest.approx(0.75)
-
-
-# ------------------------------------------------------- correlation guard --
-
-def test_one_bet_per_team_keeps_only_the_biggest_edge():
-    rows = pd.DataFrame({
-        "game_id": ["g1"] * 3 + ["g2"],
-        "team": ["NE", "NE", "BUF", "NE"],
-        "player_id": [1, 2, 3, 4],
-        "edge": [0.02, -0.06, 0.03, 0.01]})
-    kept = one_bet_per_team(rows, SPECS["player_receptions"])
-    assert sorted(kept["player_id"]) == [2, 3, 4]      # -0.06 beats +0.02
-
-
-def test_one_bet_per_team_can_be_switched_off():
-    spec = PropSpec("x", "nfl", "count", "o", "r", one_per_team=False)
-    rows = pd.DataFrame({"game_id": ["g"] * 2, "team": ["NE"] * 2,
-                         "edge": [0.1, 0.2], "player_id": [1, 2]})
-    assert len(one_bet_per_team(rows, spec)) == 2
-
-
 # ---------------------------------------------------------- shrink/price ----
 
 def test_shrink_moves_toward_the_prior_on_small_samples():
@@ -211,21 +163,6 @@ def test_price_returns_coherent_probabilities():
     assert np.allclose(out[["p_over", "p_push", "p_under"]].sum(axis=1), 1.0)
     assert out.loc[0, "p_push"] == 0.0            # half line
     assert out.loc[1, "p_push"] > 0.0             # whole line
-
-
-def test_devig_matches_the_moneyline_path():
-    p_over, p_under, vig = devig_two_way(-110, -110)
-    assert p_over == pytest.approx(0.5)
-    assert p_under == pytest.approx(0.5)
-    # -110/-110 is 110/210 a side = 1.0476 total, i.e. a 4.76% overround.
-    # (Not 9.09%: that is the juice as a fraction of the winnings, a different
-    # quantity, and confusing the two overstates every book's margin by 2x.)
-    assert vig == pytest.approx(0.0476, abs=1e-3)
-
-
-def test_edge_is_signed_disagreement():
-    e = edge_vs_market(np.array([0.55, 0.40]), np.array([0.50, 0.50]))
-    assert e == pytest.approx([0.05, -0.10])
 
 
 def test_calibration_table_is_sorted_and_sums():

@@ -11,15 +11,6 @@ import paths
 
 STATCAST_DIR = paths.STATCAST_DIR
 
-FEATURE_COLUMNS = [
-    "home_pen_kbb_30d", "away_pen_kbb_30d",        # bullpen K-BB% (quality)
-    "home_pen_pitches_3d", "away_pen_pitches_3d",  # bullpen fatigue
-    "home_off_woba_30d", "away_off_woba_30d",      # team offense aggregate
-    "home_sp_kbb_5s", "away_sp_kbb_5s",            # starter K-BB% last 5 starts
-    "home_rest_days", "away_rest_days",
-    "park_factor",
-]
-
 PARK_PRIORS = {  # runs, 1.00 = neutral. Cold-start priors ONLY: used for a
                  # venue with no history yet. Seasons with history get an
                  # empirical factor from park_factor_table() instead.
@@ -259,7 +250,3 @@ def starter_table(lines: pd.DataFrame) -> pd.DataFrame:
     # The related claim that the MARKET under-reacts to SP at the tails is a
     # different question and still open - it needs real closing lines to test.
     return sp[["game_pk", "pitch_team", "sp_kbb_5s"]]
-
-
-def build_row(game) -> dict:
-    return {c: None for c in FEATURE_COLUMNS}  # live path filled in v2

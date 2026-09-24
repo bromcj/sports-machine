@@ -24,18 +24,6 @@ def test_the_environment_variable_moves_everything(monkeypatch, tmp_path):
     importlib.reload(p)
 
 
-def test_archive_and_logs_do_not_move(monkeypatch, tmp_path):
-    # archive/ is in git and identical in every checkout; logs belong to the
-    # copy that produced them. Neither follows the data directory.
-    monkeypatch.setenv("SPORTS_MACHINE_DATA_DIR", str(tmp_path))
-    import paths
-    p = importlib.reload(paths)
-    assert p.ARCHIVE_DIR == p.ROOT / "archive"
-    assert p.LOGS_DIR == p.ROOT / "logs"
-    monkeypatch.delenv("SPORTS_MACHINE_DATA_DIR")
-    importlib.reload(p)
-
-
 def test_no_module_computes_its_own_data_path():
     """The thing that made a second checkout impossible."""
     root = Path(__file__).parent.parent

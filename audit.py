@@ -92,7 +92,7 @@ def main() -> int:
 
     # ------------------------------------------------------------- identity
     section("RECORD IDENTITY ACROSS FEEDS")
-    from bets.log import odds_twin
+    from feeds import odds_twin
     from db import connect
     con = connect()
     # connect() creates the file but not the tables; init() does that. On a
@@ -126,7 +126,6 @@ def main() -> int:
     # ---------------------------------------------------- market scoring
     section("MARKET SCORING")
     import model.market_score as _ms
-    import inspect as _insp
     # It reports; it must not decide. Checked against the module's imports and
     # names, not its text - the first version of this check searched for
     # "record(" and tripped on the docstring saying it does not call record().
@@ -179,7 +178,7 @@ def main() -> int:
 
     # ---------------------------------------------------------------- lineage
     section("LINEAGE")
-    from db import LATEST_PREDICTION as _LP, code_sha as _sha
+    from db import LATEST_PREDICTION as _LP
     conL = connect()
     tblL = {r[0] for r in conL.execute(
         "SELECT name FROM sqlite_master WHERE type='table'")}
@@ -734,7 +733,6 @@ def main() -> int:
     section("PREGAME GUARD")
     import db as dbmod5
     from bets import paper as bp5, log as bl5
-    from feeds import parse_utc as _pu
     real5 = dbmod5.DB_PATH
     try:
         tmp5 = pathlib.Path(tempfile.mkdtemp())

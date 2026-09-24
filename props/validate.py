@@ -42,7 +42,6 @@ sys.path.insert(0, str(ROOT))
 from props.distributions import negbin, \
     prob_over_excluding_push
 from props.framework import PropSpec
-from research.stats import logloss, block_bootstrap, fmt
 
 # Where the naive baseline regresses to before a player has any history.
 NAIVE_PRIOR_EVENTS = 3.0
@@ -94,32 +93,6 @@ def outcome_over(rows: pd.DataFrame, actual_col: str = "actual",
     return y.mask(np.isclose(a, L))
 
 
-def walk_forward_months(rows: pd.DataFrame, fit_predict,
-                        date_col: str = "game_date",
-                        min_train_months: int = 2) -> pd.DataFrame:
-    """Score each month with a model fitted only on earlier months.
-
-    `fit_predict(train_rows, test_rows) -> array of P(over) for test_rows`.
-    Kept as a callback so this harness never has to know what the model is.
-    """
-    d = rows.copy()
-    d["_month"] = pd.to_datetime(d[date_col]).dt.to_period("M")
-    months = sorted(d["_month"].unique())
-    out = []
-    for i in range(min_train_months, len(months)):
-        train = d[d["_month"].isin(months[:i])]
-        test = d[d["_month"] == months[i]].copy()
-        if len(test) == 0:
-            continue
-        test["p_model"] = fit_predict(train, test)
-        out.append(test)
-    if not out:
-        raise ValueError(
-            f"only {len(months)} month(s) of data; need more than "
-            f"{min_train_months} to walk forward")
-    return pd.concat(out)
-
-
 def calibration_by_decile(p: np.ndarray, y: np.ndarray,
                           n_buckets: int = 10) -> pd.DataFrame:
     d = pd.DataFrame({"p": np.asarray(p, float), "y": np.asarray(y, float)})
@@ -130,47 +103,3 @@ def calibration_by_decile(p: np.ndarray, y: np.ndarray,
                  actual=("y", "mean")).reset_index(drop=True))
     out["gap"] = out["actual"] - out["predicted"]
     return out
-
-
-def report(scored: pd.DataFrame, spec: PropSpec,
-           model_col: str = "p_model", naive_col: str = "p_naive",
-           game_col: str = "game_id") -> dict:
-    """The full B1 verdict for one prop. Returns the numbers as well."""
-    y = outcome_over(scored)
-    live = y.notna()
-    n_push = int((~live).sum())
-    s = scored[live].copy()
-    y = y[live].values
-
-    ll_model = logloss(s[model_col].values, y)
-    ll_naive = logloss(s[naive_col].values, y)
-    diff = ll_naive - ll_model          # positive = model better
-
-    print("=" * 74)
-    print(f"B1 validation - {spec.key}")
-    print("=" * 74)
-    print(f"\n{len(scored):,} props scored, {n_push} pushes dropped, "
-          f"{len(s):,} live")
-    print(f"{s[game_col].nunique():,} distinct games "
-          f"(the bootstrap unit - two props in one game are not two bets)")
-
-    print(f"\n  log loss, model  {ll_model.mean():.6f}")
-    print(f"  log loss, naive  {ll_naive.mean():.6f}   "
-          f"(season-to-date mean + Poisson)")
-    r = block_bootstrap(diff, s[game_col].values, n_boot=4000)
-    print("  improvement      " + fmt(r, places=6))
-    print("\n  Positive means the model beats a player's own season average.")
-    print("  That is the MINIMUM bar and says nothing about beating a price.")
-
-    print("\ncalibration by decile of predicted P(over)")
-    cal = calibration_by_decile(s[model_col].values, y)
-    print(f"  {'n':>6s} {'predicted':>10s} {'actual':>9s} {'gap':>8s}")
-    for row in cal.itertuples():
-        print(f"  {row.n:>6,} {row.predicted:>10.4f} {row.actual:>9.4f} "
-              f"{row.gap:>+8.4f}")
-    worst = cal["gap"].abs().max()
-    print(f"\n  worst decile gap {worst:.4f}. A model that is fine on average")
-    print("  and wrong at the extremes will bet exactly where it is wrong.")
-    return {"n": len(s), "n_push": n_push, "ll_model": float(ll_model.mean()),
-            "ll_naive": float(ll_naive.mean()), "improvement": r,
-            "worst_decile_gap": float(worst)}

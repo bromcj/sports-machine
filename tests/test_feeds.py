@@ -1,7 +1,7 @@
 """Feed identity, local dates, status mapping, and the C1 matching case."""
 import pytest
 from feeds import (SQL_STATS_API, espn_status, et_date, feed_of, parse_utc,
-                   slot_or_none, stats_api_status)
+                   stats_api_status)
 
 
 def test_feed_is_identified_by_id_shape():
