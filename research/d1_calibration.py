@@ -6,7 +6,7 @@ BACKGROUND. `margin_to_win_prob` is sigmoid(k * margin) with no intercept, so
 it returns exactly 0.500 whenever the predicted run margin is zero. Home teams
 win about 53% of games, and the model's mean predicted margin is about +0.04
 runs, so it under-rates home teams by roughly 2.9 points in every season.
-docs-calibration.md measured that and proposed sigmoid(a + k * margin), with
+docs/calibration-3.6.md measured that and proposed sigmoid(a + k * margin), with
 `a` fitted leave-one-season-out inside the training window.
 
 It was NOT applied, for three stated reasons. Two have now expired and one is

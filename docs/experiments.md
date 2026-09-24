@@ -97,7 +97,7 @@ trained: never fit on a season it is scored on.
 - **Disagreement:** `logit(p) = logit(p_open) + b0 + b1 · (logit(p_model) − logit(p_open))`,
   with `logit(p_open)` entered as a **fixed offset** (coefficient pinned at 1,
   not estimated). `p_model` includes the out-of-fold home intercept from
-  `docs-calibration.md`.
+  `docs/calibration-3.6.md`.
 - **Features:** the same offset plus the 11 standardized features, ridge, alpha
   tuned on training seasons only. *(Superseded — see E1. The feature-level
   version of this question is answered once, properly, in E1's residual

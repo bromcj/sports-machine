@@ -282,7 +282,7 @@ def main() -> int:
         skip("no training row carries an off-season rest gap", "no training table")
         skip("training rest_days is the same feature live serves", "no training table")
 
-    # The home intercept (D1 / docs-calibration.md) is the third way train and
+    # The home intercept (D1 / docs/calibration-3.6.md) is the third way train and
     # serve can disagree, and the quietest: both paths return a perfectly
     # plausible probability, they are just not the same probability.
     #

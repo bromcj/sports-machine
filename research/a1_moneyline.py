@@ -35,7 +35,7 @@ before first pitch. It is not a true opener. See market_panel.py.
 
 LEAKAGE. Model probabilities are strictly out-of-sample: season k is predicted
 by a model fit on seasons before k, exactly as model/train.py:walk_forward
-does it, and the home intercept from docs-calibration.md is fitted
+does it, and the home intercept from docs/calibration-3.6.md is fitted
 leave-one-season-out INSIDE the training window, so nothing that touched a
 game's own season ever reaches that game's prediction.
 """
@@ -65,7 +65,7 @@ FEATURES = ["home_pen_kbb_30d", "home_pen_pitches_3d", "home_off_woba_30d",
 
 
 def _fit_intercept(margin, y, k):
-    """The docs-calibration.md home intercept: p = sigmoid(a + k*margin).
+    """The docs/calibration-3.6.md home intercept: p = sigmoid(a + k*margin).
 
     Fitted by one-dimensional logistic regression with the slope pinned at k,
     which is what "an intercept, not a slope" means operationally.
@@ -185,7 +185,7 @@ def report():
     print(f"\ngames with a morning price, a close and an out-of-sample "
           f"prediction: {len(d):,}")
     print(d.groupby("season").size().to_string())
-    print("\nhome intercept fitted per test season (docs-calibration.md):")
+    print("\nhome intercept fitted per test season (docs/calibration-3.6.md):")
     print(d.groupby("season")["intercept"].first().round(4).to_string())
 
     # ---------------------------------------------------------------- b1 ----

@@ -1,6 +1,6 @@
 # State of the machine
 
-Written 2026-09-24. Plain English, for someone reviewing this project who has
+Re-issued 2026-09-24, against the cleaned tree. Plain English, for someone reviewing this project who has
 not been living in it. Everything here was read off the running system rather
 than remembered.
 
@@ -47,8 +47,15 @@ file, both of which live in `data/`, which is gitignored and must stay out of a
 public repo. **The cloud runner physically cannot build predictions.** Gate 2
 can only ever be fed from this machine.
 
-`machine_daily.bat` is the double-click version of the same sync, for when you
-want to watch it happen.
+A second task, **`SportsMachine-Collect`**, runs `collect_props.bat` at
+**11:45, 15:45, 18:00, 20:00 and 21:00** ET. It records NFL and NBA prop and
+game prices while they are cheap — a live request costs 1 credit per market,
+the same snapshot bought historically costs 10. An idle run spends **nothing**:
+the events list is free and a game is pulled only inside its lead window and
+only once.
+
+`machine_daily.bat` is the double-click version of the sync, for when you want
+to watch it happen.
 
 ---
 
@@ -92,7 +99,7 @@ nfl: NOT CLEARED - walk-forward FAIL (lost to market in 4 of 4 seasons)
 | de-vigged closing lines | 7,194 games, Pinnacle on 7,020 of 7,032 |
 | NFL receiving props | 169,510 rows, 814 games, 9 books, 597 players |
 | Statcast | 3.55 M pitches, 2022–2026 |
-| paper bets | 20 (10 real + 10 placebo), none settled yet |
+| paper bets | 20 (10 paper + 10 placebo); 1 graded so far |
 
 `archive/` holds append-only CSVs of every price at the moment it existed. It
 is committed to git and is the only record of what was available when. It is
@@ -127,17 +134,21 @@ worthwhile price appearing about once in a hundred games.
 
 ## What is open
 
-- **Gate 2 has never run to completion.** 20 paper bets exist, none settled,
-  none graded. That is the honest state — the sample was restarted when the
-  home intercept was applied, and it costs nothing because gate 2 counts only
-  graded bets.
+- **Gate 2 is running for the first time.** It records `only 1 graded paper
+  bets, need 50` — the pipeline settling, grading and scoring a real bet end to
+  end, which had never happened before. MLB's regular season ends this weekend,
+  so the count will grow through the postseason and then idle until March.
+  Expect it to keep reading FAIL or "not enough coverage"; that is the gate
+  working, not a fault.
 - **A properly-timed NFL opener.** The Thursday-noon snapshot was dropped:
   props exist by then but **Pinnacle has not posted them**, so a movement test
   would compare a soft open with a sharp close. When Pinnacle actually posts is
   unknown and costs ~21 credits per candidate time to find out.
 - **MLB pitcher strikeouts (B4).** Untested. Preflight found no Pinnacle price
   and only three books, at the same 10 credits per market per event as NFL.
-- **Credits:** 41,755 left this billing month. They do not carry over.
+- **Credits:** ~41,700 left this billing month; they do not carry over, and
+  the plan drops to 20K next month. Phase 0 collection projects **1,850 a
+  month**, which fits either.
 
 ---
 
@@ -187,13 +198,26 @@ than attributing them to the current crons.
 import check on every push; `.github/workflows/daily.yml` is the three-times-a-
 day collection. Both are in the integration matrix.
 
-`python -m pytest tests/` gives 161 passing and needs no database or network.
+`python -m pytest tests/` gives 334 passing and needs no database or network.
 
 **Free and safe any time:** `picks`, `audit`, `dashboard`, `grade`, `refresh`,
 `backup`, `cronstatus`, `validation`, `healthcheck`, `merge_archive`.
 **Costs credits:** only `morning` and `close`.
 
 ---
+
+## Where the documents are
+
+| | |
+|---|---|
+| [experiments.md](experiments.md) | the pre-registration. Failures stay in it, with numbers. |
+| [gates.md](gates.md) | every threshold, and the simulation that set it |
+| [decisions.md](decisions.md) | one dated entry per decision — the history |
+| [integration-matrix.md](integration-matrix.md) | every entry point, what it touches, what covers it |
+| [cleanup-findings.md](cleanup-findings.md) | things that look wrong and were left alone, with file:line |
+| [part-e-results.md](part-e-results.md), [b3-results.md](b3-results.md) | the two full write-ups |
+| [reports/](reports/) | one per phase of the last brief |
+| [briefs/](briefs/) | every brief, by date |
 
 ## Things this codebase has already got wrong
 

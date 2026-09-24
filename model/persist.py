@@ -41,7 +41,7 @@ def save(sport: str, df: pd.DataFrame, feature_cols: list[str],
          date_col: str = "game_date", a: float = 0.0) -> Path:
     """Fit on everything in df and write the bundle to data/models/<sport>.joblib.
 
-    `a` is the home intercept (docs-calibration.md / D1). It travels in the
+    `a` is the home intercept (docs/calibration-3.6.md / D1). It travels in the
     bundle rather than being looked up at prediction time, for the same reason
     feature_cols does: a saved model has to carry everything needed to
     reproduce its own output, or a later config edit silently reprices every
