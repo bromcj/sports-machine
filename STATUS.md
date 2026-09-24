@@ -1,11 +1,11 @@
-# Machine Status — 2026-09-24 06:22 UTC
+# Machine Status — 2026-09-24 18:24 UTC
 
 **🟢 ALL SYSTEMS HEALTHY**
 
 | Sport | Schedule | Odds this run |
 |---|---|---|
-| 🟢 MLB | 56 games | not pulled (grade run) |
-| 🟢 NFL | 1 games | not pulled (grade run) |
+| 🟢 MLB | 36 games | 48 snapshots |
+| 🟢 NFL | 48 games | 96 snapshots |
 
-Archive files this run: 25
+Archive files this run: 2
 In-season: mlb, nfl
