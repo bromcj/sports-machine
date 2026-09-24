@@ -124,6 +124,7 @@ def odds_twin(con, game_id: str) -> tuple[str | None, str | None]:
         (g["sport"], lo, hi)).fetchall()
 
     want = (canon_team(g["away"]), canon_team(g["home"]))
+
     near = []
     for r in rows:
         if (canon_team(r["away"]), canon_team(r["home"])) != want:
@@ -136,6 +137,26 @@ def odds_twin(con, game_id: str) -> tuple[str | None, str | None]:
             near.append((gap, r["game_id"]))
     if not near:
         return None, "no odds feed row within the match window"
+
+    # A straight doubleheader: the same teams, from the SAME feed, starting
+    # inside the window too. The Stats API lists game 2 at game 1's time plus
+    # five minutes until game 1 ends, so both games found game 1's odds row -
+    # 23 odds rows in market_close were claimed by two games each. There is no
+    # honest way to tell them apart by time, so refuse rather than guess.
+    same_feed = {"statsapi": SQL_STATS_API,
+                 "espn": SQL_ESPN}.get(feed_of(game_id))
+    for s in ([] if same_feed is None else con.execute(
+            f"SELECT game_id, away, home, start_time_utc FROM games g"
+            f" WHERE g.sport=? AND ({same_feed}) AND g.game_id != ?"
+            f"   AND g.start_time_utc >= ? AND g.start_time_utc <= ?",
+            (g["sport"], game_id, lo, hi)).fetchall()):
+        other = parse_utc(s["start_time_utc"])
+        if ((canon_team(s["away"]), canon_team(s["home"])) == want
+                and other is not None
+                and abs((other - start).total_seconds()) / 60 <= MATCH_WINDOW_MIN):
+            return None, (f"ambiguous: doubleheader ({s['game_id']} starts "
+                          f"within {MATCH_WINDOW_MIN} min)")
+
     near.sort()
     # Two candidates inside the window means the window is too wide for this
     # slate, not that the game is ambiguous. Say so plainly rather than guess.
