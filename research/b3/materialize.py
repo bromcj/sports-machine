@@ -1,6 +1,6 @@
 """Turn the raw prop responses into one scoreable table. Free, offline.
 
-    python props/materialize.py
+    python research/b3/materialize.py
 
 Reads data/props/raw/**/*.json.gz and writes data/props_nfl.parquet, one row
 per (game, book, market, player, line) with the over and under prices paired
@@ -32,10 +32,34 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-ROOT = Path(__file__).parent.parent
+ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(ROOT))
+import paths
 from bets.engine import american_to_prob
-from research.b3.backfill_nfl_props import RAW_DIR, PARQUET, load_progress
+
+# Written by the B3 purchase (research/b3/backfill_nfl_props.py, now in git
+# history only): the raw responses it bought, and its per-request ledger.
+RAW_DIR = paths.DATA_DIR / "props" / "raw"
+PROGRESS = paths.DATA_DIR / "props" / "progress.jsonl"
+PARQUET = paths.DATA_DIR / "props_nfl.parquet"
+
+
+def load_progress() -> dict:
+    """The purchase ledger, keyed by request."""
+    done = {}
+    if not PROGRESS.exists():
+        return done
+    with open(PROGRESS, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                r = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            done[r["key"]] = r
+    return done
 
 SHARP = "pinnacle"
 

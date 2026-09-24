@@ -92,8 +92,10 @@ season — and not a random 7%, one distinctive team entirely absent. Coverage
 went 93.0% → 99.7% once `canon_team` existed.
 
 Every feed join now has a canonical name table and a validation step that runs
-**before** any spend. The NFL equivalent (`props/nfl_teams.py`) is checked
-against a live events list at dry-run time for the same reason.
+**before** any spend. The NFL equivalent, `props/nfl_teams.py`, was checked
+against a live events list at dry-run time for the same reason; it went with
+the finished B3 purchase scripts in the 2026-09-24 review (git history keeps
+it - `docs/reports/sweep-pass2.md`).
 
 ---
 
