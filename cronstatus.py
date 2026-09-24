@@ -89,7 +89,10 @@ def schedule_changed() -> dt.datetime | None:
     """
     try:
         p = subprocess.run(
-            ["git", "log", "-1", "--format=%cI", "--", str(WORKFLOW)],
+            # -G: only commits that changed a `- cron:` line. Editing any other
+            # step of the workflow does not change when the pulls are due.
+            ["git", "log", "-1", "--format=%cI", "-G", "- cron:", "--",
+             str(WORKFLOW)],
             capture_output=True, text=True, timeout=15, cwd=ROOT)
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return None
