@@ -1,51 +1,63 @@
 # Separating production from development
 
-## Current state — already done for you
+## Current state (checked 2026-09-24)
 
 | folder | role |
 |---|---|
-| `C:\Users\BromC\sports-machine` | **production**. Clean, holds the data, the scheduled task runs here. |
-| `C:\Users\BromC\sports-machine-dev` | **development**. Cloned, dependencies installed, 104 tests passing. |
+| `C:\Users\BromC\sports-machine` | **production**. Holds the real data; both scheduled tasks run here. It only ever pulls. |
+| `C:\Users\BromC\sports-machine-dev` | **development**. Edit here, run Claude Code here, push from here. |
 
-Nothing was moved and the scheduled task was not touched — it still points at
-production and next runs at 11:30am. Verified after setup:
+- dev **has its own `data/`** — a separate database, not production's. The
+  props collector's first, hand-fired run wrote there, so that collection
+  lives in dev, not production. dev also holds `data_golden/` (the fixed copy
+  the golden test runs against) and `data_phase1/` (a copy the command sweep
+  ran against). A command run in dev reads and writes dev's `data/` unless you
+  point it elsewhere.
+- `python -m pytest tests/ -q` passes: 385 passed, 2 skipped on a checkout
+  without `data_golden/` (the two skipped are the golden test).
+- `python audit.py` reports **86 passed, 0 failed** against a copy of
+  production's data.
 
-- dev has **no `data/`**, so it cannot reach the real database by accident
-- dev's `audit.py` reports **60 passed, 20 skipped, 0 failed** — it degrades
-  rather than crashing or falsely passing
-- dev reads production data only when you opt in, and that worked
-- production still shows 12,219 games and a clean working tree
-
-**What is left for you:** start editing in the dev folder instead of production.
-That is the only habit that has to change. Steps 1 and 2 below are kept for
-when you rebuild, not because you need to run them now.
+**What is left for you:** edit in the dev folder, never in production. That
+is the only habit that has to change. Steps 1 and 2 below are kept for when you
+rebuild, not because you need to run them now.
 
 ---
 
 ## The problem this solves
 
-Right now the scheduled job runs `git pull` and then executes code **in the
-same folder you and I are editing**. At 11:30am it places paper bets, writes to
-the database and settles wagers using whatever happened to be saved at 11:29.
+The scheduled job runs `git pull` and then executes code **in the folder it
+lives in**. At 11:30am it places paper bets, writes to the database and settles
+wagers using whatever is in that folder at the time.
 
-There is now a guard: `scheduled_check.bat` refuses to run if its folder has
-uncommitted changes, and writes the refusal to `logs\cronstatus-latest.txt`.
-That stops bad code running — but it means **every day you leave an edit
-unsaved, the job does nothing at all.** Two folders fixes that properly.
+So `scheduled_check.bat` guards itself. First it throws away the two changes
+the machine makes to tracked files on its own: `STATUS.md`, and
+`validation.json` when only its gate-2 block changed (the `paper` step
+recomputes that from the database minutes later). Anything else uncommitted —
+a real edit — makes it **refuse, loudly**: `logs\cronstatus-latest.txt` says
+REFUSED TO RUN and lists the files, `ALERTS.md` gets an ERROR, a desktop alert
+pops up, and the task exits with code 1 so Task Scheduler shows it failed.
+Nothing is pulled, bet or settled that run.
+
+That stops bad code running — but it means **every run you leave an edit in
+production, the job does nothing at all.** Two folders fixes that properly.
+
+(It also runs from a copy of itself in `%TEMP%`, because its own `git pull` can
+rewrite the file while Windows is still reading it.)
 
 ---
 
-## The plan I recommend
+## The plan
 
 Your **current folder stays production.** It already has the data, the
-scheduled task, and the backups. Nothing moves, nothing gets repointed, and the
-irreplaceable thing — `data/` — is never touched.
+scheduled tasks, and the backups. Nothing moves, nothing gets repointed, and
+the irreplaceable thing — `data/` — is never touched.
 
-You get a **new folder for editing.**
+You get a **separate folder for editing.**
 
 | Folder | Role |
 |---|---|
-| `C:\Users\BromC\sports-machine` | **production** — the scheduled task runs here. Don't edit it. |
+| `C:\Users\BromC\sports-machine` | **production** — the scheduled tasks run here. Don't edit it. |
 | `C:\Users\BromC\sports-machine-dev` | **development** — edit here, run Claude Code here |
 
 Moving data and repointing a scheduled task are the two operations that can
@@ -71,27 +83,34 @@ python -m pip install -r requirements-dev.txt
 python -m pytest tests/ -q
 ```
 
-You should see **100 passed**. That works with no data at all — which is the
-point of those tests.
+You should see everything pass (385 passed, 2 skipped on 2026-09-24 — the two
+skipped are the golden test, which needs `data_golden/`). That works with no
+data at all — which is the point of those tests.
 
 ---
 
-## Step 2 — what the dev copy can see *(already set up)*
+## Step 2 — what the dev copy can see
 
-The dev folder starts with **no `data/`**, so it cannot touch your real
-database, and `audit.py` there will mostly report SKIP. That is correct and
-safe.
+A **fresh** clone has no `data/`, so it cannot touch your real database, and
+`audit.py` there will mostly report SKIP. That is correct and safe. (Today's
+dev folder is not fresh — it has its own `data/`; see the top of this page.)
 
-When you want the dev copy to read the **real** data, set this for that
+When you want the dev copy to use the **real** data, set this for that
 PowerShell window only:
 
 ```powershell
 $env:SPORTS_MACHINE_DATA_DIR = "C:\Users\BromC\sports-machine\data"
 ```
 
-It lasts until you close the window. **Do not** use `setx` for this — that
-would make it permanent, and then a stray command in dev could write to
+Everything you run in that window then **reads and writes** production's
+database. It lasts until you close the window. **Do not** use `setx` for this —
+that would make it permanent, and then a stray command in dev could write to
 production's database.
+
+The variable moves `data/` and nothing else. `validation.json`, `STATUS.md`,
+`archive/`, `logs/` and `ALERTS.md` stay the dev folder's own, and
+`backup.py` still writes into the real backup folder — set
+`SPORTS_MACHINE_BACKUP_DIR` as well if you do not want that.
 
 To check which data a folder is pointed at, from either one:
 
@@ -116,12 +135,15 @@ git push
 ```
 
 Production picks it up on its own: `scheduled_check.bat` runs
-`git pull --rebase --autostash` at the start of every run.
+`git pull --rebase --autostash` at the start of every run that passes its
+guard.
 
 **Production only ever pulls.** Never edit, never commit, never push from
 `C:\Users\BromC\sports-machine`. If you do, the guard will refuse to run the
-job and say so in the log — which is the safe failure, but it means nothing
-collected that day.
+job, loudly (log, `ALERTS.md`, desktop alert, failed task) — the safe failure,
+but it means nothing collected that run. Running `refresh` in production
+counts: it rewrites gate 1 in `validation.json`, which the guard will not throw
+away (COMMANDS.md, *Weekly-ish*).
 
 ---
 
@@ -132,8 +154,9 @@ neutral place. It is more flexible and it is also the version where something
 can go wrong, so only do this if you want it:
 
 ```powershell
-# 1. Stop the scheduled task first.
+# 1. Stop BOTH scheduled tasks first. The collector writes to data\ too.
 Disable-ScheduledTask -TaskName "SportsMachine-CronStatus"
+Disable-ScheduledTask -TaskName "SportsMachine-Collect"
 ```
 
 ```powershell
@@ -159,16 +182,21 @@ cd C:\Users\BromC\sports-machine-dev ; python paths.py
 ```
 
 ```powershell
-# 6. Turn the task back on.
+# 6. Turn both tasks back on.
 Enable-ScheduledTask -TaskName "SportsMachine-CronStatus"
+Enable-ScheduledTask -TaskName "SportsMachine-Collect"
 ```
 
 If step 5 shows the old path, close and reopen PowerShell — `setx` only affects
 new windows.
 
+Only `data/` moves. `validation.json`, `STATUS.md`, `archive/`, `logs/` and
+`ALERTS.md` stay in each folder, and backups keep going wherever they went
+before.
+
 ---
 
-## Step 4 — if you ever do repoint the scheduled task
+## Step 4 — if you ever do repoint the scheduled tasks
 
 Only needed if you decide production should live somewhere else:
 
@@ -179,10 +207,14 @@ $a = New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\cmd.exe" `
 Set-ScheduledTask -TaskName "SportsMachine-CronStatus" -Action $a
 ```
 
-Then check it took:
+`SportsMachine-Collect` runs `collect_props.bat` from the same folder; repoint
+it the same way, with that file name and task name.
+
+Then check they took:
 
 ```powershell
 (Get-ScheduledTask -TaskName "SportsMachine-CronStatus").Actions.Arguments
+(Get-ScheduledTask -TaskName "SportsMachine-Collect").Actions.Arguments
 ```
 
 ---
@@ -194,22 +226,22 @@ Then check it took:
 ```powershell
 cd C:\Users\BromC\sports-machine-dev ; python paths.py ; python -m pytest tests/ -q
 ```
-Expect: a `data` path **inside the dev folder**, and 100 tests passing.
+Expect: a `data` path **inside the dev folder**, and every test passing.
 
 **2. Production still points where you think.**
 
 ```powershell
 cd C:\Users\BromC\sports-machine ; python paths.py ; python audit.py
 ```
-Expect: your real data path, and **82 passed, 0 failed**.
+Expect: your real data path, and **86 passed, 0 failed**.
 
 **3. The scheduled job is not refusing.** After the next 11:30am or 10pm run:
 
 ```powershell
 Get-Content C:\Users\BromC\sports-machine\logs\cronstatus-latest.txt -TotalCount 6
 ```
-If it says **REFUSED TO RUN**, the production folder has uncommitted changes.
-Fix with:
+If it says **REFUSED TO RUN** (so will `ALERTS.md`), the production folder has
+an uncommitted change the job would not throw away. Fix with:
 
 ```powershell
 cd C:\Users\BromC\sports-machine ; git status --short ; git checkout -- .
@@ -223,6 +255,9 @@ are not wanted — it discards them.
 ```powershell
 cd C:\Users\BromC\sports-machine ; python notify.py
 ```
+
+It says which channels delivered. It leaves a test alert in `ALERTS.md` until
+the next scheduled run rewrites it.
 
 ---
 
