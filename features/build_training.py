@@ -206,8 +206,16 @@ if __name__ == "__main__":
     df, feats = assemble()
     print(f"\nFeatures: {feats}\nTraining table saved -> {OUT.name}\n")
     if df["season"].nunique() >= 3:
+        # intercept=True: D1 measured the home intercept against the REAL
+        # de-vigged closing line and it improved log loss in all three test
+        # seasons (-0.00090, -0.00282, -0.00125; pooled +0.001662, t = +2.98,
+        # day-block bootstrap). See research/d1_calibration.py. The bar in
+        # NEXT_TASK.md was "helps in every season", not on average.
+        # logloss_model_noint stays in the output so that bar is re-checked on
+        # every run instead of being taken on trust.
         results = walk_forward(df, feats, target_col="run_diff",
-                               season_col="season", sport="mlb")
+                               season_col="season", sport="mlb",
+                               intercept=True)
         print(results.to_string(index=False))
         # Recorded as PLACEHOLDER: novig_home_prob is a 0.54 constant, not a
         # market. bets.engine keeps refusing MLB however well this scores,
@@ -221,7 +229,12 @@ if __name__ == "__main__":
         # most recent fold chose; k stays the config prior (k_fit says the
         # data has no better answer - see model/train.py).
         alpha = float(results.iloc[-1]["alpha"])
-        path = save_model("mlb", df, feats, "run_diff", alpha)
+        # The intercept the most recent fold fitted, carried into the saved
+        # bundle so served predictions match the ones walk_forward scored.
+        # Training and serving computing different probabilities under the same
+        # name is the exact shape of the rest_days bug.
+        a_fit = float(results.iloc[-1]["a_used"])
+        path = save_model("mlb", df, feats, "run_diff", alpha, a=a_fit)
         # Not relative_to(ROOT): with SPORTS_MACHINE_DATA_DIR set, the model
         # lives outside this checkout entirely.
         try:

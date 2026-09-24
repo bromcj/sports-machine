@@ -38,8 +38,15 @@ def model_path(sport: str) -> Path:
 
 def save(sport: str, df: pd.DataFrame, feature_cols: list[str],
          target_col: str, alpha: float, k: float | None = None,
-         date_col: str = "game_date") -> Path:
-    """Fit on everything in df and write the bundle to data/models/<sport>.joblib."""
+         date_col: str = "game_date", a: float = 0.0) -> Path:
+    """Fit on everything in df and write the bundle to data/models/<sport>.joblib.
+
+    `a` is the home intercept (docs-calibration.md / D1). It travels in the
+    bundle rather than being looked up at prediction time, for the same reason
+    feature_cols does: a saved model has to carry everything needed to
+    reproduce its own output, or a later config edit silently reprices every
+    game the old model scored.
+    """
     model = make_pipeline(StandardScaler(), Ridge(alpha=alpha))
     model.fit(df[feature_cols], df[target_col])
 
@@ -55,6 +62,7 @@ def save(sport: str, df: pd.DataFrame, feature_cols: list[str],
         "target_col": target_col,
         "alpha": alpha,
         "k": float(k if k is not None else SPORTS[sport]["k_default"]),
+        "a": float(a),
         "n_train_rows": int(len(df)),
         "seasons": sorted(int(s) for s in df["season"].unique()) if "season" in df else [],
         "trained_through": trained_through,
@@ -102,7 +110,14 @@ def predict_margin(bundle: dict, features: pd.DataFrame) -> np.ndarray:
 
 
 def win_prob(bundle: dict, margins: np.ndarray) -> np.ndarray:
-    return 1.0 / (1.0 + np.exp(-bundle["k"] * np.asarray(margins)))
+    """sigmoid(a + k*margin), with both read from the bundle.
+
+    .get("a", 0.0) rather than ["a"]: a bundle written before D1 has no `a`,
+    and the right behaviour for one of those is the behaviour it was scored
+    with, not a crash and not a silent new number.
+    """
+    a = float(bundle.get("a", 0.0))
+    return 1.0 / (1.0 + np.exp(-(a + bundle["k"] * np.asarray(margins))))
 
 
 def describe(sport: str) -> str:
@@ -110,7 +125,8 @@ def describe(sport: str) -> str:
         b = load(sport)
     except (FileNotFoundError, ValueError) as e:
         return f"{sport}: {e}"
-    return (f"{sport}: ridge(alpha={b['alpha']}) k={b['k']} | "
+    return (f"{sport}: ridge(alpha={b['alpha']}) k={b['k']} "
+            f"a={b.get('a', 0.0):+.4f} | "
             f"{b['n_train_rows']} rows, seasons {b['seasons']} | "
             f"trained through {b['trained_through']} | "
             f"{len(b['feature_cols'])} features")

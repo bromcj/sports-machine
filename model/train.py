@@ -20,23 +20,64 @@ ALPHAS = [0.1, 1.0, 10.0, 50.0, 100.0]
 
 
 def margin_to_win_prob(margin: np.ndarray, sport: str = "mlb",
-                       k: float | None = None) -> np.ndarray:
+                       k: float | None = None, a: float = 0.0) -> np.ndarray:
     """Logistic mapping from projected margin (home - away) to home win prob.
+
     k defaults per sport from config (MLB runs vs NBA points differ ~2.5x);
-    refit empirically in calibrate.py per sport."""
+    refit empirically in calibrate.py per sport.
+
+    `a` is a home intercept. Without it this returns exactly 0.500 at a
+    predicted margin of zero, but home teams win ~53% of MLB games while the
+    mean predicted margin is only about +0.04 runs - runs and wins are not
+    linearly related near zero, and a bare sigmoid has nothing to absorb the
+    difference. Measured out of sample the model under-rated home teams by
+    ~2.9 points in every season, uniformly across the whole reliability curve
+    (docs-calibration.md), which is what a missing intercept looks like rather
+    than a wrong k.
+
+    Defaults to 0.0, so any caller that does not pass one keeps the old
+    behaviour exactly.
+    """
     k = k if k is not None else SPORTS[sport]["k_default"]
-    return 1.0 / (1.0 + np.exp(-k * np.asarray(margin)))
+    return 1.0 / (1.0 + np.exp(-(a + k * np.asarray(margin))))
+
+
+def fit_intercept(margin: np.ndarray, home_won: np.ndarray, k: float) -> float:
+    """Maximum-likelihood `a` for sigmoid(a + k*margin), with k held fixed.
+
+    k fixed is the whole point: docs-calibration.md showed the miscalibration
+    is a uniform shift, constant across every predicted-probability bucket. A
+    wrong k would show as a gap that widens away from 0.5, and it does not.
+    Fitting both would let a slope absorb an intercept's job on this sample and
+    then behave differently on the next one.
+    """
+    from scipy.optimize import minimize_scalar
+    margin, y = np.asarray(margin, dtype=float), np.asarray(home_won, dtype=float)
+
+    def nll(a):
+        p = np.clip(1.0 / (1.0 + np.exp(-(a + k * margin))), 1e-9, 1 - 1e-9)
+        return -np.mean(y * np.log(p) + (1 - y) * np.log(1 - p))
+
+    return float(minimize_scalar(nll, bounds=(-1.0, 1.0), method="bounded").x)
 
 run_diff_to_win_prob = margin_to_win_prob  # backward-compat alias
 
 
 def walk_forward(df: pd.DataFrame, feature_cols: list[str],
                  target_col: str = "run_diff", season_col: str = "season",
-                 sport: str = "mlb"):
+                 sport: str = "mlb", intercept: bool = False):
     """Expanding-window walk-forward CV. Returns per-season out-of-sample metrics.
 
     df must contain one row per game with features, target (home minus away runs),
     season, home_won (0/1), and novig_home_prob (market baseline) columns.
+
+    `intercept` turns on the home intercept from docs-calibration.md. It is
+    fitted leave-one-season-out INSIDE the training window - the same
+    out-of-fold predictions k_fit already uses - so the intercept applied to a
+    test season was never shown a game from it. Off by default: it is measured
+    per sport before being switched on, and `logloss_model_noint` is always
+    reported so the every-season bar stays checkable from the output rather
+    than on trust.
 
     The reported `k_fit` is diagnostic only. It is the margin -> win-prob
     steepness the TRAINING data would choose, measured on out-of-fold
@@ -75,12 +116,18 @@ def walk_forward(df: pd.DataFrame, feature_cols: list[str],
             fm.fit(fold_tr[feature_cols], fold_tr[target_col])
             oof_pred.append(fm.predict(fold_va[feature_cols]))
             oof_y.append(fold_va["home_won"].values)
-        k_fit = fit_k(np.concatenate(oof_pred), np.concatenate(oof_y))
+        oof_pred, oof_y = np.concatenate(oof_pred), np.concatenate(oof_y)
+        k_fit = fit_k(oof_pred, oof_y)
+        # The home intercept, from the SAME out-of-fold predictions, so it
+        # carries the same leakage guarantee k_fit does.
+        a_fit = fit_intercept(oof_pred, oof_y, SPORTS[sport]["k_default"])
+        a_used = a_fit if intercept else 0.0
 
         model = make_pipeline(StandardScaler(), Ridge(alpha=best_alpha))
         model.fit(train[feature_cols], train[target_col])
         pred_diff = model.predict(test[feature_cols])
-        pred_prob = margin_to_win_prob(pred_diff, sport)
+        pred_prob = margin_to_win_prob(pred_diff, sport, a=a_used)
+        prob_noint = margin_to_win_prob(pred_diff, sport)
 
         y = test["home_won"].values
         # Per-game paired losses, so a season's margin can be judged against
@@ -99,10 +146,16 @@ def walk_forward(df: pd.DataFrame, feature_cols: list[str],
             "alpha": best_alpha,
             "k_used": SPORTS[sport]["k_default"],
             "k_fit": round(k_fit, 3),
+            "a_fit": round(a_fit, 4),
+            "a_used": round(a_used, 4),
             "n_games": int(len(y)),
             "ll_diff_sd": float(np.std(diff, ddof=1)) if len(diff) > 1 else 0.0,
             "rmse": mean_squared_error(test[target_col], pred_diff) ** 0.5,
             "logloss_model": log_loss(y, np.clip(pred_prob, 1e-6, 1 - 1e-6)),
+            # Always reported, whether or not the intercept is applied, so the
+            # "helps in EVERY season" bar can be checked from the output.
+            "logloss_model_noint": log_loss(
+                y, np.clip(prob_noint, 1e-6, 1 - 1e-6)),
             "brier_model": float(np.mean((pred_prob - y) ** 2)),
             "logloss_market": log_loss(
                 y, np.clip(test["novig_home_prob"].values, 1e-6, 1 - 1e-6)),

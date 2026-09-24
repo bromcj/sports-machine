@@ -282,6 +282,40 @@ def main() -> int:
         skip("no training row carries an off-season rest gap", "no training table")
         skip("training rest_days is the same feature live serves", "no training table")
 
+    # The home intercept (D1 / docs-calibration.md) is the third way train and
+    # serve can disagree, and the quietest: both paths return a perfectly
+    # plausible probability, they are just not the same probability.
+    #
+    #   margin_to_win_prob(a=...)  is what walk_forward scored the model with
+    #   persist.win_prob()         reads `a` back out of the saved bundle
+    #
+    # If the bundle lost `a`, or the two formulas drifted apart, every served
+    # price would sit ~2.6 points away from the one the gates were computed on,
+    # with nothing visible to show for it. Recomputed here, not read.
+    import numpy as _np
+    from model.train import margin_to_win_prob as _m2p
+    from model import persist as _persist
+    _marg = _np.array([-1.5, -0.3, 0.0, 0.4, 2.0])
+    check("serving uses the same a + k*margin the model was scored with",
+          _np.allclose(_persist.win_prob({"k": 0.35, "a": 0.0923}, _marg),
+                       _m2p(_marg, "mlb", k=0.35, a=0.0923)))
+    check("a bundle saved before the intercept still serves its old numbers",
+          _np.allclose(_persist.win_prob({"k": 0.35}, _marg),
+                       _m2p(_marg, "mlb", k=0.35)))
+    check("a = 0 is exactly the old mapping",
+          _np.allclose(_m2p(_marg, "mlb", k=0.35, a=0.0),
+                       1 / (1 + _np.exp(-0.35 * _marg))))
+    try:
+        _a = float(_persist.load("mlb").get("a", 0.0))
+        # Positive and small. Home teams win ~53% while the mean predicted
+        # margin is ~+0.04 runs, so the correction is upward and modest. A
+        # negative or large one means something broke upstream, not that the
+        # fit found something interesting.
+        check("the saved MLB model carries a sane home intercept",
+              0.0 < _a < 0.3, f"a = {_a:+.4f}")
+    except (FileNotFoundError, ValueError) as _e:
+        skip("the saved MLB model carries a sane home intercept", str(_e)[:60])
+
     # ---------------------------------------------------------- game status
     section("GAME STATUS")
     from feeds import espn_status, stats_api_status
