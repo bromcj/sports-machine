@@ -1,0 +1,58 @@
+game_id,sport,game_date,start_time_utc,venue_id,away,home,away_starter,home_starter,away_score,home_score,status,away_starter_id,home_starter_id
+mlb-espn-401817051,mlb,2026-09-23,2026-09-23T17:10Z,,Washington Nationals,Detroit Tigers,,,4,2,final,,
+mlb-espn-401923610,mlb,2026-09-23,2026-09-23T17:35Z,,Toronto Blue Jays,Baltimore Orioles,,,2,4,final,,
+mlb-espn-401817058,mlb,2026-09-23,2026-09-23T19:45Z,,Minnesota Twins,San Francisco Giants,,,4,2,final,,
+mlb-espn-401817050,mlb,2026-09-23,2026-09-23T22:35Z,,Toronto Blue Jays,Baltimore Orioles,,,2,4,final,,
+mlb-espn-401817047,mlb,2026-09-23,2026-09-23T22:40Z,,Milwaukee Brewers,Philadelphia Phillies,,,4,1,final,,
+mlb-espn-401817048,mlb,2026-09-23,2026-09-23T22:40Z,,St. Louis Cardinals,Pittsburgh Pirates,,,5,1,final,,
+mlb-espn-401817046,mlb,2026-09-23,2026-09-23T23:00Z,,Cleveland Guardians,Boston Red Sox,,,0,1,final,,
+mlb-espn-401817049,mlb,2026-09-23,2026-09-23T23:05Z,,Tampa Bay Rays,New York Yankees,,,2,9,final,,
+mlb-espn-401817045,mlb,2026-09-23,2026-09-23T23:15Z,,Cincinnati Reds,Atlanta Braves,,,2,3,final,,
+mlb-espn-401817052,mlb,2026-09-23,2026-09-23T23:40Z,,Chicago White Sox,Kansas City Royals,,,4,5,final,,
+mlb-espn-401817053,mlb,2026-09-23,2026-09-23T23:40Z,,Miami Marlins,Chicago Cubs,,,3,2,final,,
+mlb-espn-401817054,mlb,2026-09-23,2026-09-24T00:05Z,,New York Mets,Texas Rangers,,,7,2,final,,
+mlb-espn-401817055,mlb,2026-09-23,2026-09-24T00:40Z,,Arizona Diamondbacks,Colorado Rockies,,,5,3,final,,
+mlb-espn-401817056,mlb,2026-09-23,2026-09-24T01:40Z,,Los Angeles Angels,Athletics,,,3,7,final,,
+mlb-espn-401817057,mlb,2026-09-23,2026-09-24T02:00Z,,Houston Astros,Seattle Mariners,,,5,6,final,,
+mlb-espn-401817059,mlb,2026-09-23,2026-09-24T02:10Z,,San Diego Padres,Los Angeles Dodgers,,,5,1,final,,
+mlb-824223,mlb,2026-09-23,2026-09-23T17:10:00Z,2394,Washington Nationals,Detroit Tigers,Richard Lovelady,Framber Valdez,4,2,final,663992,664285
+mlb-824785,mlb,2026-09-23,2026-09-23T17:35:00Z,2,Toronto Blue Jays,Baltimore Orioles,Max Scherzer,Chris Bassitt,2,4,final,453286,605135
+mlb-824784,mlb,2026-09-23,2026-09-23T22:35:00Z,2,Toronto Blue Jays,Baltimore Orioles,CJ Van Eyk,Trey Gibson,2,4,final,669310,694346
+mlb-823168,mlb,2026-09-23,2026-09-23T19:45:00Z,2395,Minnesota Twins,San Francisco Giants,Connor Prielipp,Cesar Perdomo,4,2,final,687570,702885
+mlb-823327,mlb,2026-09-23,2026-09-23T22:40:00Z,31,St. Louis Cardinals,Pittsburgh Pirates,Matthew Liberatore,Lake Bachar,5,1,final,669461,669199
+mlb-823410,mlb,2026-09-23,2026-09-23T22:40:00Z,2681,Milwaukee Brewers,Philadelphia Phillies,Logan Henderson,Aaron Nola,4,1,final,701656,605400
+mlb-823492,mlb,2026-09-23,2026-09-23T23:05:00Z,3313,Tampa Bay Rays,New York Yankees,Mason Englert,Gerrit Cole,2,9,final,669438,543037
+mlb-824710,mlb,2026-09-23,2026-09-23T23:10:00Z,3,Cleveland Guardians,Boston Red Sox,Foster Griffin,Sonny Gray,0,1,final,656492,543243
+mlb-824868,mlb,2026-09-23,2026-09-23T23:15:00Z,4705,Cincinnati Reds,Atlanta Braves,Andrew Abbott,Chris Sale,2,3,final,671096,519242
+mlb-824060,mlb,2026-09-23,2026-09-23T23:40:00Z,7,Chicago White Sox,Kansas City Royals,Bryan Hudson,Seth Lugo,4,5,final,663542,607625
+mlb-824625,mlb,2026-09-23,2026-09-23T23:40:00Z,17,Miami Marlins,Chicago Cubs,Ryan Gusto,Kevin Gausman,3,2,final,687473,592332
+mlb-822841,mlb,2026-09-23,2026-09-24T00:05:00Z,5325,New York Mets,Texas Rangers,Nolan McLean,Cody Bradford,7,2,final,690997,674003
+mlb-824301,mlb,2026-09-23,2026-09-24T00:40:00Z,19,Arizona Diamondbacks,Colorado Rockies,Merrill Kelly,Mason Adams,5,3,final,518876,690279
+mlb-824951,mlb,2026-09-23,2026-09-24T01:40:00Z,2529,Los Angeles Angels,Athletics,Walbert Ureña,Jeffrey Springs,3,7,final,700712,605488
+mlb-823894,mlb,2026-09-23,2026-09-24T02:10:00Z,22,San Diego Padres,Los Angeles Dodgers,Robbie Ray,Yoshinobu Yamamoto,5,1,final,592662,808967
+mlb-823086,mlb,2026-09-23,2026-09-24T02:10:00Z,680,Houston Astros,Seattle Mariners,Ethan Pecko,George Kirby,5,6,final,814490,669923
+mlb-espn-401817063,mlb,2026-09-24,2026-09-24T16:35Z,,St. Louis Cardinals,Pittsburgh Pirates,,,,,scheduled,,
+mlb-espn-401817065,mlb,2026-09-24,2026-09-24T18:10Z,,Chicago White Sox,Kansas City Royals,,,,,scheduled,,
+mlb-espn-401817066,mlb,2026-09-24,2026-09-24T18:20Z,,Miami Marlins,Chicago Cubs,,,,,scheduled,,
+mlb-espn-401817067,mlb,2026-09-24,2026-09-24T18:35Z,,New York Mets,Texas Rangers,,,,,scheduled,,
+mlb-espn-401817068,mlb,2026-09-24,2026-09-24T19:10Z,,Arizona Diamondbacks,Colorado Rockies,,,,,scheduled,,
+mlb-espn-401817062,mlb,2026-09-24,2026-09-24T22:05Z,,Milwaukee Brewers,Philadelphia Phillies,,,,,scheduled,,
+mlb-espn-401817061,mlb,2026-09-24,2026-09-24T22:45Z,,Cleveland Guardians,Boston Red Sox,,,,,scheduled,,
+mlb-espn-401817064,mlb,2026-09-24,2026-09-24T23:05Z,,Tampa Bay Rays,New York Yankees,,,,,scheduled,,
+mlb-espn-401817060,mlb,2026-09-24,2026-09-24T23:15Z,,Cincinnati Reds,Atlanta Braves,,,,,scheduled,,
+mlb-espn-401817069,mlb,2026-09-24,2026-09-25T01:40Z,,Los Angeles Angels,Seattle Mariners,,,,,scheduled,,
+mlb-espn-401817070,mlb,2026-09-24,2026-09-25T01:40Z,,Houston Astros,Athletics,,,,,scheduled,,
+mlb-espn-401817071,mlb,2026-09-24,2026-09-25T02:10Z,,San Diego Padres,Los Angeles Dodgers,,,,,scheduled,,
+nfl-espn-401872948,nfl,2026-09-24,2026-09-25T00:15Z,,Atlanta Falcons,Green Bay Packers,,,,,scheduled,,
+mlb-823326,mlb,2026-09-24,2026-09-24T16:35:00Z,31,St. Louis Cardinals,Pittsburgh Pirates,Kyle Leahy,Paul Skenes,,,scheduled,681517,694973
+mlb-824059,mlb,2026-09-24,2026-09-24T18:10:00Z,7,Chicago White Sox,Kansas City Royals,David Sandlin,Randy Dobnak,,,scheduled,689818,677976
+mlb-824623,mlb,2026-09-24,2026-09-24T18:20:00Z,17,Miami Marlins,Chicago Cubs,Tyler Phillips,Matthew Boyd,,,scheduled,663969,571510
+mlb-822842,mlb,2026-09-24,2026-09-24T18:35:00Z,5325,New York Mets,Texas Rangers,Zac Thornton,Kumar Rocker,,,scheduled,804267,677958
+mlb-824298,mlb,2026-09-24,2026-09-24T19:10:00Z,19,Arizona Diamondbacks,Colorado Rockies,Eduardo Rodriguez,Tanner Gordon,,,scheduled,593958,685299
+mlb-823411,mlb,2026-09-24,2026-09-24T22:05:00Z,2681,Milwaukee Brewers,Philadelphia Phillies,Bryse Wilson,Andrew Painter,,,scheduled,669060,691725
+mlb-824707,mlb,2026-09-24,2026-09-24T22:45:00Z,3,Cleveland Guardians,Boston Red Sox,Daniel Espino,Ranger Suarez,,,scheduled,682982,624133
+mlb-823493,mlb,2026-09-24,2026-09-24T23:05:00Z,3313,Tampa Bay Rays,New York Yankees,Ian Seymour,Cam Schlittler,,,scheduled,693855,693645
+mlb-824866,mlb,2026-09-24,2026-09-24T23:15:00Z,4705,Cincinnati Reds,Atlanta Braves,Brady Singer,Tyler Mahle,,,scheduled,663903,641816
+mlb-824950,mlb,2026-09-24,2026-09-25T01:40:00Z,2529,Houston Astros,Athletics,Peter Lambert,Mason Barnett,,,scheduled,663567,686930
+mlb-823087,mlb,2026-09-24,2026-09-25T01:40:00Z,680,Los Angeles Angels,Seattle Mariners,Grayson Rodriguez,Bryan Woo,,,scheduled,680570,693433
+mlb-823895,mlb,2026-09-24,2026-09-25T02:10:00Z,22,San Diego Padres,Los Angeles Dodgers,Nick Pivetta,Tyler Glasnow,,,scheduled,601713,607192
