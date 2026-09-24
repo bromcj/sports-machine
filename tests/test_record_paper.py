@@ -72,3 +72,12 @@ def test_a_placebo_scoring_noise_does_not_block(isolated):
 def test_info_is_reported_per_slot(isolated):
     r = isolated.record_paper("t", STRONG, slots=MIXED, coverage=0.95)
     assert set(r["info_by_slot"]) == set(v.SLOTS)
+
+
+def test_two_standard_errors_is_not_enough(isolated):
+    # Pins PAPER_CLV_SIGMA as used inside record_paper: nothing else tested a
+    # result between 1 and 3 SE, so lowering the bar to 1 SE passed everything.
+    se = 1.0 / 60 ** 0.5
+    two_se = [2 * se + (1 if i % 2 else -1) for i in range(60)]
+    r = isolated.record_paper("t", two_se, slots=MIXED, coverage=0.95)
+    assert not r["passed"] and "within noise" in r["reason"]

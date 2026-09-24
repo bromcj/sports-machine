@@ -48,6 +48,13 @@ PAPER_BANKROLL = 1000.0        # notional; only the CLV matters for gate 2
 PLACE_CUTOFF_MIN = 10
 
 
+def placebo_side(game_id: str) -> str:
+    """The placebo's RANDOM side: seeded from the game_id, so it is
+    reproducible and cannot be reshuffled after the result is known."""
+    coin = int(hashlib.sha256(game_id.encode()).hexdigest(), 16) & 1
+    return "home" if coin else "away"
+
+
 def place(date: str | None = None, sport: str = "mlb") -> int:
     """Log today's qualifying picks as paper bets. Returns how many were placed.
 
@@ -113,8 +120,7 @@ def place(date: str | None = None, sport: str = "mlb") -> int:
         # from the game_id so it is reproducible and cannot be reshuffled after
         # the fact. If this clears gate 2 too, the gate is measuring something
         # other than the model.
-        coin = int(hashlib.sha256(p["game_id"].encode()).hexdigest(), 16) & 1
-        pl_side = "home" if coin else "away"
+        pl_side = placebo_side(p["game_id"])
         pl_line = b["home_ml"] if pl_side == "home" else b["away_ml"]
 
         # record_bet opens its OWN connection, so `con` must not be holding an

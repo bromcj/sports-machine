@@ -30,3 +30,10 @@ def test_clv_sign_is_the_right_way_round():
     # Taking +120 and closing at +100 is a BETTER price than the close.
     assert clv_pct(+120, +100) > 0
     assert clv_pct(+100, +120) < 0
+
+
+def test_devig_on_a_lopsided_price():
+    # A constant (0.5, 0.5) passed every other de-vig test here.
+    a, h = novig_probs(+150, -170)
+    assert abs(a - 0.4 / (0.4 + 170 / 270)) < 1e-12
+    assert abs(h - (170 / 270) / (0.4 + 170 / 270)) < 1e-12

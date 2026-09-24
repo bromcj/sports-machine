@@ -202,6 +202,21 @@ KEEP_COLS = ["game_pk", "game_date", "home_team", "away_team", "inning",
 RESETTLE_DAYS = 3
 
 
+def topup_window(last, target, year: int, current_year: int):
+    """(start, end) dates for a Statcast top-up. See topup_statcast()."""
+    season_end = dt.date.fromisoformat(SEASON_DATES[year][1])
+    if year == current_year:
+        # The current season's end date in SEASON_DATES is a frozen "today"
+        # from whenever backfill was written, so it caps the top-up at a date
+        # already in the past. Statcast returns nothing for days with no games,
+        # so asking past the real season end is harmless.
+        season_end = max(season_end, target)
+    end = min(target - dt.timedelta(days=1), season_end)
+    start = max(last - dt.timedelta(days=RESETTLE_DAYS - 1),
+                dt.date.fromisoformat(SEASON_DATES[year][0]))
+    return start, end
+
+
 def topup_statcast(year: int | None = None, today: str | None = None,
                    allow_full_download: bool = True) -> int:
     """Append only the days the current season's parquet is missing.
@@ -234,13 +249,6 @@ def topup_statcast(year: int | None = None, today: str | None = None,
     df = pd.read_parquet(out)
     last = pd.to_datetime(df["game_date"]).max().date()
     target = dt.date.fromisoformat(today) if today else dt.date.today()
-    season_end = dt.date.fromisoformat(SEASON_DATES[year][1])
-    if year == dt.date.today().year:
-        # The current season's end date in SEASON_DATES is a frozen "today"
-        # from whenever backfill was written, so it caps the top-up at a date
-        # already in the past. Statcast returns nothing for days with no games,
-        # so asking past the real season end is harmless.
-        season_end = max(season_end, target)
     # Stop at YESTERDAY, and always re-read the last few days.
     #
     # The old version fetched last_date+1 .. TODAY, then next time started at
@@ -257,9 +265,7 @@ def topup_statcast(year: int | None = None, today: str | None = None,
     # still being written; and re-fetch RESETTLE_DAYS back, because Savant
     # revises. Dedupe keeps the last copy, so re-reading is free of charge
     # beyond the download.
-    end = min(target - dt.timedelta(days=1), season_end)
-    start = max(last - dt.timedelta(days=RESETTLE_DAYS - 1),
-                dt.date.fromisoformat(SEASON_DATES[year][0]))
+    start, end = topup_window(last, target, year, dt.date.today().year)
     if start > end:
         print(f"[{year}] statcast current through {last}; nothing to add "
               f"(top-ups stop at yesterday).")
