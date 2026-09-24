@@ -10,7 +10,6 @@ the thing that cannot be collected again.
 """
 import datetime as dt
 import gzip
-import os
 from pathlib import Path
 
 import paths

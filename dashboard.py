@@ -30,7 +30,6 @@ everything below it labels, orders, sizes and words.
 import contextlib
 import datetime as dt
 import io
-import json
 import sys
 import webbrowser
 from pathlib import Path

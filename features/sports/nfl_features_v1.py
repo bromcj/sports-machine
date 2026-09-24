@@ -10,7 +10,6 @@ form), with a minimum of 4 prior games before a value is emitted.
 """
 import pandas as pd
 import numpy as np
-from pathlib import Path
 
 import paths
 

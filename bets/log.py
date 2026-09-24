@@ -3,7 +3,6 @@
 Kill criterion enforced in review(): rolling 50-bet average CLV < 0
 => STOP BETTING, diagnose. Judge process by CLV, not last week's P&L.
 """
-import datetime as dt
 import sys
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
 from db import connect, utc_now
@@ -74,7 +73,7 @@ CLOSING_WINDOW_MIN = 60
 
 # Matching lives in feeds.py now: same teams, first pitch within a window,
 # never date strings. Re-exported so callers do not all have to change.
-from feeds import odds_twin, pregame_books           # noqa: E402,F401
+from feeds import odds_twin           # noqa: E402,F401
 
 
 def closing_snapshot(game_id: str, book: str | None = None):

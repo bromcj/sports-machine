@@ -45,7 +45,6 @@ import pandas as pd
 
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
-import paths
 from db import connect
 from bets.engine import american_to_prob
 

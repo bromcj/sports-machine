@@ -40,8 +40,6 @@ commit runs the fast set; the audit text is captured at the start of the phase
 and re-checked before the merge. `--with-audit` forces it.
 """
 import argparse
-import csv
-import hashlib
 import json
 import os
 import re

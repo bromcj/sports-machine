@@ -1,8 +1,6 @@
 """record_paper's decisions, isolated from the database."""
-import json
 import random
 import pytest
-from pathlib import Path
 import model.validation as v
 
 

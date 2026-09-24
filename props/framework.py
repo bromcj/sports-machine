@@ -36,7 +36,7 @@ numbers that a sport-specific builder produced and turns them into a
 probability, a comparison against a market price, and a graded result. Each new
 prop is a PropSpec plus a builder - not a new codebase.
 """
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd

@@ -25,13 +25,11 @@ import json
 import sys
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 from db import connect
-from features.sports.mlb_features import (
     FEATURE_COLUMNS, PARK_PRIORS, TEAM_ABBR, load_statcast,
     park_factor_table, pitcher_game_lines, venue_id)
 

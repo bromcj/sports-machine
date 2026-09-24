@@ -34,8 +34,6 @@ model being re-fit; it is one number being added to an existing prediction.
 import sys
 from pathlib import Path
 
-import numpy as np
-import pandas as pd
 
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))

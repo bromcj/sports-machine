@@ -54,7 +54,6 @@ SAFETY
 import argparse
 import datetime as dt
 import gzip
-import json
 import sys
 from collections import defaultdict
 from pathlib import Path

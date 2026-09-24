@@ -28,7 +28,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from db import LATEST_PREDICTION, connect
-from bets.engine import evaluate, novig_probs
+from bets.engine import evaluate
 from bets.guardrails import daily_exposure, flags_for_game
 from bets.engine import american_to_decimal
 from bets.log import (CLOSING_WINDOW_MIN, closing_snapshot, fair_prob,

@@ -27,7 +27,6 @@ so the consensus fallback is not theoretical.
 import gzip
 import json
 import sys
-from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
@@ -35,9 +34,8 @@ import pandas as pd
 
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
-import paths
 from bets.engine import american_to_prob
-from research.b3.backfill_nfl_props import RAW_DIR, PROGRESS, PARQUET, load_progress
+from research.b3.backfill_nfl_props import RAW_DIR, PARQUET, load_progress
 
 SHARP = "pinnacle"
 

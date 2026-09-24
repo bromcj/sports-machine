@@ -79,39 +79,15 @@ def slot_of(et_hour: int) -> str:
 # How many standard errors a result must clear before it counts as evidence
 # rather than noise.
 #
-# The two gates use DIFFERENT values, and the reason is the difference between
-# testing once and testing every night.
+# Gate 1 is recomputed only on a deliberate retrain over fixed seasons, so the
+# conventional two-sigma bar is right. Gate 2 is re-tested EVERY NIGHT as paper
+# bets accumulate, which is optional stopping: at two sigma a zero-skill model
+# passes 15.3% of the time over a season, not 2.5%. Three sigma restores the
+# guarantee for about 11 points of power.
 #
-# Gate 1 is recomputed only when someone deliberately reruns training, on the
-# same fixed set of seasons. Rerunning it does not generate new evidence and
-# does not give the result new chances to pass, so the conventional ~95%
-# two-sigma bar is the right one.
-#
-# Gate 2 is re-tested EVERY NIGHT as paper bets accumulate, and each night is
-# a fresh opportunity to cross the bar by luck. That is optional stopping, and
-# it is not a small effect. Simulated on a zero-skill model with this
-# project's own CLV spread, 3 bets a day:
-#
-#     testing              30d     60d    120d    180d    365d
-#     once at the end     1.8%    2.5%    2.1%    2.8%    2.2%
-#     every night         5.5%   10.4%   13.2%   15.3%   16.7%
-#
-# Two sigma checked nightly is a 15% false-pass rate, not 2.5% - six times
-# looser than it looks. Raising the bar restores it, at a cost measured
-# rather than guessed (180-day season, nightly):
-#
-#     sigma   false pass   detects a real +0.5% edge
-#     2.0        13.6%             99.1%
-#     2.5         5.2%             95%ish
-#     3.0         1.6%             88.4%
-#     3.5         0.3%             74.5%
-#
-# 3.0 buys back the guarantee for ~11 points of power, which is the right
-# trade when the downside is staking money on a model with no edge.
-#
-# CALIBRATED TO A NIGHTLY CADENCE. If score() ever runs more often than once
-# a day, or paper volume per day changes a lot, rerun that simulation - the
-# number is empirical, not a constant of nature.
+# The simulations behind both numbers are in docs/gates.md. They are empirical:
+# if score() runs more often than nightly, or paper volume changes a lot, rerun
+# the SEQUENTIAL TESTING section of audit.py before touching these.
 PAPER_CLV_SIGMA = 3.0
 WALK_FORWARD_SIGMA = 2.0
 
@@ -345,18 +321,11 @@ def record_paper(sport: str, clvs, slots=None, coverage=None,
     is re-tested nightly; see the constant for the simulation. Under that
     cadence it holds a zero-skill model to ~1.6% over a season.
 
-    The cost is honest and worth stating: a small edge needs a lot of
-    evidence. Bets required to detect a real edge 80% of the time, nightly
-    testing at sigma 3.0:
-
-        true edge   bets     days at ~3/day
-        +1.0%       ~121         ~40
-        +0.5%       ~454        ~151
-        +0.25%     ~1764        ~588
-
-    That is months, not weeks. It is the correct trade: the cost of passing
-    a model with no edge is losing money indefinitely; the cost of making a
-    good model wait is waiting.
+    The cost is honest: a small edge needs a lot of evidence - roughly 454
+    bets to detect a real +0.5% edge 80% of the time, which is months at
+    three a day. docs/gates.md has the full table. That is the correct
+    trade: passing a model with no edge loses money indefinitely, making a
+    good model wait only makes it wait.
 
     The 50-bet floor stays as a separate, independent condition: a handful
     of lucky bets can clear a t-statistic, and n is the cheaper guard.

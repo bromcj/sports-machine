@@ -13,7 +13,6 @@ Outputs:
 Resumable: skips pbp seasons already summarized.
 """
 import sys
-from pathlib import Path
 
 import paths
 import pandas as pd

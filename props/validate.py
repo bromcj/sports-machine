@@ -39,9 +39,9 @@ import pandas as pd
 
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
-from props.distributions import negbin, over_push_under, \
+from props.distributions import negbin, \
     prob_over_excluding_push
-from props.framework import PropSpec, price, drop_voids
+from props.framework import PropSpec
 from research.stats import logloss, block_bootstrap, fmt
 
 # Where the naive baseline regresses to before a player has any history.

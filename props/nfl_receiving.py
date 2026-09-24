@@ -45,7 +45,6 @@ sys.path.insert(0, str(ROOT))
 import paths
 from props.framework import SPECS, shrink, price
 from props.nfl_data import receiving_weeks, inactives
-from props.nfl_teams import to_abbr
 from props.validate import naive_baseline, outcome_over, calibration_by_decile
 from research.stats import logloss, block_bootstrap, fmt
 

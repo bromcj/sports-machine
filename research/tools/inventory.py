@@ -12,7 +12,6 @@ long functions, layout, audit-vs-test overlap, doc drift.
 """
 import ast
 import re
-import sys
 from collections import defaultdict
 from pathlib import Path
 

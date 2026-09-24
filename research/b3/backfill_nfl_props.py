@@ -39,7 +39,6 @@ ODDS_API_KEY - the free 500/month one - and spent four credits against the
 wrong account before anyone noticed.
 """
 import argparse
-import datetime as dt
 import gzip
 import json
 import sys
@@ -55,7 +54,7 @@ from db import connect, utc_now
 from ingest import http
 from research.b3.b3_dryrun import schedule, snapshot_plan, MARKETS, SPORT, API
 from research.b3.check_thursday import _key
-from props.nfl_teams import to_name, to_abbr
+from props.nfl_teams import to_name
 from research.b3.preflight import BOOKS
 
 OUT_DIR = paths.DATA_DIR / "props"

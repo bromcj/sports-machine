@@ -26,7 +26,6 @@ rename cost this project 169 games exactly that way. The check runs against a
 live events list, which is free.
 """
 import argparse
-import datetime as dt
 import json
 import sys
 from collections import Counter

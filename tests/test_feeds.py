@@ -1,5 +1,4 @@
 """Feed identity, local dates, status mapping, and the C1 matching case."""
-import datetime as dt
 import pytest
 from feeds import (SQL_STATS_API, espn_status, et_date, feed_of, parse_utc,
                    slot_or_none, stats_api_status)
