@@ -102,6 +102,8 @@ def gather():
     d["pooled"] = {s: (v.status(s) or {}).get("pooled", {}) for s in d["gates"]}
     d["baseline_kind"] = {s: (v.status(s) or {}).get("baseline_kind", "")
                           for s in d["gates"]}
+    d["paper"] = {s: (v.status(s) or {}).get("paper_trading") or {}
+                  for s in d["gates"]}
 
     # ridge coefficients, refit on the current training table
     d["coef"] = []
@@ -126,8 +128,11 @@ def gather():
     from model.train import walk_forward
     if tp.exists():
         try:
+            # intercept=True: the configuration gate 1 was graded on and
+            # the served model uses (features/build_training.py). Without it
+            # this reported 54.5% for a model nobody runs; with it, 55.2%.
             r = walk_forward(df, feats, target_col="run_diff",
-                             season_col="season", sport="mlb")
+                             season_col="season", sport="mlb", intercept=True)
             accs = list(r["accuracy"])
         except Exception:
             accs = []
@@ -152,8 +157,8 @@ def gather():
 #
 #   accuracy    share of test-season games where the higher-probability side
 #               won. walk_forward trains on seasons[:i] and scores season[i]
-#               from i=2, so it is measured on the LAST THREE seasons only -
-#               6,497 games, not the 10,482 in the table.
+#               from i=2, so it is measured on the last three seasons only,
+#               not the whole table.
 #   "how wrong" sklearn.metrics.log_loss on the predicted win probability.
 #               Formally logarithmic loss / cross-entropy. Lower is better,
 #               and being confident and wrong is punished hardest.
@@ -501,14 +506,21 @@ def mlb_verdict(d):
         return ('<strong>Baseball has not been measured against a real market '
                 'yet.</strong> The football results below are the same test '
                 'where years of real bookmaker prices are on public record.')
+    passed = bool(((d.get("gates") or {}).get("mlb") or {}).get("walk_forward"))
+    head = ("Baseball has sat this test, and passed it." if passed
+            else "Baseball has sat this test, and failed it.")
+    nfl = (d.get("seasons") or {}).get("nfl") or []
+    nfl_lost = sum(1 for s in nfl if not s.get("beat_market"))
+    tail = ("" if not nfl else
+            f" The football results below are the same test; it lost "
+            f"{nfl_lost} of {len(nfl)} seasons there.")
     return (
-        f'<strong>Baseball has now sat this test, and failed it.</strong> '
+        f'<strong>{head}</strong> '
         f'Real de-vigged closing prices were bought and the model lost in '
         f'<strong>{len(lost)} of {len(seasons)} seasons</strong> &mdash; '
         f'pooled {pooled.get("mean_ll_diff", 0):+.4f} log loss, '
         f't&nbsp;=&nbsp;{pooled.get("t_stat", 0):+.1f} over '
-        f'{pooled.get("n_games", 0):,} games. The football results below are '
-        f'the same test, and it lost every season there too.')
+        f'{pooled.get("n_games", 0):,} games.{tail}')
 
 
 # ==================================================================== page
@@ -517,14 +529,30 @@ def legend(a, b):
             f'<span><i class="sw2"></i>{b}</span></div>')
 
 
-ROADMAP = [
-    ("Collect real bookmaker prices", "now"),
-    ("Predict games before they happen", "now"),
-    ("Grade completed games against bookmaker closing prices", "next"),
-    ("Check the bets would clear the bookmaker's cut", "later"),
-    ("Human approval", "later"),
-    ("Betting unlocked", "goal"),
-]
+def roadmap(d, sport="mlb"):
+    """(label, css, tag) per step, read off what validation.py recorded.
+
+    This was a typed-in list that said grading closing prices came "next" and
+    that baseball could sit the test football failed - after baseball had
+    sat it and failed. A step's state now comes from the gates.
+    """
+    g = (d.get("gates") or {}).get(sport) or {}
+    paper = (d.get("paper") or {}).get(sport) or {}
+    n = paper.get("n_bets", 0)
+    steps = [("Collect real bookmaker prices", "now", "Happening now"),
+             ("Predict games before they happen", "now", "Happening now")]
+    if g.get("walk_forward"):
+        steps.append(("Beat the real closing line on past seasons", "now", "Passed"))
+    else:
+        steps.append(("Beat the real closing line on past seasons", "next",
+                      "Failed - needs a better model"))
+    steps.append((f"Paper-trade 50+ graded picks and clear the noise "
+                  f"({n} graded so far)", "now" if g.get("paper_trading") else
+                  "next", "Passed" if g.get("paper_trading") else "Collecting"))
+    steps.append(("Human approval", "now" if g.get("armed") else "later",
+                  "Approved" if g.get("armed") else ""))
+    steps.append(("Betting unlocked", "goal", "Goal"))
+    return steps
 
 
 def build(d):
@@ -562,10 +590,8 @@ def build(d):
     priced_note = (f'{n_games} of tonight&rsquo;s {d["n_pred"]} predicted '
                    f'games have a bookmaker price so far.'
                    if d["n_pred"] > n_games else "")
-    TAG = {"now": "Happening now", "next": "Next", "goal": "Goal", "later": ""}
     steps = ""
-    for label, when in ROADMAP:
-        tag = TAG[when]
+    for label, when, tag in roadmap(d):
         steps += (f'<li class="step {when}"><span class="dot"></span>'
                   f'<span class="st">{esc(label)}</span>'
                   + (f'<span class="tag">{esc(tag)}</span>' if tag else
@@ -854,8 +880,8 @@ def build(d):
   <p class="note">Where the project actually is, and what it is waiting for.</p>
   <ol class="road">{steps}</ol>
   <p class="note">The program collects bookmaker prices three times a day on its
-  own. Once there are enough, baseball can sit the same test football just failed —
-  and until it passes, the code keeps the bet locked.</p>
+  own, and paper-trades every day. Until all three checks above pass, the code
+  keeps the bet locked.</p>
 </section>
 
 </div>
@@ -893,10 +919,23 @@ def to_png(width: int = 1080, tall: int = 8000, pad: int = 28):
     if not browser:
         print("No Edge or Chrome found, so no PNG. The HTML still works.")
         return None
-    subprocess.run([browser, "--headless=new", "--disable-gpu", "--hide-scrollbars",
-                    "--force-color-profile=srgb", f"--screenshot={PNG}",
-                    f"--window-size={width},{tall}", OUT.as_uri()],
-                   capture_output=True, timeout=120)
+    import tempfile
+    import time
+    PNG.unlink(missing_ok=True)
+    # Its own profile folder, so an Edge window the owner already has open
+    # does not swallow the request; and a short wait, because the launcher
+    # returns before the headless child has written the file (measured: the
+    # image appeared about 0.5 s after the process exited).
+    with tempfile.TemporaryDirectory() as profile:
+        subprocess.run([browser, "--headless=new", "--disable-gpu",
+                        "--hide-scrollbars", "--force-color-profile=srgb",
+                        f"--user-data-dir={profile}", f"--screenshot={PNG}",
+                        f"--window-size={width},{tall}", OUT.as_uri()],
+                       capture_output=True, timeout=120)
+        for _ in range(40):
+            if PNG.exists() and PNG.stat().st_size > 0:
+                break
+            time.sleep(0.25)
     if not PNG.exists():
         print("The browser did not produce an image.")
         return None
