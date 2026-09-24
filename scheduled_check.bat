@@ -6,40 +6,42 @@ REM
 REM   ~11:30am   merge the cloud's morning pull, PLACE paper bets, report
 REM   ~10:00pm   merge the day's pulls, SETTLE finished paper bets, report
 REM
-REM One script, two triggers - bets/paper.py works out what is actually due,
-REM so neither run needs to know which one it is.
-REM
-REM Why this exists at all: placing a paper bet needs the trained model and
-REM the Statcast file, and both live in data/, which is gitignored and must
-REM stay out of a public repo. The cloud runner therefore CANNOT build
-REM predictions - its own log says "no predictions: No Statcast parquet" - so
-REM gate 2 can only ever be fed from this machine.
-REM
-REM Costs no API credits and never places a real bet. bets/engine.py still
-REM refuses every real wager until all three gates pass.
-REM
-REM Deliberately NOT machine_daily.bat: that one pauses for a keypress,
-REM which is right for a double-click and wrong for an unattended task.
-REM It DOES share the refusal on uncommitted edits - see below.
+REM One script, two triggers - bets/paper.py works out what is actually due.
+REM It needs data/ (gitignored), so gate 2 can only be fed from this machine.
+REM Costs no API credits and never places a real bet.
 REM ---------------------------------------------------------------------------
+
+REM RUN FROM A COPY. `git pull` can rewrite this file mid-run, and cmd reads
+REM it by byte offset. A copy in %TEMP% is never pulled over.
+if /i "%~1"=="--from-copy" goto from_copy
+copy /y "%~f0" "%TEMP%\sportsmachine-scheduled-check.bat" >nul 2>&1
+if errorlevel 1 goto in_place
+call "%TEMP%\sportsmachine-scheduled-check.bat" --from-copy "%~dp0."
+exit /b
+:in_place
 cd /d "%~dp0"
+goto setup
+:from_copy
+cd /d "%~2"
+:setup
 
 set PY=C:\Users\BromC\AppData\Local\Python\pythoncore-3.14-64\python.exe
 set LOG=logs\cronstatus-latest.txt
 if not exist logs mkdir logs
 
-REM ---------------------------------------------------------------------------
-REM REFUSE TO RUN ON A DIRTY FOLDER.
-REM
-REM This job runs unattended at 11:30am and 10pm. Pointed at a folder somebody
-REM is editing, a half-finished change becomes production: it places paper
-REM bets, writes to the database and settles wagers using whatever happened to
-REM be saved at that moment.
-REM
-REM Refusing is the whole reason a separate production checkout exists - see
-REM docs/production-setup.md. The refusal is LOGGED, because a job that
-REM silently does nothing is worse than one that fails loudly.
-REM ---------------------------------------------------------------------------
+REM Tracked files this job rewrites itself. STATUS.md is the cloud's. The
+REM gate-2 block of validation.json is recomputed by `paper` below, so it is
+REM discarded only if nothing else changed; a gate-1 record or an arm() is
+REM never thrown away - the guard refuses instead.
+git checkout -- STATUS.md >nul 2>&1
+git diff --quiet -- validation.json
+if errorlevel 1 (
+  "%PY%" model\validation.py --only-paper-changed
+  if not errorlevel 1 git checkout -- validation.json
+)
+
+REM REFUSE TO RUN ON A DIRTY FOLDER, loudly: ALERTS.md, a desktop alert and
+REM a failing exit code. See docs/production-setup.md.
 git diff --quiet
 if errorlevel 1 goto dirty
 git diff --staged --quiet
@@ -54,22 +56,20 @@ goto proceed
   echo   %CD%
   echo.
   echo Nothing was pulled, predicted, bet, settled or scored.
-  echo.
-  echo If this is your development folder that is expected - the scheduled
-  echo task should point at a separate production checkout instead. See
-  echo docs/production-setup.md
+  echo Commit the change from the development folder, or discard it here.
   echo.
   echo Uncommitted:
   git status --short
 )
 type "%LOG%"
-exit /b 0
+"%PY%" -c "import datetime as d, notify; notify.deliver([{'level': 'ERROR', 'check': 'scheduled job', 'detail': 'REFUSED to run: uncommitted changes in the production folder. Nothing was pulled, bet or settled. See logs/cronstatus-latest.txt'}], d.datetime.now(d.timezone.utc).isoformat(timespec='seconds'))"
+exit /b 1
+REM Padding. The run that first pulls in a new version of this file is still
+REM reading the OLD one, and carries on at the old byte offset of the line
+REM after `git pull`. Keep that offset unchanged when editing above this line.
+REM (pad xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx)
 
 :proceed
-
-REM Pull quietly so the archive is current. If this fails - no internet, a
-REM conflict, local edits - carry on anyway: a slightly stale report is far
-REM more useful than no report, and the report says when it was generated.
 git pull --rebase --autostash origin main >nul 2>&1
 if errorlevel 1 (
   set PULLNOTE=could not pull from GitHub - this report may be stale
@@ -103,11 +103,14 @@ if errorlevel 1 (
   echo.
   "%PY%" run_daily.py cronstatus
   echo.
-  REM Whole-system health, appended to logs\health.jsonl. Nothing is sent
-  REM anywhere yet - see DELIVERY in monitor.py.
+  REM Whole-system health, appended to logs\health.jsonl, and delivered to
+  REM ALERTS.md plus a desktop alert for anything serious (notify.py).
   "%PY%" monitor.py
 )
 
-REM Keep a dated copy so a bad night can be compared against a good one.
-copy /y "%LOG%" "logs\cronstatus-%DATE:~-4%%DATE:~4,2%%DATE:~7,2%.txt" >nul 2>&1
+REM Keep a dated copy per run, so a bad night can be compared against a good
+REM one. The hour is in the name: the 10pm copy used to overwrite the 11:30.
+set HH=%TIME:~0,2%
+set HH=%HH: =0%
+copy /y "%LOG%" "logs\cronstatus-%DATE:~-4%%DATE:~4,2%%DATE:~7,2%-%HH%.txt" >nul 2>&1
 exit /b 0

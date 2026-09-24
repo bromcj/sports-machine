@@ -502,5 +502,59 @@ def report() -> str:
     return "\n".join(explain(s) for s in sorted(data))
 
 
+def only_paper_changed(committed: dict, local: dict) -> bool:
+    """True when discarding `local` for `committed` can only fail closed.
+
+    The scheduled job runs in a checkout that must stay clean, and
+    bets/paper.score() rewrites this file every time a paper bet settles. That
+    gate-2 block is recomputed from the database on every run, so throwing the
+    local copy away before a pull loses nothing. Anything else in the file is a
+    decision - a gate-1 record, or a human's arm() - and must never be
+    discarded silently, so this says no whenever anything else differs, or
+    whenever the committed copy would claim a gate-2 pass the local one does
+    not.
+    """
+    def rest(d):
+        out = {k: v for k, v in (d or {}).items() if k != "paper_trading"}
+        if out.get("armed") is False:
+            out.pop("armed")        # record_paper writes armed=False on a fail
+        return out
+
+    for sport in set(committed) | set(local):
+        c, l = committed.get(sport) or {}, local.get(sport) or {}
+        if rest(c) != rest(l):
+            return False
+        c_pass = bool((c.get("paper_trading") or {}).get("passed"))
+        l_pass = bool((l.get("paper_trading") or {}).get("passed"))
+        if c_pass and not l_pass:
+            return False
+    return True
+
+
+def _committed_copy() -> dict | None:
+    """validation.json as the current git commit has it. None if unreadable."""
+    import subprocess
+    try:
+        r = subprocess.run(["git", "show", "HEAD:validation.json"],
+                           capture_output=True, text=True, encoding="utf-8",
+                           cwd=PATH.parent, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if r.returncode != 0:
+        return None
+    try:
+        return json.loads(r.stdout)
+    except json.JSONDecodeError:
+        return None
+
+
 if __name__ == "__main__":
+    import sys
+    if "--only-paper-changed" in sys.argv:
+        # Exit 0: the only local change is the recomputable gate-2 block, so
+        # scheduled_check.bat may discard it before pulling. Exit 1: keep it,
+        # and let the dirty-tree guard refuse.
+        committed = _committed_copy()
+        raise SystemExit(0 if committed is not None
+                         and only_paper_changed(committed, _load()) else 1)
     print(report())
