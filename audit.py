@@ -3,8 +3,10 @@
     python audit.py
 
 Every check re-derives its answer rather than trusting a comment or a previous
-run. It is safe to run any time: it writes only to temporary directories,
-restores validation.json afterwards, and never touches archive/ or the odds API.
+run. It is safe to run any time: its test databases go in one temporary
+folder that is removed when it exits, it rewrites the repo's validation.json
+during the gate checks and puts it back exactly, and it never touches archive/
+or the odds API.
 
 Exit code is 0 when everything passes and 1 otherwise, so it can gate a cron
 job or a release. Checks whose inputs are absent (a fresh clone with no
@@ -55,6 +57,11 @@ def section(title):
 
 
 def main() -> int:
+    import atexit
+    import shutil
+    root_tmp = tempfile.mkdtemp(prefix="audit-")
+    tempfile.tempdir = root_tmp       # every mkdtemp() below lands in here
+    atexit.register(shutil.rmtree, root_tmp, True)
     print("=" * 78)
     print(f"SELF-AUDIT  {ROOT}")
     print("=" * 78)
@@ -185,10 +192,17 @@ def main() -> int:
         n_pred = conL.execute("SELECT COUNT(*) FROM predictions").fetchone()[0]
         n_games = conL.execute(
             "SELECT COUNT(DISTINCT game_id) FROM predictions").fetchone()[0]
+        # COUNT(*) >= COUNT(DISTINCT game_id) is always true. What would make
+        # the table overwrite is a UNIQUE key on game_id, so look for one.
+        uniq = [i for i in conL.execute("PRAGMA index_list(predictions)")
+                if i[2] and [c[2] for c in conL.execute(
+                    f"PRAGMA index_info('{i[1]}')")] == ["game_id"]]
+        pk = [c[1] for c in conL.execute("PRAGMA table_info(predictions)")
+              if c[5]]
         check("predictions are append-only, not overwritten",
-              n_pred >= n_games,
-              f"{n_pred} rows over {n_games} games, {dup} game(s) predicted more"
-              f" than once")
+              not uniq and pk == ["prediction_id"],
+              f"key {pk}, no unique game_id index; {n_pred} rows over "
+              f"{n_games} games, {dup} predicted more than once")
         latest = conL.execute(
             f"SELECT COUNT(*) c, COUNT(DISTINCT game_id) g FROM ({_LP})"
         ).fetchone()
@@ -466,8 +480,12 @@ def main() -> int:
             top = pd.to_datetime(col).max()
             latest = top if latest is None else max(latest, top)
         gap = (pd.Timestamp(dt.date.today()) - pd.Timestamp(latest)).days
-        check("statcast lag is visible", True,
-              f"{gap} day(s) behind (Statcast itself lags ~1)")
+        import monitor as _mon
+        seen = [f.get("lag") for f in _mon.run_checks()
+                if f["check"] == "statcast is current"]
+        check("statcast lag is visible", seen == [gap],
+              f"{gap} day(s) behind (Statcast itself lags ~1); monitor "
+              f"reports {seen}")
         # The invariant the bug above violated: a season's stored type must not
         # depend on whether it has ever been topped up.
         check("every statcast season stores game_date the same way",
@@ -583,7 +601,8 @@ def main() -> int:
         if sc:
             from features.sports.mlb_features import load_statcast
             scd = load_statcast()
-            row = mlb[mlb.season == mlb.season.max()].iloc[len(mlb) // 20]
+            newest = mlb[mlb.season == mlb.season.max()]
+            row = newest.iloc[len(newest) // 20]
             pa = scd[(scd.woba_denom > 0) & (scd.bat_team == row.home_ab)]
             w = lambda d_: d_.woba_value.sum() / d_.woba_denom.sum()
             span = pd.Timedelta(days=30)
@@ -821,14 +840,23 @@ def main() -> int:
         blog4.grade(rid, -200, True, minutes_before_start=20)
         bpaper.connect = dbmod4.connect
         c4 = dbmod4.connect()
-        paper_clvs = [r["clv_pct"] for r in c4.execute(
-            "SELECT clv_pct FROM bets WHERE mode='paper' AND clv_pct IS NOT NULL")]
-        all_clvs = [r["clv_pct"] for r in c4.execute(
-            "SELECT clv_pct FROM bets WHERE clv_pct IS NOT NULL")]
+        # Both carry the gate-2 input; only the paper one may reach it.
+        c4.execute("UPDATE bets SET info_pct=5.0 WHERE bet_id IN (?,?)",
+                   (pid, rid))
+        c4.commit()
+        real_cs = bpaper.closing_snapshot
+        bpaper.closing_snapshot = lambda gid, book=None: {
+            "commence_time": "2026-09-23T23:05:00Z"}
+        try:
+            fed, _ = bpaper._graded(c4, "mlb", "paper")
+            every = c4.execute("SELECT COUNT(*) FROM bets WHERE info_pct IS NOT NULL"
+                               ).fetchone()[0]
+        finally:
+            bpaper.closing_snapshot = real_cs
         c4.close()
         check("gate 2 counts paper bets only, not real ones",
-              len(paper_clvs) == 1 and len(all_clvs) == 2,
-              f"{len(paper_clvs)} paper of {len(all_clvs)} graded")
+              len(fed) == 1 and every == 2,
+              f"bets.paper._graded fed {len(fed)} of {every} graded to gate 2")
     finally:
         dbmod4.DB_PATH = real4
         blog4.connect = dbmod4.connect
