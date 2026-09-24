@@ -38,9 +38,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from db import DB_PATH
 
-KEEP = 14                      # daily backups retained; ~30 MB at current size
-TABLES = ["games", "odds_snapshots", "features", "predictions", "bets",
-          "merged_files"]
+KEEP = 14                      # newest files kept (not days); ~92 MB each now
+# Every table db.py creates. The row-count check used to cover six, so a
+# backup missing market_close (the paid closes gate 1 is judged on) or
+# odds_history_progress (which snapshots were bought) still "verified".
+TABLES = ["games", "odds_snapshots", "features", "models", "predictions",
+          "market_scores", "api_usage", "probables_history",
+          "odds_history_progress", "market_close", "merged_files", "bets"]
 
 
 def backup_dir() -> Path:
