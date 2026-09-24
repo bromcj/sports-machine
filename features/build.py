@@ -199,14 +199,21 @@ def _row(g, pen, off, sform, rest, pf, asof):
         return None, "no prior game found for one side (rest days unknown)"
 
     hk, ak = sform[int(hid)], sform[int(aid)]
-    venue = venue_id(ha, asof.year)
+    # The Stats API venue id, which is what park_factor_table() and training
+    # key on. This used to be venue_id(ha, year) - a team code like 'COL' -
+    # which never matches a numeric key, so every live row got the static
+    # prior (COL 1.12 against 1.2245 in training) and gate 2 paper-traded a
+    # different pricing function from the one gate 1 validated.
+    team_venue = venue_id(ha, asof.year)
+    venue = str(g["venue_id"]) if g["venue_id"] else team_venue
     vec = {
         "home_pen_kbb_30d": pen[ha][0], "home_pen_pitches_3d": pen[ha][1],
         "away_pen_kbb_30d": pen[aa][0], "away_pen_pitches_3d": pen[aa][1],
         "home_off_woba_30d": off[ha], "away_off_woba_30d": off[aa],
         "home_sp_kbb_5s": hk, "away_sp_kbb_5s": ak,
         "home_rest_days": rest[ha], "away_rest_days": rest[aa],
-        "park_factor": pf.get((venue, asof.year), PARK_PRIORS.get(venue, 1.00)),
+        "park_factor": pf.get((venue, asof.year),
+                              PARK_PRIORS.get(team_venue, 1.00)),
     }
     if any(v is None for v in vec.values()):
         return None, "a feature came back empty"
