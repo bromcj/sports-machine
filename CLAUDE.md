@@ -10,17 +10,31 @@ familiarity with jargon.
 
 ## Never, without asking
 
-- **Don't spend API credits casually.** Only `morning` and `close` cost
-  anything: one Odds API credit **per in-season sport**, against a 500/month
-  cap already running ~360 in October. Never run either just to test a change.
-  Free and safe any time: `picks`, `audit`, `dashboard`, `grade`, `refresh`,
-  `backup`, `cronstatus`, `validation`, `healthcheck`, `merge_archive`.
+- **Don't spend API credits casually.** These spend Odds API credits:
+  `run_daily.py morning` and `close` (one credit **per in-season sport**),
+  `props/collect.py --run` (the `SportsMachine-Collect` task runs it five
+  times a day), `backfill_odds_history.py --execute`, `python ingest/odds.py`,
+  and the `research/b3/` scripts. There are two keys. The cloud's repo secret
+  is a 500/month key; its three daily pulls project to ~372 in October
+  (4 sports × 3 pulls × 31 days). Everything local spends the paid key in the
+  owner's Windows user environment — and `props/collect.py` plus two
+  `research/b3` scripts read it straight from the registry, so unsetting
+  `ODDS_API_KEY` in your shell does **not** stop them. Never run any of these
+  just to test a change.
+  Free and safe any time: `picks`, `audit`, `dashboard`, `backup`,
+  `cronstatus`, `validation`, `merge_archive`. Free, but they rewrite tracked
+  files: `healthcheck` rewrites `STATUS.md`; `grade`, `paper` and `refresh`
+  rewrite `validation.json`. The production scheduled job discards only the
+  machine's own changes (`STATUS.md`, and `validation.json` when only its
+  gate-2 block moved) and refuses on anything else — a `refresh` changes
+  gate 1, so it stops the next run. Don't run those four in production.
   (`refresh` is free but slow — it re-downloads Statcast and retrains.)
   To exercise the cloud workflow end to end, dispatch it with `mode=grade` —
   that path pulls no odds.
 - **Don't rewrite or delete `archive/` history.** Those CSVs are the only
   record of what prices existed at what moment. They are append-only.
-- **Don't touch the API key handling.** It reads from an env var and a repo
+- **Don't touch the API key handling.** It reads from an env var, the Windows
+  user registry (`props/collect.py`, two `research/b3` scripts) and a repo
   secret. Leave it alone.
 - **Ask before changing the database schema.** `db.py` migrates in place;
   a careless `ALTER` or a dropped column is not recoverable from `archive/`.
@@ -31,8 +45,10 @@ familiarity with jargon.
   to bet is never the fix.
   Every threshold in `model/validation.py` was set by simulation, not taste,
   and the reasoning sits beside the constant. `PAPER_CLV_SIGMA` is 3.0 rather
-  than the usual 2.0 because gate 2 is re-tested nightly and optional stopping
-  turns a 2.5% false-pass rate into 15%. If you change a sigma, rerun the
+  than the usual 2.0 because gate 2 is re-tested over and over and optional
+  stopping turns a 2.5% false-pass rate into 15%. That was simulated for one
+  test a day at 3 graded bets a day; the job now scores twice a day
+  ([docs/gates.md](docs/gates.md)). If you change a sigma, rerun the
   simulation in the SEQUENTIAL TESTING section of `audit.py`.
 
 ## Before you claim anything is fixed
@@ -59,9 +75,11 @@ If you were wrong, say so plainly in one sentence and move on.
 - **The three feeds mint incompatible game IDs.** MLB Stats says
   `mlb-823494`, The Odds API says `mlb-394e1e2b…`, ESPN says
   `mlb-espn-401817028` — for the same game. Effectively zero games carry both
-  a score and odds. `bets/log.py:odds_twin()` resolves them on
-  `(date, away, home)`; doubleheaders are ambiguous and are refused, not
-  guessed.
+  a score and odds. `feeds.odds_twin()` (re-exported by `bets/log.py`)
+  resolves them on canonical team names plus first pitch within 180 minutes,
+  never on date strings. A straight doubleheader — two games of one feed, same
+  teams, inside that window — is refused, not guessed; split doubleheaders
+  are told apart by time. A row with no `start_time_utc` can never match.
 - **Rolling features must exclude the game they describe.** Every window is
   `shift(1)`-ed at source. `audit.py` recomputes one from raw Statcast each
   run rather than trusting the code.
@@ -107,6 +125,12 @@ the results write-ups.
 
 - `data/` is gitignored and is the only copy of anything. `python backup.py`
   before anything risky.
+- `SPORTS_MACHINE_DATA_DIR` redirects `data/` and nothing else.
+  `validation.json`, `STATUS.md`, `archive/`, `logs/` and `ALERTS.md` are
+  always the checkout's own, and `backup.py` writes to the owner's real backup
+  rotation unless `SPORTS_MACHINE_BACKUP_DIR` is set too. `export_snapshots.py`
+  refuses to run outside GitHub Actions; don't pass `--local` — a local export
+  dumps the whole database into the public `archive/`.
 - Shell heredocs mangle `\n` and nested quotes in this environment. Use the
   Write/Edit tools for anything with escapes — several attempts were lost to
   this.
