@@ -5,41 +5,41 @@
     "cleared": false,
     "leave_one_season_out": {
       "all": {
-        "2024": -3.474436529064136,
-        "2025": -4.388701678348094,
-        "2026": -4.0774520627952064
+        "2024": -3.466243817117854,
+        "2025": -4.3702424776839575,
+        "2026": -4.0537561340396255
       },
       "worst_season": 2025,
-      "worst_t": -4.388701678348094
+      "worst_t": -4.3702424776839575
     },
     "pooled": {
-      "mean_ll_diff": -0.008191,
+      "mean_ll_diff": -0.008158,
       "n_games": 6533,
-      "se": 0.001679,
-      "t_stat": -4.877
+      "se": 0.00168,
+      "t_stat": -4.856
     },
     "reason": "lost to market in 3 of 3 seasons (2024, 2025, 2026)",
-    "recorded_at": "2026-09-24T01:36:49+00:00",
+    "recorded_at": "2026-09-24T03:00:22+00:00",
     "seasons": [
       {
         "beat_market": false,
-        "ll_diff_sd": 0.14559,
+        "ll_diff_sd": 0.145589,
         "logloss_market": 0.674005,
-        "logloss_model": 0.684798,
+        "logloss_model": 0.684726,
         "n_games": 2189,
         "season": 2024
       },
       {
         "beat_market": false,
-        "ll_diff_sd": 0.141244,
+        "ll_diff_sd": 0.141324,
         "logloss_market": 0.678337,
-        "logloss_model": 0.685218,
+        "logloss_model": 0.685192,
         "n_games": 2192,
         "season": 2025
       },
       {
         "beat_market": false,
-        "ll_diff_sd": 0.118598,
+        "ll_diff_sd": 0.118632,
         "logloss_market": 0.681781,
         "logloss_model": 0.688659,
         "n_games": 2152,
