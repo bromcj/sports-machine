@@ -1,0 +1,62 @@
+[
+ {
+  "check": "games reach a final state",
+  "count": 0,
+  "detail": "0 game(s) started over 12h ago and are still not final",
+  "level": "INFO"
+ },
+ {
+  "check": "no impossible finals",
+  "count": 0,
+  "detail": "0 final(s) with a missing or 0-0 score",
+  "level": "INFO"
+ },
+ {
+  "check": "feed matches agree on first pitch",
+  "count": 0,
+  "detail": "0 match(es) more than 180 min apart",
+  "level": "INFO"
+ },
+ {
+  "check": "paper bets settle",
+  "count": 0,
+  "detail": "0 bet(s) unsettled over 36h after first pitch",
+  "level": "INFO"
+ },
+ {
+  "check": "no bet used a price from after first pitch",
+  "count": 0,
+  "detail": "0 bet(s) priced at or after first pitch",
+  "level": "INFO"
+ },
+ {
+  "check": "statcast is current",
+  "detail": "2 day(s) behind (Savant itself lags ~1)",
+  "lag": 2,
+  "level": "INFO"
+ },
+ {
+  "check": "no truncated statcast game",
+  "count": 0,
+  "detail": "0 game(s) under 200 pitches",
+  "level": "INFO"
+ },
+ {
+  "check": "most of the slate is predicted",
+  "detail": "0/0 predicted, 0% skipped",
+  "level": "INFO",
+  "skipped_share": 0.0
+ },
+ {
+  "check": "mean predicted home probability is sane",
+  "detail": "0.497 over 54 predictions (expect 0.50-0.56)",
+  "level": "WARNING",
+  "mean_home_prob": 0.4966
+ },
+ {
+  "check": "odds API credits",
+  "detail": "41742 left of 100000 (42%)",
+  "level": "INFO",
+  "remaining": 41742
+ }
+]

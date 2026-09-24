@@ -1,0 +1,95 @@
+{
+ "mlb": {
+  "armed": false,
+  "baseline_kind": "market",
+  "cleared": false,
+  "leave_one_season_out": {
+   "all": {
+    "2024": -3.466243817117854,
+    "2025": -4.3702424776839575,
+    "2026": -4.0537561340396255
+   },
+   "worst_season": 2025,
+   "worst_t": -4.3702424776839575
+  },
+  "pooled": {
+   "mean_ll_diff": -0.008158,
+   "n_games": 6533,
+   "se": 0.00168,
+   "t_stat": -4.856
+  },
+  "reason": "lost to market in 3 of 3 seasons (2024, 2025, 2026)",
+  "seasons": [
+   {
+    "beat_market": false,
+    "ll_diff_sd": 0.145589,
+    "logloss_market": 0.674005,
+    "logloss_model": 0.684726,
+    "n_games": 2189,
+    "season": 2024
+   },
+   {
+    "beat_market": false,
+    "ll_diff_sd": 0.141324,
+    "logloss_market": 0.678337,
+    "logloss_model": 0.685192,
+    "n_games": 2192,
+    "season": 2025
+   },
+   {
+    "beat_market": false,
+    "ll_diff_sd": 0.118632,
+    "logloss_market": 0.681781,
+    "logloss_model": 0.688659,
+    "n_games": 2152,
+    "season": 2026
+   }
+  ]
+ },
+ "nfl": {
+  "armed": false,
+  "baseline_kind": "market",
+  "cleared": false,
+  "pooled": {
+   "mean_ll_diff": -0.037239,
+   "n_games": 1084,
+   "se": 0.007712,
+   "t_stat": -4.829
+  },
+  "reason": "lost to market in 4 of 4 seasons (2022, 2023, 2024, 2025)",
+  "seasons": [
+   {
+    "beat_market": false,
+    "ll_diff_sd": 0.250036,
+    "logloss_market": 0.608546,
+    "logloss_model": 0.640331,
+    "n_games": 269,
+    "season": 2022
+   },
+   {
+    "beat_market": false,
+    "ll_diff_sd": 0.242599,
+    "logloss_market": 0.627349,
+    "logloss_model": 0.661845,
+    "n_games": 272,
+    "season": 2023
+   },
+   {
+    "beat_market": false,
+    "ll_diff_sd": 0.272082,
+    "logloss_market": 0.587489,
+    "logloss_model": 0.640557,
+    "n_games": 272,
+    "season": 2024
+   },
+   {
+    "beat_market": false,
+    "ll_diff_sd": 0.250609,
+    "logloss_market": 0.609383,
+    "logloss_model": 0.638903,
+    "n_games": 271,
+    "season": 2025
+   }
+  ]
+ }
+}
