@@ -37,7 +37,7 @@ familiarity with jargon.
 
 ## Before you claim anything is fixed
 
-`python audit.py` must come back **48 passed, 0 failed**. It re-derives its
+`python audit.py` must come back **86 passed, 0 failed**. It re-derives its
 answers from live data rather than trusting comments, and it is the fastest
 way to know whether a change broke something.
 

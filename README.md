@@ -4,13 +4,20 @@ Predicts who wins baseball games, and refuses to bet on itself until it can
 prove it beats the bookmakers. Three checks, enforced in `bets/engine.py` — the
 program returns `bet: False`, it does not merely advise against one.
 
-**Status: not cleared to bet.** MLB has never been measured against a real
-market (its baseline is a 0.54 constant). NFL has, and lost to the closing line
-in all four test seasons. `python model/validation.py` prints the current state.
+**Status: not cleared to bet — and now for a measured reason rather than a
+missing measurement.** MLB has been scored against real de-vigged closing lines
+for 2024–2026 and **lost in all three seasons** (−0.0099 pooled, t = −5.5,
+n = 6,519). NFL lost in all four of its test seasons. NFL receiving props were
+bought and tested too, and lost by five to eleven standard errors.
+`python model/validation.py` prints the current state.
 
+- **The whole picture in two pages:**
+  [docs/state-of-the-machine.md](docs/state-of-the-machine.md)
+- **What was tested, and what it found:**
+  [docs/experiments.md](docs/experiments.md) — written before anything was fit
 - **Running it:** see [COMMANDS.md](COMMANDS.md)
 - **Looking at it:** `python dashboard.py`
-- **Checking it:** `python audit.py` — 48 checks against live data
+- **Checking it:** `python audit.py` — 86 checks against live data
 - **Keeping it:** `python backup.py` — verified snapshot of the database
 
 ## Setup (once)
@@ -35,10 +42,12 @@ Recorded in `validation.json`, enforced by `bets/engine.py:evaluate()`:
 | `paper_trading` | 50+ graded paper bets, mean CLV clearing 3 SE, across 3+ start-time buckets | `record_paper()` |
 | `armed` | a human calls `arm()`, which refuses until the first two pass | `arm()` |
 
-Beating a **placeholder** baseline clears nothing, however large the margin —
-that rule is why MLB is still blocked despite beating its constant 3 seasons
-out of 3. No record means not cleared, so a fresh checkout or a cloud runner
-refuses by default.
+Beating a **placeholder** baseline clears nothing, however large the margin.
+That rule used to be the reason MLB was blocked: it beat its home-rate constant
+in all three test seasons, which meant only that it had learned baseball. Real
+closing lines have since been bought, and MLB now **loses to them in all three
+seasons** — so the block stands for the stronger reason. No record means not
+cleared, so a fresh checkout or a cloud runner refuses by default.
 
 `evaluate(allow_unvalidated=True)` exists for backtests that must score an
 uncleared model deliberately. It is never set on a path that stakes money.
@@ -66,7 +75,7 @@ bets/        engine.py (no-vig, Kelly, guardrails) · log.py (CLV grading)
              paper.py (places/settles/scores paper bets for gate 2)
 dashboard.py one-page visual summary → dashboard.html / .png
 backup.py    verified database snapshots; cronstatus.py checks the cloud
-audit.py     48 checks: leakage, identity, staleness, de-vig, gates,
+audit.py     86 checks: leakage, identity, staleness, de-vig, gates,
              backups, and that ingest rejects impossible values
 healthcheck.py  writes STATUS.md, fails the cloud run if something is wrong
 ```
