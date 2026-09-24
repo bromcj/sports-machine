@@ -61,10 +61,9 @@ trade when the downside is staking money on a model with no edge.
 **Calibrated to a nightly cadence.** If `score()` ever runs more often than
 once a day, or paper volume per day changes a lot, rerun the simulation.
 
-**Both of those have happened, and the simulation has not been rerun.** Every
-number on this page (and the SEQUENTIAL TESTING check in `audit.py`, which
-uses `per_day=3` and tests once per simulated day) assumes **3 graded bets a
-day, tested once a day**. The running job is different:
+**Both of those have happened, and the simulation was rerun (2026-09-24
+review).** The tables on this page assume **3 graded bets a day, tested once a
+day**. The running job is different:
 
 - `score()` runs **twice a day**. `scheduled_check.bat` calls
   `run_daily.py paper` at 11:30am and again at 10pm, and each call re-tests
@@ -75,10 +74,20 @@ day, tested once a day**. The running job is different:
   game has a close within 60 minutes of first pitch is graded, and so far
   that is 1 of 8 settled (coverage 12.5%, `validation.json`).
 
-Which way the net effect goes — more looks, a different number of new bets
-between them — has not been measured. Until the simulation is rerun for this
-cadence, treat the false-pass and power figures here as approximate. Nothing
-on this page, and no sigma, has been changed for it.
+Rerun at that cadence (same method, 120-day season, sigma 3.0, a model with
+no skill):
+
+| graded bets a day | tests a day | false pass |
+|---|---|---|
+| 3 | 1 | 1.2% |
+| 3 | 2 | 1.5% |
+| 10 | 1 | 1.5% |
+| 10 | 2 | 1.8% |
+
+The bar still holds with room to spare (two sigma at 10 a day, twice a day,
+would be 16.9%), and a real +1% edge is still found. `audit.py`'s SEQUENTIAL
+TESTING check now simulates 10 graded bets a day tested twice a day. No sigma
+was changed.
 
 ## What gate 2 costs in time
 

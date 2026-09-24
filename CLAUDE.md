@@ -46,10 +46,11 @@ familiarity with jargon.
   Every threshold in `model/validation.py` was set by simulation, not taste,
   and the reasoning sits beside the constant. `PAPER_CLV_SIGMA` is 3.0 rather
   than the usual 2.0 because gate 2 is re-tested over and over and optional
-  stopping turns a 2.5% false-pass rate into 15%. That was simulated for one
-  test a day at 3 graded bets a day; the job now scores twice a day
-  ([docs/gates.md](docs/gates.md)). If you change a sigma, rerun the
-  simulation in the SEQUENTIAL TESTING section of `audit.py`.
+  stopping turns a 2.5% false-pass rate into 15%. Rerun at the job's real
+  cadence (up to 10 graded bets a day, tested twice a day) it holds a no-skill
+  model to 1.6-1.8% ([docs/gates.md](docs/gates.md)). If you change a sigma or
+  the cadence, rerun the simulation in the SEQUENTIAL TESTING section of
+  `audit.py`.
 
 ## Before you claim anything is fixed
 

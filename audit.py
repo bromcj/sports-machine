@@ -639,7 +639,10 @@ def main() -> int:
     import numpy as _np
     from model.validation import PAPER_CLV_SIGMA, MIN_PAPER_BETS
 
-    def _false_pass(sigma, days=120, per_day=3, sd=2.965, trials=1500, edge=0.0):
+    # The job's real cadence: up to ~10 graded bets a day (one per priced
+    # game, if coverage reaches 100%), gate 2 re-tested at 11:30 and 22:00.
+    def _false_pass(sigma, days=120, per_day=10, looks_per_day=2, sd=2.965,
+                    trials=1500, edge=0.0):
         rng = _np.random.default_rng(97)
         n = days * per_day
         x = rng.normal(edge, sd, (trials, n))
@@ -649,11 +652,13 @@ def main() -> int:
         var = (cs2 - ns * mean ** 2) / _np.maximum(ns - 1, 1)
         se = _np.sqrt(_np.maximum(var, 0) / ns)
         ok = (mean - sigma * se > 0) & (ns >= MIN_PAPER_BETS)
-        return ok[:, per_day - 1::per_day].any(axis=1).mean()
+        step = max(per_day // looks_per_day, 1)
+        return ok[:, step - 1::step].any(axis=1).mean()
 
     fp = _false_pass(PAPER_CLV_SIGMA)
     check("gate 2 holds a zero-skill model under NIGHTLY re-testing",
-          fp <= 0.05, f"sigma {PAPER_CLV_SIGMA:g} -> {fp:.1%} false pass over 120 days")
+          fp <= 0.05, f"sigma {PAPER_CLV_SIGMA:g} -> {fp:.1%} false pass over "
+                      f"120 days, 10 graded bets a day, tested twice a day")
     fp2 = _false_pass(2.0)
     check("two sigma would NOT hold it - the reason this bar is higher",
           fp2 > 0.05, f"sigma 2.0 -> {fp2:.1%}")
