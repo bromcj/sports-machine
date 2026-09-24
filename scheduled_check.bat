@@ -17,7 +17,7 @@ if /i "%~1"=="--from-copy" goto from_copy
 copy /y "%~f0" "%TEMP%\sportsmachine-scheduled-check.bat" >nul 2>&1
 if errorlevel 1 goto in_place
 call "%TEMP%\sportsmachine-scheduled-check.bat" --from-copy "%~dp0."
-exit /b
+exit /b %errorlevel%
 :in_place
 cd /d "%~dp0"
 goto setup
@@ -67,7 +67,7 @@ exit /b 1
 REM Padding. The run that first pulls in a new version of this file is still
 REM reading the OLD one, and carries on at the old byte offset of the line
 REM after `git pull`. Keep that offset unchanged when editing above this line.
-REM (pad xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx)
+REM (pad xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx)
 
 :proceed
 git pull --rebase --autostash origin main >nul 2>&1
