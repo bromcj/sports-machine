@@ -21,23 +21,7 @@ jobs:
           python-version: '3.11'
           cache: pip
       - run: pip install -r requirements-dev.txt
+      # Includes tests/test_imports.py, which imports every module on this
+      # bare checkout (no data/) - what catches a missing dependency - and
+      # tests/test_entry_points.py.
       - run: python -m pytest tests/ -q
-      # A fresh checkout must be importable with no data/ present. This is
-      # what catches a missing dependency - pyarrow was absent from
-      # requirements for months and only worked because it arrived as
-      # somebody else's transitive install.
-      - name: every module imports on a bare checkout
-        run: |
-          python -c "
-          import importlib
-          mods = ('db feeds backfill run_daily merge_archive export_snapshots '
-                  'healthcheck cronstatus backup audit dashboard '
-                  'ingest.odds ingest.scores ingest.mlb ingest.quality ingest.http '
-                  'bets.engine bets.log bets.paper '
-                  'model.train model.validation model.persist model.predict '
-                  'model.market_score '
-                  'features.build features.build_training').split()
-          for m in mods:
-              importlib.import_module(m)
-          print(f'{len(mods)} modules import cleanly')
-          "
