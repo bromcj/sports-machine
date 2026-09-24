@@ -51,6 +51,22 @@ def flags_for_game(con, game_id: str, side: str, now=None) -> dict:
     return out
 
 
+_SEASON = {}
+
+
+def _season(year: int):
+    """(Statcast, pitcher game lines) for a season, loaded once per process.
+
+    Called for both starters of every game at every book, so reloading a
+    season of pitches each time made `picks` and the dashboard take ~100 s.
+    """
+    if year not in _SEASON:
+        from features.sports.mlb_features import load_statcast, pitcher_game_lines
+        sc = load_statcast(years=[year])
+        _SEASON[year] = (sc, pitcher_game_lines(sc))
+    return _SEASON[year]
+
+
 def _is_opener(pitcher_id) -> bool:
     """Has this pitcher been going fewer than OPENER_MAX_IP innings per start?
 
@@ -60,11 +76,9 @@ def _is_opener(pitcher_id) -> bool:
     if pitcher_id is None:
         return False
     try:
-        from features.sports.mlb_features import load_statcast, pitcher_game_lines
-        sc = load_statcast(years=[dt.date.today().year])
+        sc, lines = _season(dt.date.today().year)
     except Exception:
         return False                              # no data: do not invent a flag
-    lines = pitcher_game_lines(sc)
     mine = lines[(lines["pitcher"] == int(pitcher_id))
                  & lines["is_starter"]].sort_values("game_date").tail(5)
     if len(mine) < OPENER_MIN_STARTS:
