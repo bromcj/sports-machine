@@ -31,7 +31,7 @@ import pandas as pd
 
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
-from bets.engine import evaluate, novig_probs
+from bets.engine import evaluate, likely_side, novig_probs
 from bets.guardrails import daily_exposure, flags_for_game
 from db import LATEST_FEATURE, LATEST_PREDICTION, code_sha, connect
 from feeds import SQL_STATS_API, pregame_books
@@ -123,7 +123,9 @@ def picks(date: str | None = None, bankroll: float = 1000.0,
     print(f"\n{'matchup':40s} {'model':>7s} {'market':>7s} {'edge':>7s}  verdict")
     print("-" * 88)
     for p in preds:
-        books, note = _odds_for(con, date, p["away"], p["home"])
+        # By game_id: (date, away, home) is ambiguous on a doubleheader day.
+        books, note = _odds_for(con, date, p["away"], p["home"],
+                                game_id=p["game_id"])
         label = f"{p['away'][:17]} @ {p['home'][:17]}"
         if note:
             print(f"  {label:38s} {p['home_win_prob']:6.1%} {'-':>7s} {'-':>7s}  {note}")
@@ -136,7 +138,8 @@ def picks(date: str | None = None, bankroll: float = 1000.0,
             nv_away, nv_home = novig_probs(b["away_ml"], b["home_ml"])
             edge = max(p["home_win_prob"] - nv_home,
                        (1 - p["home_win_prob"]) - nv_away)
-            side_guess = "home" if p["home_win_prob"] >= 0.5 else "away"
+            side_guess = likely_side(p["home_win_prob"], b["away_ml"],
+                                     b["home_ml"])
             r = evaluate(sport, p["home_win_prob"], b["away_ml"], b["home_ml"],
                          bankroll,
                          flags=flags_for_game(con, p["game_id"], side_guess),

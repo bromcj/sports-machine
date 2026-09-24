@@ -48,6 +48,20 @@ def kelly_stake(model_prob: float, ml: int, bankroll: float) -> float:
     return round(bankroll * min(f * KELLY_FRACTION, MAX_STAKE_PCT), 2)
 
 
+def likely_side(model_home_prob: float, away_ml: int, home_ml: int) -> str:
+    """The side evaluate() bets if it bets at all: the larger edge.
+
+    Guardrail flags belong to the side being bet. Callers used to compute them
+    for the side the model FAVOURS (home if p >= 0.5), and evaluate() bets the
+    side with the bigger EDGE - in 6 of the first 10 paper bets those were
+    different teams, so the flags checked were the other starter's.
+    """
+    novig_away, novig_home = novig_probs(away_ml, home_ml)
+    edge_home = model_home_prob - novig_home
+    edge_away = (1 - model_home_prob) - novig_away
+    return "home" if edge_home >= edge_away else "away"
+
+
 def evaluate(sport: str, model_home_prob: float, away_ml: int, home_ml: int,
              bankroll: float, flags: dict | None = None,
              allow_unvalidated: bool = False,

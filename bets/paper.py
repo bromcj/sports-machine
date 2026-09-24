@@ -28,7 +28,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from db import LATEST_PREDICTION, connect
-from bets.engine import evaluate
+from bets.engine import evaluate, likely_side
 from bets.guardrails import daily_exposure, flags_for_game
 from bets.engine import american_to_decimal
 from bets.log import (CLOSING_WINDOW_MIN, closing_snapshot, fair_prob,
@@ -89,7 +89,8 @@ def place(date: str | None = None, sport: str = "mlb") -> int:
         gflags = flags_for_game(con, p["game_id"], "home")
         aflags = flags_for_game(con, p["game_id"], "away")
         for b in books:
-            side_guess = ("home" if p["home_win_prob"] >= 0.5 else "away")
+            side_guess = likely_side(p["home_win_prob"], b["away_ml"],
+                                     b["home_ml"])
             r = evaluate(sport, p["home_win_prob"], b["away_ml"], b["home_ml"],
                          PAPER_BANKROLL, allow_unvalidated=True,
                          flags=(gflags if side_guess == "home" else aflags),
