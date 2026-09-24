@@ -22,7 +22,7 @@ what this file settles:
      line, because the market already knows about home-field advantage and
      the model's error may simply not be where the placeholder said it was.
 
-THE BAR, taken from NEXT_TASK.md Part D: apply only if it helps in EVERY
+THE BAR, taken from docs/briefs/2026-09-23-next-task.md Part D: apply only if it helps in EVERY
 season. Not on average - every one. A correction that helps twice and hurts
 once is a correction fitted to two seasons.
 

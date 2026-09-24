@@ -211,7 +211,8 @@ if __name__ == "__main__":
         # de-vigged closing line and it improved log loss in all three test
         # seasons (-0.00090, -0.00282, -0.00125; pooled +0.001662, t = +2.98,
         # day-block bootstrap). See research/d1_calibration.py. The bar in
-        # NEXT_TASK.md was "helps in every season", not on average.
+        # docs/briefs/2026-09-23-next-task.md (Part D) was "helps in every
+        # season", not on average.
         # logloss_model_noint stays in the output so that bar is re-checked on
         # every run instead of being taken on trust.
         results = walk_forward(df, feats, target_col="run_diff",

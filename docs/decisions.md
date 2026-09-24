@@ -141,9 +141,10 @@ Both ingest paths once wiped completed scores when a feed re-reported a game as
 not started. In every upsert now, `final` is terminal and a NULL never replaces
 a real value.
 
-Related, and still open: `backfill.py:46` filters on `abstractGameState` rather
-than `feeds.stats_api_status`, and `abstractGameState` is `"Final"` for a
-postponed game too. See [cleanup-findings.md](cleanup-findings.md).
+Related: `backfill.py` filtered on `abstractGameState` rather than
+`feeds.stats_api_status`, and `abstractGameState` is `"Final"` for a postponed
+game too. Fixed 2026-09-24 in the review (`a0f5389`), with the upsert brought
+under the same final-is-final rule.
 
 ---
 

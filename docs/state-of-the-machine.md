@@ -277,7 +277,6 @@ scheduled run refuses until `validation.json` is reset. **Costs credits:** `morn
 | [experiments.md](experiments.md) | the pre-registration. Failures stay in it, with numbers. |
 | [gates.md](gates.md) | every threshold, and the simulation that set it |
 | [decisions.md](decisions.md) | one dated entry per decision — the history |
-| [cleanup-findings.md](cleanup-findings.md) | things that look wrong and were left alone, with file:line |
 | [part-e-results.md](part-e-results.md), [b3-results.md](b3-results.md) | the two full write-ups |
 | [reports/](reports/) | one per phase of the last brief, plus the 2026-09-24 review (`review-independent.md`, `review-claims.md`) |
 | [briefs/](briefs/) | every brief, by date |
