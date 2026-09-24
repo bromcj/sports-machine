@@ -109,3 +109,20 @@ function and the `vacated_share` join.
 
 **16 credits** — 8 on the bounded end-to-end test, 8 on the three region
 measurements. Running total against the 3,000 cap: **16**.
+
+## Scheduled task
+
+Registered **after** the `.bat` dry run passed from the prod folder (exit 0),
+which is the precondition the brief set.
+
+```
+SportsMachine-Collect   Ready
+  daily 11:45, 15:45, 18:00, 20:00, 21:00 ET
+  cmd /c "C:\Users\BromC\sports-machine\collect_props.bat"
+  StartWhenAvailable, runs on battery, 30-minute limit
+```
+
+Fired once by hand to verify: `LastTaskResult 0`, no missed runs.
+
+This sits alongside the existing `SportsMachine-CronStatus` task (11:30 and
+22:00), which is unchanged.
