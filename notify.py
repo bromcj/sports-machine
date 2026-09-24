@@ -90,10 +90,12 @@ def _toast(title: str, body: str) -> bool:
         "Start-Sleep -Seconds 11;"
         "$n.Dispose()")
     try:
-        subprocess.run(["powershell", "-NoProfile", "-NonInteractive",
-                        "-Command", script],
-                       capture_output=True, timeout=30)
-        return True
+        r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive",
+                            "-Command", script],
+                           capture_output=True, timeout=30)
+        # Reported as delivered only if PowerShell says it worked; it used to
+        # return True whatever happened.
+        return r.returncode == 0
     except Exception:
         return False
 
@@ -105,12 +107,12 @@ def _ntfy(title: str, body: str) -> bool:
         return False
     try:
         import requests
-        requests.post(f"{NTFY_HOST}/{topic}",
-                      data=body.encode("utf-8"),
-                      headers={"Title": title, "Priority": "high",
-                               "Tags": "warning"},
-                      timeout=15)
-        return True
+        r = requests.post(f"{NTFY_HOST}/{topic}",
+                          data=body.encode("utf-8"),
+                          headers={"Title": title, "Priority": "high",
+                                   "Tags": "warning"},
+                          timeout=15)
+        return r.ok
     except Exception:
         return False
 

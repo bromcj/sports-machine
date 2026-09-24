@@ -1,5 +1,16 @@
 """Alert delivery: the file is always right, and nothing leaks by default."""
+import pytest
+
 import notify
+
+
+@pytest.fixture(autouse=True)
+def no_real_delivery(monkeypatch):
+    """No test may pop a desktop alert or reach ntfy. One used to do both: an
+    ERROR finding went through the real _toast, and with the owner's ntfy
+    topic set it would have reached their phone on every pytest run."""
+    monkeypatch.setattr(notify, "_toast", lambda *a: False)
+    monkeypatch.delenv(notify.NTFY_ENV, raising=False)
 
 
 def test_the_alerts_file_says_all_clear_when_healthy(tmp_path, monkeypatch):
