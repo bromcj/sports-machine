@@ -16,11 +16,11 @@ familiarity with jargon.
   times a day), `backfill_odds_history.py --execute`, `python ingest/odds.py`,
   and the `research/b3/` scripts. There are two keys. The cloud's repo secret
   is a 500/month key; its three daily pulls project to ~372 in October
-  (4 sports × 3 pulls × 31 days). Everything local spends the paid key in the
-  owner's Windows user environment — and `props/collect.py` plus two
-  `research/b3` scripts read it straight from the registry, so unsetting
-  `ODDS_API_KEY` in your shell does **not** stop them. Never run any of these
-  just to test a change.
+  (4 sports × 3 pulls × 31 days). Local scripts spend whatever
+  `ODDS_API_KEY` they see — normally the paid key in the owner's Windows user
+  environment — and `props/collect.py` plus two `research/b3` scripts read
+  that one straight from the registry, so unsetting `ODDS_API_KEY` in your
+  shell does **not** stop them. Never run any of these just to test a change.
   Free and safe any time: `picks`, `audit`, `dashboard`, `backup`,
   `cronstatus`, `validation`, `merge_archive`. Free, but they rewrite tracked
   files: `healthcheck` rewrites `STATUS.md`; `grade`, `paper` and `refresh`
