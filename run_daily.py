@@ -1,16 +1,21 @@
 """One-command daily pipeline, all active in-season sports.
 
-  python run_daily.py morning  -> schedules + odds + features + predictions
-  python run_daily.py close    -> closing odds (CLV anchor)
-  python run_daily.py picks    -> today's model vs market, no pulls, free
-  python run_daily.py refresh  -> top up Statcast + retrain (slow, weekly)
-  python run_daily.py grade    -> finals + review
+  python run_daily.py morning    -> schedules + odds + predictions. COSTS CREDITS
+  python run_daily.py close      -> closing odds (CLV anchor). COSTS CREDITS
+  python run_daily.py picks      -> today's model vs market, no pulls, free
+  python run_daily.py refresh    -> top up Statcast + retrain (slow, weekly)
+  python run_daily.py grade      -> finals, settle paper bets, review. free
   python run_daily.py cronstatus -> did the cloud fire, and on time? free
   python run_daily.py backup     -> snapshot the database, verified. free
   python run_daily.py finals     -> yesterday's and today's results. free
   python run_daily.py predict    -> statcast top-up + today's predictions. free
   python run_daily.py paper      -> place/settle/score paper bets (gate 2). free
   python run_daily.py market     -> score finished games vs the market. free
+  python run_daily.py bet ...    -> record a bet you placed elsewhere. free
+  python run_daily.py scoreboard -> grade and report your recorded bets. free
+  python run_daily.py shop       -> books beating Pinnacle's fair price. free
+
+A mode is required. It used to default to `morning`, which spends credits.
 """
 import sys
 import datetime as dt
@@ -93,7 +98,12 @@ def refresh():
     from backfill import topup_statcast
     topup_statcast()
     import subprocess, sys as _s
-    subprocess.run([_s.executable, "features/build_training.py"], check=False)
+    from pathlib import Path
+    # By absolute path, and checked: a relative path failed from any other
+    # folder, and check=False then reported the failed retrain as success.
+    script = Path(__file__).parent / "features" / "build_training.py"
+    subprocess.run([_s.executable, str(script)], check=True,
+                   cwd=Path(__file__).parent)
 
 
 def show_picks():
@@ -176,8 +186,15 @@ def grade():
     betlog.review()
 
 
+MODES = ("morning", "close", "picks", "refresh", "grade", "predict", "finals",
+         "cronstatus", "market", "bet", "shop", "scoreboard", "paper", "backup")
+
 if __name__ == "__main__":
-    mode = sys.argv[1] if len(sys.argv) > 1 else "morning"
+    mode = sys.argv[1] if len(sys.argv) > 1 else ""
+    if mode not in MODES:
+        raise SystemExit(f"usage: python run_daily.py <mode>\n  modes: "
+                         f"{', '.join(MODES)}\n  (morning and close spend "
+                         f"API credits; see COMMANDS.md)")
     if mode == "cronstatus":
         from cronstatus import report
         raise SystemExit(report())
