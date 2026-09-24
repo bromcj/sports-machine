@@ -309,6 +309,12 @@ if __name__ == "__main__":
              if len(sys.argv) == 3 else SEASON_DATES.keys())
     for y in years:
         backfill_schedule(y)
+        # The schedule writes no start time or venue. Without these a rebuilt
+        # database cannot match a single game to its odds (feeds.odds_twin
+        # needs start_time_utc) and serves every park the static prior. Both
+        # are free Stats API calls and safe to re-run.
+        backfill_venues(y)
+        backfill_start_times(y)
     for y in years:
         backfill_statcast(y)
     print("Backfill complete. Next: python features/build_training.py")
