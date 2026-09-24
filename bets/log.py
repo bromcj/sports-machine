@@ -1,7 +1,7 @@
 """Bet log writes, closing-line grading, and the weekly review.
 
-Kill criterion enforced in review(): rolling 50-bet average CLV < 0
-=> STOP BETTING, diagnose. Judge process by CLV, not last week's P&L.
+Kill criterion, printed by review() (it is a message, nothing reads it):
+rolling 50-bet average CLV < 0 => STOP BETTING, diagnose.
 """
 import sys
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
@@ -217,34 +217,50 @@ def grade(bet_id: int, closing_line: int | None, won: bool | None,
 
 
 def review(last_n: int = 50):
+    """The model's recent bets, per mode. Placebo and manual bets are excluded:
+    the placebo bets a random side on purpose, and manual bets have their own
+    scoreboard. Mixing them in is how this once printed "positive CLV - edge
+    is plausible" over one paper bet and one random-side bet."""
     con = connect()
-    rows = con.execute(
-        "SELECT * FROM bets WHERE result IS NOT NULL ORDER BY bet_id DESC LIMIT ?",
-        (last_n,)).fetchall()
+    shown = False
+    for mode in ("real", "paper"):
+        rows = con.execute(
+            "SELECT * FROM bets WHERE mode=? AND result IS NOT NULL"
+            " ORDER BY bet_id DESC LIMIT ?", (mode, last_n)).fetchall()
+        if not rows:
+            continue
+        shown = True
+        # The kill criterion is over the last `last_n` bets that HAVE a CLV,
+        # not the CLV-bearing subset of the last `last_n` settled ones - at
+        # 20% coverage that subset never reaches 50, so it could never fire.
+        clv_rows = con.execute(
+            "SELECT clv_pct FROM bets WHERE mode=? AND clv_pct IS NOT NULL"
+            " ORDER BY bet_id DESC LIMIT ?", (mode, last_n)).fetchall()
+        n = len(rows)
+        clvs = [r["clv_pct"] for r in clv_rows]
+        pnl = sum(r["pnl"] for r in rows)
+        staked = sum(r["stake"] for r in rows)
+        wins = sum(1 for r in rows if r["result"] == "W")
+        pushes = sum(1 for r in rows if r["result"] == "push")
+        avg_clv = sum(clvs) / len(clvs) if clvs else 0.0
+        roi = f"{pnl / staked:+.1%}" if staked else "n/a"
+        print(f"[{mode}] last {n} settled | record {wins}-{n - wins - pushes}"
+              + (f"-{pushes}" if pushes else "")
+              + f" | ROI {roi} | avg CLV {avg_clv:+.2f}% over the last "
+              f"{len(clvs)} with a usable close")
+        if len(clvs) >= last_n and avg_clv < 0:
+            print("*** KILL CRITERION HIT: rolling CLV negative over "
+                  f"{last_n} bets. STOP BETTING. Diagnose before placing "
+                  "another wager. ***")
     con.close()
-    if not rows:
-        print("No graded bets yet.")
+    if not shown:
+        print("No settled paper or real bets yet.")
         return
-    n = len(rows)
-    clvs = [r["clv_pct"] for r in rows if r["clv_pct"] is not None]
-    pnl = sum(r["pnl"] for r in rows)
-    staked = sum(r["stake"] for r in rows)
-    wins = sum(1 for r in rows if r["result"] == "W")
-    avg_clv = sum(clvs) / len(clvs) if clvs else 0.0
-    print(f"Last {n} bets | record {wins}-{n - wins} | "
-          f"ROI {pnl / staked:+.1%} | avg CLV {avg_clv:+.2f}% over {len(clvs)} bets")
-    # Settled bets whose close was too early to trust are invisible in the CLV
-    # line above. Saying so keeps "50 bets" from meaning two different things.
-    ungraded = n - len(clvs)
-    if ungraded:
-        print(f"  {ungraded} of these have no usable closing line "
-              f"(none captured within {CLOSING_WINDOW_MIN} min of first pitch) "
-              f"and do not count toward gate 2.")
-    if len(clvs) >= 50 and avg_clv < 0:
-        print("*** KILL CRITERION HIT: rolling CLV negative over 50+ bets. "
-              "STOP BETTING. Diagnose before placing another wager. ***")
-    elif avg_clv > 0:
-        print("Process check: positive CLV — edge is plausible, stay the course.")
+    # CLV against the same book's close includes line shopping, so a positive
+    # number here is not evidence of edge. Gate 2 judges `info` instead.
+    print(f"  CLV counts only closes within {CLOSING_WINDOW_MIN} min of first "
+          f"pitch, and includes line shopping; gate 2 judges the model on "
+          f"`info` - see `python model/validation.py`.")
 
 
 if __name__ == "__main__":
