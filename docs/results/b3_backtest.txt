@@ -1,0 +1,151 @@
+player name match: 165,528 of 169,480 prop rows (97.7%)
+match
+full name    162912
+NaN            3952
+surname        2616
+  most common unmatched names (reported, never dropped silently):
+    Travis Hunter                  119
+    Dawson Knox                     89
+    Noah Gray                       71
+    Van Jefferson                   64
+    Jalin Hyatt                     63
+    Mike Gesicki                    61
+    Noah Fant                       60
+    Isaiah Likely                   60
+    Josh Oliver                     59
+    Pat Freiermuth                  59
+    Durham Smythe                   57
+    Tutu Atwell                     55
+joined to outcomes: 165,528 rows
+
+==========================================================================
+player_receptions   fair = any
+==========================================================================
+  72,164 props, 0 pushes dropped, 72,164 live, 813 games
+
+  log loss   model raw       0.716468
+             model recalibrated 0.692350   (its best shot)
+             naive             0.654594   (player season-to-date + Poisson)
+             MARKET            0.670232
+
+  recalibrated vs naive  -0.037756  [-0.044665, -0.031119]  t=-10.87  n=72,164
+  recalibrated vs MARKET -0.022117  [-0.025911, -0.018214]  t=-11.18  n=72,164
+            (positive = the model is better)
+
+  calibration by decile, recalibrated model
+     7,217 predicted 0.3040  actual 0.3996  gap +0.0956
+     7,218 predicted 0.4186  actual 0.4446  gap +0.0260
+     7,220 predicted 0.4490  actual 0.4186  gap -0.0304
+     7,215 predicted 0.4681  actual 0.4660  gap -0.0022
+     7,217 predicted 0.4830  actual 0.4663  gap -0.0168
+     7,213 predicted 0.4970  actual 0.4418  gap -0.0551
+     7,219 predicted 0.5122  actual 0.4977  gap -0.0145
+     7,213 predicted 0.5289  actual 0.5005  gap -0.0284
+     7,219 predicted 0.5526  actual 0.5038  gap -0.0487
+     7,213 predicted 0.6151  actual 0.5975  gap -0.0176
+
+  PRE-REGISTERED: games where a team-mate was ruled OUT
+    vacated share > 0    n=27,463  vs market -0.019790  [-0.025092, -0.015228]  t=-7.90  n=27,463
+    vacated share = 0    n=44,701  vs market -0.023547  [-0.029305, -0.018235]  t=-8.39  n=44,701
+
+==========================================================================
+player_receptions   fair = sharp
+==========================================================================
+  52,051 props, 0 pushes dropped, 52,051 live, 791 games
+
+  log loss   model raw       0.729431
+             model recalibrated 0.696723   (its best shot)
+             naive             0.666248   (player season-to-date + Poisson)
+             MARKET            0.683249
+
+  recalibrated vs naive  -0.030475  [-0.039079, -0.021705]  t=-7.00  n=52,051
+  recalibrated vs MARKET -0.013474  [-0.017260, -0.009947]  t=-7.37  n=52,051
+            (positive = the model is better)
+
+  calibration by decile, recalibrated model
+     5,206 predicted 0.3876  actual 0.4483  gap +0.0607
+     5,209 predicted 0.4653  actual 0.4604  gap -0.0049
+     5,205 predicted 0.4758  actual 0.4695  gap -0.0063
+     5,201 predicted 0.4824  actual 0.4513  gap -0.0312
+     5,205 predicted 0.4882  actual 0.4634  gap -0.0248
+     5,209 predicted 0.4943  actual 0.4947  gap +0.0005
+     5,208 predicted 0.5010  actual 0.4844  gap -0.0166
+     5,200 predicted 0.5098  actual 0.4713  gap -0.0385
+     5,206 predicted 0.5207  actual 0.4777  gap -0.0430
+     5,202 predicted 0.5606  actual 0.5336  gap -0.0270
+
+  PRE-REGISTERED: games where a team-mate was ruled OUT
+    vacated share > 0    n=20,261  vs market -0.009156  [-0.014432, -0.004376]  t=-3.51  n=20,261
+    vacated share = 0    n=31,790  vs market -0.016227  [-0.021103, -0.011158]  t=-6.48  n=31,790
+
+==========================================================================
+player_reception_yds   fair = any
+==========================================================================
+  93,364 props, 0 pushes dropped, 93,364 live, 814 games
+
+  log loss   model raw       0.836938
+             model recalibrated 0.697758   (its best shot)
+             naive             1.462404   (player season-to-date + Poisson)
+             MARKET            0.675403
+
+  recalibrated vs naive  +0.764647  [+0.718313, +0.808816]  t=+33.84  n=93,364
+  recalibrated vs MARKET -0.022355  [-0.027634, -0.017580]  t=-8.87  n=93,364
+            (positive = the model is better)
+
+  calibration by decile, recalibrated model
+     9,337 predicted 0.2659  actual 0.3876  gap +0.1217
+     9,343 predicted 0.4108  actual 0.4190  gap +0.0082
+     9,330 predicted 0.4521  actual 0.4713  gap +0.0192
+     9,337 predicted 0.4734  actual 0.4957  gap +0.0223
+     9,335 predicted 0.4886  actual 0.4767  gap -0.0119
+     9,338 predicted 0.5020  actual 0.4758  gap -0.0262
+     9,339 predicted 0.5164  actual 0.5214  gap +0.0049
+     9,332 predicted 0.5347  actual 0.5212  gap -0.0135
+     9,340 predicted 0.5640  actual 0.5181  gap -0.0459
+     9,333 predicted 0.6496  actual 0.5426  gap -0.1070
+
+  PRE-REGISTERED: games where a team-mate was ruled OUT
+    vacated share > 0    n=34,268  vs market -0.018774  [-0.023604, -0.014297]  t=-7.67  n=34,268
+    vacated share = 0    n=59,096  vs market -0.024432  [-0.031949, -0.017544]  t=-6.58  n=59,096
+
+==========================================================================
+player_reception_yds   fair = sharp
+==========================================================================
+  33,321 props, 0 pushes dropped, 33,321 live, 808 games
+
+  log loss   model raw       0.855396
+             model recalibrated 0.703806   (its best shot)
+             naive             1.589923   (player season-to-date + Poisson)
+             MARKET            0.692466
+
+  recalibrated vs naive  +0.886117  [+0.829349, +0.945320]  t=+30.67  n=33,321
+  recalibrated vs MARKET -0.011340  [-0.015504, -0.007417]  t=-5.43  n=33,321
+            (positive = the model is better)
+
+  calibration by decile, recalibrated model
+     3,341 predicted 0.3753  actual 0.5046  gap +0.1293
+     3,326 predicted 0.4958  actual 0.5096  gap +0.0138
+     3,330 predicted 0.5006  actual 0.4550  gap -0.0456
+     3,334 predicted 0.5035  actual 0.4976  gap -0.0059
+     3,332 predicted 0.5065  actual 0.5099  gap +0.0034
+     3,331 predicted 0.5096  actual 0.4782  gap -0.0314
+     3,335 predicted 0.5104  actual 0.5490  gap +0.0386
+     3,331 predicted 0.5146  actual 0.5140  gap -0.0006
+     3,331 predicted 0.5272  actual 0.4581  gap -0.0690
+     3,330 predicted 0.5781  actual 0.5039  gap -0.0742
+
+  PRE-REGISTERED: games where a team-mate was ruled OUT
+    vacated share > 0    n=12,470  vs market -0.005704  [-0.009089, -0.002125]  t=-3.28  n=12,470
+    vacated share = 0    n=20,851  vs market -0.014710  [-0.021041, -0.008907]  t=-4.80  n=20,851
+
+==========================================================================
+SUMMARY - does the model beat the price?
+==========================================================================
+market                   fair          n      model     market     margin       t
+player_receptions        any      72,164   0.692350   0.670232  -0.022117  -11.18
+player_receptions        sharp    52,051   0.696723   0.683249  -0.013474   -7.37
+player_reception_yds     any      93,364   0.697758   0.675403  -0.022355   -8.87
+player_reception_yds     sharp    33,321   0.703806   0.692466  -0.011340   -5.43
+
+Positive margin and t > 2 in BOTH fair-price definitions is the bar.
+Anything less is 'no edge found'.

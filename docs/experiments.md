@@ -384,6 +384,7 @@ Filled in as each experiment completes. Failures stay in the file.
 | E3 | 2026-09-23 | **FAIL** | every subgroup favours the close; big-market t = +2.31 the wrong way |
 | E4 | 2026-09-23 | **FAIL** (all 3) | popular teams priced LOWER, t = -7.4..-9.5; no weekend or time pattern |
 | E5 | 2026-09-23 | **FAIL** | +2.73 pts at Pinnacle, t = +1.46; right direction, underpowered |
+| B3 | 2026-09-24 | **FAIL** | loses to the market by 5-11 SE and to a player season average by 11 |
 | E6 | 2026-09-23 | **FAIL** | April-May +0.0028 vs July-Aug +0.0024; velocity wrong-signed early |
 
 ### A1, run 2026-09-23 on 6,513 games (2024-2026)
