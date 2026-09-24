@@ -125,11 +125,22 @@ def capture(path: Path) -> dict | None:
         rows = [r for r in csv.DictReader(f) if r.get("commence_time")]
     if not rows:
         return None
-    pulled = dt.datetime.fromisoformat(rows[0]["ts"])
+    pulled = parse_utc(rows[0]["ts"])
     lead = {}
     for r in rows:
-        start = dt.datetime.fromisoformat(r["commence_time"].replace("Z", ""))
-        mins = (start - dt.datetime.fromisoformat(r["ts"])).total_seconds() / 60
+        # Both sides through the one parser, so both come back aware UTC.
+        #
+        # This CRASHED on live data: `commence_time` had its Z stripped, making
+        # it naive, while `ts` carries +00:00 and parses aware - and
+        # subtracting one from the other raises TypeError, taking the whole
+        # command down. Found by running every command once in 1.5; nothing
+        # else noticed, because cronstatus has no test and the audit only
+        # imports it.
+        start = parse_utc(r["commence_time"])
+        taken = parse_utc(r["ts"])
+        if start is None or taken is None:
+            continue
+        mins = (start - taken).total_seconds() / 60
         # That pull's own slate: today's games, not the rest of the week's
         # board. An NFL game five days out is always "pregame" and would
         # flatter the number into meaninglessness.

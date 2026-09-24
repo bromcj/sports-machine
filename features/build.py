@@ -30,7 +30,8 @@ import pandas as pd
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 from db import connect
-    FEATURE_COLUMNS, PARK_PRIORS, TEAM_ABBR, load_statcast,
+from features.sports.mlb_features import (
+    PARK_PRIORS, TEAM_ABBR, load_statcast,
     park_factor_table, pitcher_game_lines, venue_id)
 
 STALE_WARN_DAYS = 2

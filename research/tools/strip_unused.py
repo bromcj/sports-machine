@@ -50,6 +50,17 @@ def strip(path: Path, items, apply: bool) -> int:
         if not line.lstrip().startswith(("import ", "from ")):
             print(f"  ? {path}:{ln} not an import line, left alone")
             continue
+        # A PARENTHESISED MULTI-LINE IMPORT. The names are on the FOLLOWING
+        # lines, so `line.split("import")[-1]` is empty, which the one-name
+        # rule below read as "the only name on the line" and deleted the
+        # `from X import (` header - leaving the continuation lines dangling
+        # and the module unparseable. It broke features/build.py, and neither
+        # pytest nor the golden test caught it because neither imports that
+        # module. The command sweep did.
+        if line.rstrip().endswith("(") or line.count("(") > line.count(")"):
+            print(f"  ? {path}:{ln} multi-line import, left alone "
+                  f"(remove '{name}' by hand)")
+            continue
         # the only name on the line -> drop the line
         names = re.findall(r"[\w.]+(?:\s+as\s+\w+)?", line.split("import", 1)[-1])
         names = [n for n in names if n not in ("as",)]

@@ -159,6 +159,33 @@ python backfill.py topup        just the days since the last download
 python merge_archive.py         what machine_daily.bat does, manually
 python merge_archive.py --all   re-read every archive file (repair/rebuild)
 python features/build_training.py   rebuild the training table + retrain + save
+python run_daily.py finals      pull yesterday's finals and settle what they settle
+python resolve_market_close.py  materialise the de-vigged close for every game
+python export_snapshots.py      write archive CSVs (the cloud job runs this)
+python backfill_nfl.py          nflverse schedules and EPA, free
+python backfill_odds_history.py historical odds. COSTS 10 credits per request
+```
+
+### Collection (Phase 0)
+
+```
+collect_props.bat               NFL/NBA props + game lines, five times a day
+python props/collect.py --plan  what it would pull and what it would cost, free
+python props/collect.py --run --sport nfl    one pull, honours the credit cap
+```
+
+`collect_props.bat` is what Task Scheduler runs as `SportsMachine-Collect`. An
+idle run costs nothing: the events list is free, and props are pulled only for
+games inside their lead window that have not already been recorded.
+
+### Checking the machine agrees with itself
+
+```
+python research/tools/integration_matrix.py          regenerate the matrix
+python research/tools/integration_matrix.py --check  fail if a mode is undocumented
+python research/tools/inventory.py                   dead code, prose, duplication
+python research/tools/run_all_commands.py            run every command against a copy
+python tests/golden/capture.py                       prove behaviour has not moved
 ```
 
 ---

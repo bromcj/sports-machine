@@ -77,6 +77,32 @@ If you were wrong, say so plainly in one sentence and move on.
   NULL never overwrites a real value. Both ingest paths once wiped completed
   scores when a feed re-reported a game as not started.
 
+## Three ways to find something that isn't there
+
+Analysis traps, not code ones. Each produced a clean-looking positive that
+survived a first look. Numbers in [docs/decisions.md](docs/decisions.md) and
+the results write-ups.
+
+- **A measured quantity on both sides of a regression inflates the slope.**
+  Regressing `close − open` on `model − open` puts the same noisy `open` in
+  both, so measurement error alone makes the slope positive. It gave +0.0284,
+  t = +7.6; the honest answer was +0.0241. Worse, the *obvious* fix — swapping
+  one measurement for the other — is biased the other way and gave +0.0096. The
+  two naive versions straddle the truth. Use two independent measurements in
+  both places.
+- **Selecting a subgroup with each book's own de-vigged price selects different
+  games per book.** De-vigging bends favourites by an amount that scales with
+  the margin, so "heavy favourites" meant 536 games at Pinnacle and 462 at
+  BetMGM — and BetMGM's were the stronger ones. That alone manufactured a
+  gradient from +2.73 to +4.97 across books that actually agree. Fix the sample
+  once, then judge every book on it.
+- **Joining onto a table that only holds players who played drops the player
+  the test is about.** `vacated_share` joined the injury report onto the week's
+  player stats — but a player ruled OUT has no row there, so the only rows it
+  could match were players listed out who then played anyway. The
+  pre-registered feature was a column of zeros and the subgroup test ran with
+  one group in it. The tell was `n` equalling the full sample.
+
 ## Practical
 
 - `data/` is gitignored and is the only copy of anything. `python backup.py`

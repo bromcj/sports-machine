@@ -17,7 +17,7 @@ import capture  # noqa: E402
 
 
 pytestmark = pytest.mark.skipif(
-    not (ROOT / "data_phase1").exists()
+    not (ROOT / "data_golden").exists()
     or not (HERE / "baseline").exists(),
     reason="golden baseline or data_phase1/ copy not present")
 

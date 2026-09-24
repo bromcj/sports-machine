@@ -38,6 +38,13 @@ widened silently and never above 1e-9.
 SPEED. The full capture includes `python audit.py`, which takes minutes. Every
 commit runs the fast set; the audit text is captured at the start of the phase
 and re-checked before the merge. `--with-audit` forces it.
+
+WHICH COPY. `data_golden/`, restored from a verified backup and NEVER written
+to - not `data_phase1/`, which is the playground the command sweep runs
+against. That distinction was learned the hard way: running every command once
+against the same copy the baseline came from changed the data underneath it,
+and the golden test then reported a difference that was the sweep's writes
+rather than any change to the code. A baseline that moves is not a baseline.
 """
 import argparse
 import json
@@ -75,7 +82,7 @@ def normalize(text: str) -> str:
 
 def _env():
     e = dict(os.environ)
-    e["SPORTS_MACHINE_DATA_DIR"] = str(ROOT / "data_phase1")
+    e["SPORTS_MACHINE_DATA_DIR"] = str(ROOT / "data_golden")
     e["PYTHONIOENCODING"] = "utf-8"
     return e
 
