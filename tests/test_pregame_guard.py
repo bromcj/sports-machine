@@ -1,8 +1,5 @@
 """A paper bet must be one somebody could actually have placed - through the
-real bets.paper.place() on a temp database.
-
-This file used to test its own copy of the rule, so deleting the guard from
-place() passed it.
+real bets.paper.place() on a temp database, so removing the guard fails here.
 """
 import datetime as dt
 

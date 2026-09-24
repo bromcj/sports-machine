@@ -1,6 +1,7 @@
 @echo off
 REM ---------------------------------------------------------------------------
-REM Phase 0 collection. Windows Task Scheduler runs this several times a day.
+REM Props and game-price collection. Windows Task Scheduler runs this several
+REM times a day.
 REM
 REM It is deliberately dumb about the calendar: the events list is FREE, so the
 REM task can fire every day at every slot and spend nothing on the days with no

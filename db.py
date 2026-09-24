@@ -410,7 +410,7 @@ MIGRATIONS = [
     # and nothing recorded which one a bet came from.
     ("bets", "prediction_id", "INTEGER"),
 
-    # ---- Phase 2: mode='manual', so a human's own bets are graded on exactly
+    # ---- mode='manual', so a human's own bets are graded on exactly
     # the terms the model's are. Every column here is additive and NULL on
     # every existing row, so nothing already recorded changes meaning.
     #

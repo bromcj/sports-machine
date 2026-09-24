@@ -137,14 +137,8 @@ def capture(path: Path) -> dict | None:
     pulled = parse_utc(rows[0]["ts"])
     lead = {}
     for r in rows:
-        # Both sides through the one parser, so both come back aware UTC.
-        #
-        # This CRASHED on live data: `commence_time` had its Z stripped, making
-        # it naive, while `ts` carries +00:00 and parses aware - and
-        # subtracting one from the other raises TypeError, taking the whole
-        # command down. Found by running every command once in 1.5; nothing
-        # else noticed, because cronstatus has no test and the audit only
-        # imports it.
+        # Both sides through the one parser, so both come back aware UTC:
+        # subtracting a naive time from an aware one raises TypeError.
         start = parse_utc(r["commence_time"])
         taken = parse_utc(r["ts"])
         if start is None or taken is None:

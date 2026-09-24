@@ -247,6 +247,7 @@ def starter_table(lines: pd.DataFrame) -> pd.DataFrame:
     # 0.68720) with a sign-flipped coefficient. Quadratic and cubic terms moved
     # nothing either. A line captures the effect completely.
     #
-    # The related claim that the MARKET under-reacts to SP at the tails is a
-    # different question and still open - it needs real closing lines to test.
+    # Whether the MARKET under-reacts to starters is a different question;
+    # Part E tested it against real closes and found nothing (docs/part-e-results.md,
+    # E1-E2).
     return sp[["game_pk", "pitch_team", "sp_kbb_5s"]]

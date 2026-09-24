@@ -1,7 +1,7 @@
 """shop / info / ev, through the real bets.paper._decompose_bet on a temp DB.
 
-This file used to test its own copy of the three formulas, so replacing
-_decompose_bet with `return True` passed it.
+The function itself, not a restatement of its formulas: a restatement keeps
+passing when the real one breaks.
 """
 import pytest
 

@@ -1,4 +1,4 @@
-"""Phase 2: grade any bet the same way the model's are graded. No credits.
+"""Grade any bet the same way the model's are graded. No credits.
 
     python run_daily.py bet --sport nfl --date 2026-09-28 \
         --game "Bills at Jets" --market h2h --side "Buffalo Bills" \

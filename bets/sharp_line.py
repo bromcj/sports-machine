@@ -1,4 +1,4 @@
-"""Phase 3: flag any book beating the sharp line. A control, and a question.
+"""Flag any book beating the sharp line. A control, and a question.
 
     python run_daily.py shop            # scan what has been collected, report
     python -m bets.sharp_line --historical   # the same scan on the 4-book archive

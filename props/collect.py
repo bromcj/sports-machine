@@ -1,4 +1,4 @@
-"""Phase 0: collect live prop and game prices while they are cheap.
+"""Collect live prop and game prices while they are cheap.
 
     python props/collect.py --plan            # what it would do, free
     python props/collect.py --run             # actually pull
@@ -33,15 +33,10 @@ request's cost is logged to requests.jsonl, and a run starts from what this
 calendar month has already spent there, then stops before any request that
 would take that running total past the cap. The cap is checked BEFORE the
 request, not after, because a cap you discover you have passed is not a cap.
-(It used to start from zero on every run, so ten scheduled runs a day could
-each spend the whole cap.)
-
 NO SCHEMA CHANGE. Raw payloads land under data/props_live/raw/ gzipped, a
 JSONL log records every request, and prices are materialised to parquet.
-Credits go to the existing api_usage table, which is an insert into a table
-that already exists. Phase 1 has not built its golden test yet, and changing
-the live schema before there is a way to prove nothing moved would be the
-wrong order.
+Credits go to the existing api_usage table. Nothing here changes the
+database schema.
 """
 import argparse
 import datetime as dt

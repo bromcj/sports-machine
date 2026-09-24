@@ -1,7 +1,5 @@
 """The Statcast top-up window, through backfill.topup_window (the real one).
-
-This file used to hold its own copy of the expression, and would have started
-failing on 2027-01-01 because the copy compared against the real year.
+The current year is passed in, so the tests do not depend on the calendar.
 """
 import datetime as dt
 

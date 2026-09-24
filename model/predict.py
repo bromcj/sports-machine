@@ -11,16 +11,9 @@ Two joins have to happen and only one of them is trivial.
                          same game 'mlb-394e1e2b849c...'. Nothing links them.
                          feeds.py matches them on teams plus first-pitch time.
 
-That match used to be on (date, away, home), and the note here claimed it was
-"verified, 15 of 15 on a full slate". It was verified on a day that happened
-not to expose the bug: the odds feed dates a game by its UTC date, so anything
-starting after 8pm ET carries a date one day ahead, and in a series Wednesday's
-game took TUESDAY's prices. Measured before the fix, 5 of 20 matched games were
-wrong - all late west-coast starts, which are exactly the games whose closes
-qualify for CLV grading.
-
-Matching on time also resolves doubleheaders, which date matching could only
-refuse.
+Never on (date, away, home): the odds feed dates a late game by its UTC date,
+a day ahead, so a date match gives it the previous night's prices. A straight
+doubleheader is refused (see feeds.odds_twin).
 """
 import datetime as dt
 import json
