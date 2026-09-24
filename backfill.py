@@ -19,6 +19,8 @@ import requests
 sys.path.insert(0, str(Path(__file__).parent))
 import paths
 from db import connect
+from feeds import stats_api_status
+from ingest import quality
 
 SCHED = "https://statsapi.mlb.com/api/v1/schedule"
 STATCAST_DIR = paths.STATCAST_DIR
@@ -43,23 +45,42 @@ def backfill_schedule(year: int):
     n = 0
     for day in r.json().get("dates", []):
         for g in day.get("games", []):
-            if g["status"]["abstractGameState"].lower() != "final":
+            # Through feeds.stats_api_status, like every other ingest path:
+            # abstractGameState is "Final" for a POSTPONED game too (a raw
+            # response for gamePk 824785 shows Final / Postponed, no score).
+            if stats_api_status(g.get("status") or {}) != "final":
+                continue
+            away_score = g["teams"]["away"].get("score")
+            home_score = g["teams"]["home"].get("score")
+            if quality.game(g["teams"]["away"]["team"]["name"],
+                            g["teams"]["home"]["team"]["name"], day["date"],
+                            away_score, home_score, "final") is not None:
                 continue
             gid = f"mlb-{g['gamePk']}"
             con.execute(
+                # Final is terminal and a NULL never overwrites a real value -
+                # the rule every other writer follows. This one used to assign
+                # the incoming scores unconditionally.
                 """INSERT INTO games (game_id, sport, game_date, away, home,
                                       away_starter, home_starter,
                                       away_score, home_score, status)
                    VALUES (?,?,?,?,?,?,?,?,?,'final')
                    ON CONFLICT(game_id) DO UPDATE SET
-                     away_score=excluded.away_score,
-                     home_score=excluded.home_score, status='final'""",
+                     away_score=CASE WHEN games.status='final'
+                                     THEN games.away_score
+                                     ELSE COALESCE(excluded.away_score,
+                                                   games.away_score) END,
+                     home_score=CASE WHEN games.status='final'
+                                     THEN games.home_score
+                                     ELSE COALESCE(excluded.home_score,
+                                                   games.home_score) END,
+                     status='final'""",
                 (gid, "mlb", day["date"],
                  g["teams"]["away"]["team"]["name"],
                  g["teams"]["home"]["team"]["name"],
                  (g["teams"]["away"].get("probablePitcher") or {}).get("fullName"),
                  (g["teams"]["home"].get("probablePitcher") or {}).get("fullName"),
-                 g["teams"]["away"].get("score"), g["teams"]["home"].get("score")))
+                 away_score, home_score))
             n += 1
     con.commit()
     con.close()
