@@ -22,7 +22,8 @@ this is the same measurement with three times the coverage - and it is free,
 because the prices are being collected anyway.
 
 WHAT IT IS NOT. It never stakes money and it never feeds a gate. Flags are
-logged as `mode='shop'` and are kept out of every model report, for the reason
+only printed - nothing is written to the database - so they cannot reach any
+model report, for the reason
 the Phase 5 EV decomposition exists: shopping value and forecasting value are
 different things, and a model must never be credited with the first.
 
@@ -158,7 +159,6 @@ def scan_historical(min_ev: float = MIN_EV, max_lead_min: float = 90.0) -> dict:
     con.close()
     from feeds import parse_utc
     by = defaultdict(dict)
-    leads = {}
     for r in rows:
         start, taken = parse_utc(r["commence_time"]), parse_utc(r["ts"])
         if start is None or taken is None:
@@ -168,7 +168,6 @@ def scan_historical(min_ev: float = MIN_EV, max_lead_min: float = 90.0) -> dict:
             continue
         key = (r["game_id"], r["ts"])
         by[key][r["book"]] = (r["away_ml"], r["home_ml"])
-        leads[key] = lead
 
     flags, n_prices, games = 0, 0, set()
     flagged_games = set()
@@ -217,7 +216,8 @@ def report(min_ev: float = MIN_EV, historical: bool = False) -> int:
         per100 = 100 * len(live["flags"]) / live["games"]
         lead = live.get("median_lead_h")
         print(f"  flags: {len(live['flags'])}  "
-              f"({per100:.1f} per 100 games)")
+              f"({per100:.1f} per 100 games - raw flags, a game can flag "
+              f"several times)")
         if lead is not None:
             print(f"  median lead: {lead:.0f} h before kickoff - so this is "
                   f"NOT comparable\n  to E4's near-close number below. Books "
