@@ -166,6 +166,21 @@ python backfill_nfl.py          nflverse schedules and EPA, free
 python backfill_odds_history.py historical odds. COSTS 10 credits per request
 ```
 
+### Your own bets (the scoreboard)
+
+```
+python run_daily.py bet --sport nfl --date 2026-10-04     --game "Chiefs at Raiders" --market h2h --side "Kansas City Chiefs"     --price -215 --book draftkings --stake 25 --tag research
+python run_daily.py bet --csv bets_inbox/     a folder of CSVs instead
+python run_daily.py scoreboard                grade them and report
+```
+
+Records a bet you placed anywhere and grades it the way the model's paper bets
+are graded: fair close, EV after vig, the shop/info split, coverage, and the
+same three-gate verdict. Tags: `boost`, `promo`, `research`, `sgp-leg`.
+
+It refuses a game it cannot resolve, a game that has already started, an
+impossible price, and a prop with no player. It never stakes money.
+
 ### Collection (Phase 0)
 
 ```

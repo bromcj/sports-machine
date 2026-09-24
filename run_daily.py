@@ -179,6 +179,38 @@ if __name__ == "__main__":
         from model.market_score import run as market_run
         market_run()
         raise SystemExit(0)
+    if mode == "bet":
+        from bets.manual import enter, from_csv, EntryError
+        import argparse as _ap
+        q = _ap.ArgumentParser(prog="run_daily.py bet")
+        q.add_argument("--csv")
+        for f in ("sport", "date", "game", "market", "side", "book", "tag",
+                  "player"):
+            q.add_argument(f"--{f}")
+        q.add_argument("--price")
+        q.add_argument("--stake")
+        q.add_argument("--prop-line", type=float)
+        q.add_argument("--result")
+        a = q.parse_args(sys.argv[2:])
+        try:
+            if a.csv:
+                ids = from_csv(a.csv)
+                print(f"recorded {len(ids)} bet(s) from {a.csv}")
+            else:
+                bid = enter(a.sport, a.date, a.game, a.market or "h2h", a.side,
+                            a.price, a.book, a.stake, a.prop_line, a.player,
+                            a.tag or "", a.result)
+                print(f"recorded bet {bid}")
+        except EntryError as e:
+            raise SystemExit(f"REFUSED: {e}")
+        raise SystemExit(0)
+    if mode == "scoreboard":
+        from bets.manual import grade_all, report
+        t = grade_all()
+        print(f"graded {t['graded']} manual bet(s)"
+              f"  ({t['no_close']} with no usable close,"
+              f" {t['no_result']} awaiting a result)\n")
+        raise SystemExit(report())
     if mode == "paper":
         from bets.paper import run as paper_run
         paper_run()

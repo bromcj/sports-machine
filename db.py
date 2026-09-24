@@ -406,6 +406,35 @@ MIGRATIONS = [
     # Which prediction this bet acted on. Two predictions a day were possible
     # and nothing recorded which one a bet came from.
     ("bets", "prediction_id", "INTEGER"),
+
+    # ---- Phase 2: mode='manual', so a human's own bets are graded on exactly
+    # the terms the model's are. Every column here is additive and NULL on
+    # every existing row, so nothing already recorded changes meaning.
+    #
+    # 'h2h' | 'spreads' | 'totals' | a prop market key. NULL reads as 'h2h',
+    # which is what every row written before this column was.
+    ("bets", "market", "TEXT"),
+    # The player a prop is on. NULL for game-level markets.
+    ("bets", "player", "TEXT"),
+    # The prop or handicap NUMBER (5.5 receptions, -3.5 points). Distinct from
+    # line_taken, which is the PRICE (-110). Conflating the two is how a
+    # scoreboard ends up grading "over 110".
+    ("bets", "prop_line", "REAL"),
+    # boost | promo | research | sgp-leg. The question the scoreboard answers
+    # is "is this handicapping worth continuing", and that is only answerable
+    # per tag: a boosted price and a researched pick are not the same bet.
+    ("bets", "tag", "TEXT"),
+    # For markets whose result we do not hold (most props). Entered by hand and
+    # FLAGGED as such, so a typed outcome can never be mistaken for one settled
+    # from a box score.
+    ("bets", "manual_result", "TEXT"),
+    # What was available elsewhere at the moment of the bet, and what the fair
+    # price was then. Without these the shop/info split cannot be computed for
+    # a human's pick: shop is the price taken against fair-at-bet, info is
+    # fair-at-bet against fair-at-close. The model's bets get both from the
+    # snapshot they were placed against; a manual bet has no snapshot.
+    ("bets", "best_available", "INTEGER"),
+    ("bets", "p_fair_at_bet", "REAL"),
 ]
 
 
