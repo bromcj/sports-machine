@@ -28,11 +28,13 @@ error. Cost is the number of REGIONS the named books span, not the number of
 books - so asking for Pinnacle doubles every request, and once doubled the
 extra US books are free. See the BOOKS constant for the measurements.
 
-CREDIT CAP, ENFORCED IN CODE. The brief allows 3,000 credits. Every response
-carries `x-requests-remaining`; the run records it, and stops before any
-request that would take the running total past the cap. The cap is checked
-BEFORE the request, not after, because a cap you discover you have passed is
-not a cap.
+CREDIT CAP, ENFORCED IN CODE. The brief allows 3,000 credits a month. Every
+request's cost is logged to requests.jsonl, and a run starts from what this
+calendar month has already spent there, then stops before any request that
+would take that running total past the cap. The cap is checked BEFORE the
+request, not after, because a cap you discover you have passed is not a cap.
+(It used to start from zero on every run, so ten scheduled runs a day could
+each spend the whole cap.)
 
 NO SCHEMA CHANGE. Raw payloads land under data/props_live/raw/ gzipped, a
 JSONL log records every request, and prices are materialised to parquet.
@@ -146,12 +148,34 @@ def _key() -> str:
     return k
 
 
-class Budget:
-    """Stops BEFORE the request that would pass the cap."""
+def spent_this_month(now=None) -> int:
+    """Credits the request log records for the current UTC calendar month."""
+    now = now or dt.datetime.now(dt.timezone.utc)
+    month = now.strftime("%Y-%m")
+    total = 0
+    if not LOG.exists():
+        return 0
+    with open(LOG, encoding="utf-8") as f:
+        for line in f:
+            try:
+                r = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if str(r.get("ts", "")).startswith(month):
+                total += int(r.get("cost") or 0)
+    return total
 
-    def __init__(self, cap: int):
+
+class Budget:
+    """Stops BEFORE the request that would pass the cap.
+
+    `spent` starts at what this month has already cost, so the cap is a
+    running total across runs, not a per-run allowance.
+    """
+
+    def __init__(self, cap: int, already: int = 0):
         self.cap = cap
-        self.spent = 0
+        self.spent = already
         self.remaining = None
 
     def can(self, cost: int) -> bool:
@@ -244,7 +268,7 @@ def already_pulled() -> set:
 def pull_game_markets(sport: str, key: str, budget: Budget, stamp: str) -> int:
     """h2h and spreads for the whole slate: one request, one credit a market."""
     cfg = SPORTS[sport]
-    cost = len(cfg["game_markets"])
+    cost = len(cfg["game_markets"]) * REGIONS   # what it will really cost
     if not budget.can(cost):
         print(f"  game markets skipped: cap would be passed")
         return 0
@@ -266,7 +290,7 @@ def pull_game_markets(sport: str, key: str, budget: Budget, stamp: str) -> int:
 def pull_player_props(sport: str, key: str, budget: Budget, stamp: str,
                       events: list) -> int:
     cfg = SPORTS[sport]
-    per = len(cfg["player_markets"])
+    per = len(cfg["player_markets"]) * REGIONS
     spent = 0
     for e in events:
         if not budget.can(per):
@@ -372,13 +396,17 @@ def plan(sport: str | None = None) -> None:
 
 
 def run(sport: str, cap: int) -> int:
-    key = _key()
-    budget = Budget(cap)
+    budget = Budget(cap, already=spent_this_month())
     stamp = utc_now()
     cfg = SPORTS[sport]
     print("=" * 74)
-    print(f"collecting {sport.upper()}  {stamp}  cap {cap:,}")
+    print(f"collecting {sport.upper()}  {stamp}  cap {cap:,} a month, "
+          f"{budget.spent:,} spent so far this month")
     print("=" * 74)
+    if budget.spent >= cap:
+        print("  STOPPING: this month's cap is already spent. Nothing requested.")
+        return 0
+    key = _key()
 
     evs = upcoming(sport, key, budget)
     d = due(evs, cfg["lead_hours"])
@@ -399,7 +427,7 @@ def run(sport: str, cap: int) -> int:
     if sport == "nfl":
         snapshot_injuries(stamp)
 
-    print(f"\nspent {budget.spent} credit(s) this run"
+    print(f"\nmonth to date {budget.spent} credit(s)"
           + (f", {budget.remaining:,} remaining" if budget.remaining else ""))
     return 0
 
