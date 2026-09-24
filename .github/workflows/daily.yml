@@ -76,12 +76,19 @@ jobs:
           # not survive the step boundary; GITHUB_ENV does.
           echo "RUN_MODE=$MODE" >> "$GITHUB_ENV"
           python run_daily.py "$MODE"
-      - run: python export_snapshots.py
+      # always(): once the odds are stored they are paid for. If anything
+      # after the pull raises, the prices must still reach archive/ - the
+      # runner and its database are thrown away when the job ends.
+      - name: export
+        if: always()
+        run: python export_snapshots.py
       - name: healthcheck
         id: health
+        if: always()
         run: python healthcheck.py
         continue-on-error: true
       - name: commit archive and status
+        if: always()
         run: |
           git config user.name "machine-bot"
           git config user.email "actions@github.com"
