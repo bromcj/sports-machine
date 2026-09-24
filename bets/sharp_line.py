@@ -44,7 +44,7 @@ ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 import paths
 from db import connect
-from bets.engine import american_to_prob, american_to_decimal, novig_probs
+from bets.engine import american_to_decimal, novig_probs
 
 SHARP = "pinnacle"
 MIN_EV = 0.015          # 1.5%, the threshold the brief starts at

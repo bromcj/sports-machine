@@ -45,7 +45,7 @@ ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 from db import connect, utc_now
 from feeds import parse_utc
-from bets.engine import american_to_prob, american_to_decimal, novig_probs
+from bets.engine import american_to_prob, american_to_decimal
 from bets.log import fair_prob, closing_snapshot, CLOSING_WINDOW_MIN
 
 MODE = "manual"

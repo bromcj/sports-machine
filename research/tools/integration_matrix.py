@@ -26,8 +26,6 @@ modes, and the brief asks that adding one without documenting it fails.
 import argparse
 import ast
 import re
-import sys
-from collections import defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).parent.parent.parent
