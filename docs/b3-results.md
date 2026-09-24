@@ -3,6 +3,10 @@
 Run 2026-09-24 on the 814 games bought in B3. Pre-registered in
 `docs/experiments.md`. Raw output: `docs/results/b3_backtest.txt`.
 
+Reproduce (free, offline): `python research/b3/materialize.py` rebuilds
+`data/props_nfl.parquet` from the purchased raw files, then
+`python props/nfl_receiving.py` prints the backtest.
+
 ## Verdict: no edge found. The model loses to the price, and to a season average.
 
 | market | fair price | n | model | market | margin | t |

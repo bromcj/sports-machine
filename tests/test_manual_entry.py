@@ -72,3 +72,19 @@ def test_a_total_is_not_given_moneyline_shop_or_info(con):
     r = con.execute("SELECT p_fair_at_bet, best_available FROM bets WHERE bet_id=?",
                     (bid,)).fetchone()
     assert r["p_fair_at_bet"] is None and r["best_available"] is None
+
+
+@pytest.mark.parametrize("over", [
+    {"price": 50}, {"price": -100}, {"price": 0}, {"price": "abc"},
+    {"tag": "hunch"}, {"stake": 0}, {"stake": -5},
+    {"market": "player_receptions"},                 # a prop with no player
+    {"market": "spreads"},                           # a spread with no number
+])
+def test_entry_refuses_what_it_cannot_grade(con, over):
+    args = dict(sport="nfl", date="2099-09-23", game="Falcons at Packers",
+                market="h2h", side="Packers", price=-200, book="draftkings",
+                stake=10, tag="research")
+    args.update(over)
+    with pytest.raises(manual.EntryError):
+        manual.enter(**args)
+    assert con.execute("SELECT COUNT(*) FROM bets").fetchone()[0] == 0

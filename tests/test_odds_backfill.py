@@ -52,13 +52,6 @@ def test_the_price_per_request_is_not_guessed():
     assert "," in b.BOOKS and b.MARKET == "h2h"
 
 
-def test_history_is_stored_under_its_own_snapshot_types():
-    # It must never be mistakable for a live pull.
-    plan = [{"kind": "hist_open"}, {"kind": "hist_close"}]
-    for p in plan:
-        assert p["kind"].startswith("hist_")
-
-
 def test_a_postponed_game_must_not_keep_its_original_slot():
     """The Stats API returns a postponed game TWICE under one gamePk.
 
@@ -78,11 +71,3 @@ def test_a_postponed_game_must_not_keep_its_original_slot():
     assert stats_api_status(postponed) != "final"
     assert stats_api_status(played) == "final"
 
-    # The selection rule backfill_start_times applies.
-    entries = [("2024-03-28T17:10:00Z", stats_api_status(postponed)),
-               ("2024-03-29T17:40:00Z", stats_api_status(played))]
-    best = None
-    for when, st in entries:
-        if best is None or (st == "final" and best[1] != "final"):
-            best = (when, st)
-    assert best[0] == "2024-03-29T17:40:00Z"

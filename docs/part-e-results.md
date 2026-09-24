@@ -5,6 +5,11 @@ price and outcome. Every direction below was written down in
 `docs/experiments.md` **before** anything was fit. Raw output:
 `docs/results/part_e.txt`.
 
+Reproduce (free, offline): `python research/enrich_statcast.py` builds the
+pitching measures in `data/statcast_rich/`; `python research/part_e_model.py`
+prints E1-E3 and E6 (the saved output is `docs/results/part_e.txt`);
+`python research/part_e_prices.py` prints E4 and E5.
+
 ## Scoreboard
 
 | | hypothesis | predicted | measured | verdict |

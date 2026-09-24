@@ -62,7 +62,7 @@ teams by ~2.9 points in every season, uniformly across the whole reliability
 curve, which is a missing intercept rather than a wrong `k`.
 
 Applied to MLB: helps in all three seasons (−0.00090, −0.00282, −0.00125;
-pooled +0.001662, t = +2.98 against the real close). **Not applied to NFL**,
+pooled +0.001662, t = +2.98 against the real close; `research/d1_calibration.py`). **Not applied to NFL**,
 where the same measurement helps in 2 of 6 seasons and the fitted value flips
 sign — the NFL model *over*-rates home teams. `walk_forward(intercept=…)`
 therefore defaults to off and MLB opts in.
