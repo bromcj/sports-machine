@@ -8,13 +8,14 @@ Checks:
   1. Every in-season sport delivered odds snapshots this run
      (skipped for `grade`, which pulls finals only and never touches odds)
   2. Every in-season sport has games on the schedule (when expected)
-  3. Archive export produced files this run
+  3. Archive export produced files this run (by the time in the file NAME:
+     actions/checkout stamps every file with the checkout time, so file
+     modification times said every archive file was fresh)
   4. Snapshot prices are sane (no null-only books)
 """
 import datetime as dt
 import os
 import sys
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -72,11 +73,17 @@ def check() -> int:
     archive = ROOT / "archive"
     fresh = []
     if archive.exists():
-        # NOT utcnow().timestamp(): utcnow() is naive, so .timestamp()
-        # reads it as LOCAL time and lands hours off anywhere but UTC,
-        # putting the cutoff in the future so nothing looks fresh.
-        cutoff = time.time() - 2 * 3600
-        fresh = [p for p in archive.glob("*.csv") if p.stat().st_mtime > cutoff]
+        now = dt.datetime.now(dt.timezone.utc)
+        for p in archive.glob("*.csv"):
+            # odds-2026-09-24-0141.csv: the export stamps its UTC time here.
+            try:
+                made = dt.datetime.strptime(p.stem.split("-", 1)[1],
+                                            "%Y-%m-%d-%H%M").replace(
+                                                tzinfo=dt.timezone.utc)
+            except (IndexError, ValueError):
+                continue
+            if dt.timedelta(0) <= now - made <= dt.timedelta(hours=2):
+                fresh.append(p)
     if not fresh and any_slate and expect_odds:
         problems.append("archive: no CSV exported in this run window.")
     con.close()

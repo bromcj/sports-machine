@@ -35,10 +35,14 @@ def morning():
         except requests.RequestException as e:
             print(f"[mlb] probables unavailable: {redact(e)}")
     scores.pull_all()           # schedules/finals for everything else
-    odds.pull("open")
+    failed = odds.pull("open")
     if "mlb" in live:
         predict()
     print("Morning run complete. Run `python run_daily.py picks` to see them.")
+    # Last, so everything else still ran and the cloud still archives the
+    # sports that did arrive; non-zero so the run goes red and emails.
+    if failed:
+        raise SystemExit(f"odds pull FAILED for: {', '.join(failed)}")
 
 
 def predict():
@@ -72,7 +76,9 @@ def predict():
 
 
 def close():
-    odds.pull("close")
+    failed = odds.pull("close")
+    if failed:
+        raise SystemExit(f"odds pull FAILED for: {', '.join(failed)}")
     print("Closing snapshots captured (CLV anchor).")
 
 

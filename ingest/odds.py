@@ -96,16 +96,26 @@ def pull_sport(sport: str, snapshot_type: str) -> int:
     return n
 
 
-def pull(snapshot_type: str = "open"):
+def pull(snapshot_type: str = "open") -> list:
+    """Pull every in-season sport. Returns the sports whose pull FAILED.
+
+    A failure is caught so the other sports still get their prices, but it is
+    returned, not just printed: a 401 or 429 used to leave the cloud run
+    green, with healthcheck reading the empty slate as "no games today".
+    """
     if not API_KEY:
         raise SystemExit("Set ODDS_API_KEY env var first.")
     month = dt.date.today().month
+    failed = []
     for sport in active_sports(month):
         try:
             pull_sport(sport, snapshot_type)
         except requests.RequestException as e:
             print(f"[{sport}] pull failed: {redact(e)}")
+            failed.append(sport)
+    return failed
 
 
 if __name__ == "__main__":
-    pull(sys.argv[1] if len(sys.argv) > 1 else "open")
+    bad = pull(sys.argv[1] if len(sys.argv) > 1 else "open")
+    raise SystemExit(f"odds pull failed for: {', '.join(bad)}" if bad else 0)
