@@ -75,3 +75,29 @@ different things, and a model must never be credited with the first.**
 
 `COMMANDS.md` and the integration matrix in the same commit —
 32 entry points, 0 undocumented.
+
+---
+
+## One golden-test re-baseline, and why
+
+After the Phase 1.7 merge the golden test failed with exactly two differences:
+
+```
+validation_json.mlb.paper_trading: missing in baseline
+validation_text: "paper-trading FAIL (nothing recorded)"
+               -> "paper-trading FAIL (only 1 graded paper bets, need 50)"
+```
+
+**That is the machine working, not a regression.** The scheduled job ran on
+prod for the first time since the intercept was applied, settled and graded a
+real paper bet, and gate 2 now records a state instead of a blank. Every other
+pinned behaviour — 3,459 twin resolutions, 27 predictions, the `market_close`
+checksum, the full decomposition of all bets, monitor's ten checks, the audit
+text — was **unchanged**.
+
+Re-baselined, and `capture.py` now says explicitly that `validation.json` is a
+**record** rather than behaviour: a difference there has to be *explained*
+before the baseline is re-captured. If the explanation is "the machine ran",
+re-baseline and say so here. If there is no explanation, something moved that
+should not have. **Re-baselining without reading the diff is how a golden test
+becomes decoration.**

@@ -39,6 +39,19 @@ SPEED. The full capture includes `python audit.py`, which takes minutes. Every
 commit runs the fast set; the audit text is captured at the start of the phase
 and re-checked before the merge. `--with-audit` forces it.
 
+BEHAVIOUR VERSUS STATE. Most of what is pinned here is behaviour - the same
+inputs must give the same outputs. `validation.json` is different: it is a
+RECORD, and it legitimately moves when the machine runs. Gate 2 went from
+"nothing recorded" to "only 1 graded paper bets" the first time the scheduled
+job settled a real paper bet, and the golden test correctly flagged it.
+
+That is not a false alarm and the answer is not to stop pinning it. The answer
+is that a difference here has to be EXPLAINED before the baseline is
+re-captured: if the explanation is "the machine ran", re-baseline and say so in
+the phase report; if there is no explanation, something moved that should not
+have. Re-baselining without reading the diff is how a golden test becomes
+decoration.
+
 WHICH COPY. `data_golden/`, restored from a verified backup and NEVER written
 to - not `data_phase1/`, which is the playground the command sweep runs
 against. That distinction was learned the hard way: running every command once

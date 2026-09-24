@@ -12,6 +12,27 @@
    "worst_season": 2025,
    "worst_t": -4.3702424776839575
   },
+  "paper_trading": {
+   "avg_clv": 3.186,
+   "coverage": 0.125,
+   "info_by_slot": {
+    "evening": 3.186
+   },
+   "n_bets": 1,
+   "passed": false,
+   "placebo": {
+    "mean": -3.318,
+    "n": 1,
+    "would_pass": false
+   },
+   "reason": "only 1 graded paper bets, need 50",
+   "sd_clv": 0.0,
+   "se_clv": 0.0,
+   "slot_share": {
+    "evening": 1.0
+   },
+   "t_stat": null
+  },
   "pooled": {
    "mean_ll_diff": -0.008158,
    "n_games": 6533,
