@@ -180,6 +180,33 @@ def test_the_governor_takes_the_fastest_level_the_budget_covers():
     assert budget.choose_level(sched, day, need[-1] - 1, cost=3, end=end) is None
 
 
+def test_the_plans_per_day_level_is_labelled_as_what_it_is():
+    # `poll --plan` labelled its per-day column "the level each day starts
+    # at". The plan starts every day afresh at midnight; the loop carries its
+    # last polls over midnight, so it can start faster - the real loop ran
+    # level 4 all of Wednesday 2026-11-04 where the plan says 5. What the
+    # column is: a level the day's allowance can hold all day.
+    lines = []
+    budget.plan(out=lines.append)
+    text = "\n".join(lines)
+    assert "starts at" not in text
+    assert text.count("a level the day's allowance can hold all day") == 2
+    monday = dt.date(2026, 11, 2)
+    sched = budget.typical_schedule(config.POLL_SPORTS, monday)
+    per_day = config.CREDIT_CAP_BRIEF / config.BRIEF_POLL_DAYS
+    levels, spend = budget._governed_week(sched, monday, per_day)
+    assert all(sp <= per_day for sp in spend)                  # what the label says
+    faster = []                                                # why "starts at" was not
+    for d in range(1, 7):
+        day = budget._et_midnight(monday + dt.timedelta(days=d))
+        times = budget.poll_times(sched, day - dt.timedelta(days=1), day, levels[d - 1])
+        last = {sp: ts[-1] for sp, ts in times.items() if ts}
+        lv = budget.choose_level(sched, day, per_day, last_polls=last,
+                                 end=day + dt.timedelta(days=1))
+        faster.append(lv < levels[d])
+    assert any(faster)
+
+
 def test_the_plan_stays_inside_both_limits():
     # A-V3 in docs/experiments.md.
     r = budget.plan(out=lambda *_: None)

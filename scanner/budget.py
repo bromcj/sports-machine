@@ -405,8 +405,8 @@ def plan(out=print) -> dict:
     for label, per_day in (("THE BRIEF", brief_day), ("NORMAL OPERATION", normal_day)):
         levels, spend = _governed_week(sched, monday, per_day)
         out(f"\n{label}: {per_day:,.0f} credits a day allowed at first")
-        out("  the level each day starts at, and its credits if held all day")
-        out("  (the loop runs this level or faster, and spends more):")
+        out("  per day, a level the day's allowance can hold all day, and its credits")
+        out("  if held all day (the loop runs this level or faster, and spends more):")
         for name, lv, sp in zip(("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"),
                                 levels, spend):
             out(f"  {name}  {sp:4d}  {_describe(lv)}")
