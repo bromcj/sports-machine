@@ -42,7 +42,9 @@ Safety, in the order it applies:
 data/scanner/poll.lock that `--live` holds for its whole life - never by
 probing a process id: on Windows, os.kill(pid, 0) does not test a process, it
 ends it. The OS drops the lock when the process ends, however it ends, so a
-second loop is refused even while the first one's heartbeat is old.
+second loop is refused even while the first one's heartbeat is old. A loop
+that holds the lock but has not beaten for HUNG_AFTER is not called running:
+monitor.py and --ensure say it may be hung, and which process to end.
 """
 import datetime as dt
 import json
@@ -80,6 +82,11 @@ TICK_S = 30
 SCHEDULE_EVERY = dt.timedelta(minutes=60)
 LEVEL_EVERY = dt.timedelta(minutes=5)
 ALIVE_WITHIN = dt.timedelta(minutes=5)       # a beat newer than this: running
+# A held lock with no beat for this long is a loop that has stopped moving,
+# not a slow one. A loop beats before its first tick and after every tick; the
+# slowest tick measured (every request timing out on a hanging server) is
+# 378 s, and it sleeps 30 s between ticks: under 7 minutes between beats.
+HUNG_AFTER = 3 * ALIVE_WITHIN
 
 
 class Fatal(RuntimeError):
@@ -295,6 +302,10 @@ class Poller:
 
     def run(self, max_ticks: int | None = None) -> int:
         STOP.unlink(missing_ok=True)
+        # This loop's own first beat, before any request: until it, the
+        # heartbeat is the last loop's (or none), which has no age to judge
+        # this loop by - so a first request that never returned went unseen.
+        self.beat(self.clock())
         n = 0
         while max_ticks is None or n < max_ticks:
             now = self.clock()
@@ -380,6 +391,26 @@ def alive(hb=None, now=None) -> bool:
     return locked()
 
 
+def hung(hb=None, now=None) -> str | None:
+    """What to do about a loop that holds the lock but has stopped beating,
+    or None. A request that never returns, or a console paused by a click,
+    keeps the lock held while the beat ages: alive() rightly still keeps a
+    second loop out, but nothing is being polled. A heartbeat that is not
+    the lock holder's own - none, or the last loop's 'stopped' - has no age
+    to judge; the loop beats before its first request, so that is a moment."""
+    hb = heartbeat() if hb is None else hb
+    if not hb or str(hb.get("state", "")).startswith("stopped") or not locked():
+        return None
+    beat = parse_utc(hb.get("beat_at"))
+    age = None if beat is None else (now or utcnow()) - beat
+    if age is None or age <= HUNG_AFTER:
+        return None
+    return (f"the polling loop holds its lock but has not beaten for"
+            f" {age.total_seconds() / 60:.0f} min"
+            f" - it may be hung; end pid {hb.get('pid')} (Task Manager, Details tab)"
+            " and the next scheduled run restarts it")
+
+
 def _spawn():
     """Start `run_daily.py poll --live` detached, logging to logs/poll.log."""
     LOG.parent.mkdir(exist_ok=True)
@@ -441,6 +472,9 @@ def ensure(spawn=_spawn, now=None, wait=time.sleep) -> str:
         finally:
             con.close()
     if alive(hb, now):
+        why = hung(hb, now)
+        if why:
+            return why
         if hb.get("code_sha") and hb["code_sha"] != db.code_sha():
             STOP.parent.mkdir(parents=True, exist_ok=True)
             STOP.write_text("new code", encoding="utf-8")

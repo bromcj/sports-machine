@@ -3,6 +3,7 @@ HTTP call goes to FakeGet, which also proves no call happens before the budget
 has been checked."""
 import datetime as dt
 import json
+import os
 import sqlite3
 import subprocess
 import sys
@@ -356,6 +357,36 @@ def test_the_heartbeat_is_stamped_when_it_is_written(env, monkeypatch):
     assert poll.alive(poll.heartbeat(), T["now"])
 
 
+def test_a_loop_hung_in_its_first_request_is_reported_hung(env, monkeypatch):
+    # The loop beats once before its first tick. Without that beat, a first
+    # request that never returned left the last loop's heartbeat (or none),
+    # and the held lock read as "running" for as long as it hung.
+    import monitor
+    monkeypatch.setattr(config, "POLLING_ENABLED", True)
+    later = T0 + dt.timedelta(minutes=16)
+    seen = {}
+
+    def get(url, params=None, label="", attempts=3, **_):   # it never returns...
+        hb = poll.heartbeat()
+        seen["beat"] = hb and (hb["state"], hb["pid"], hb["beat_at"])
+        seen["ensure"] = poll.ensure(spawn=lambda: pytest.fail("a second loop"), now=later)
+        con = db.connect()
+        seen["monitor"] = [(x["level"], x["detail"]) for x in monitor.scanner_checks(
+            con, later, {"credit_ledger"}) if "loop" in x["check"]]
+        con.close()
+        raise requests.Timeout("...until the test lets go")
+
+    held = poll.take_lock()                                  # as `poll --live` does
+    try:
+        _poller(get, lambda: T0).run(max_ticks=1)
+    finally:
+        held.close()
+    assert seen["beat"] == ("starting", os.getpid(), T0.isoformat(timespec="microseconds"))
+    hung = f"has not beaten for 16 min - it may be hung; end pid {os.getpid()}"
+    assert hung in seen["ensure"]
+    assert [lv for lv, _ in seen["monitor"]] == ["ERROR"] and hung in seen["monitor"][0][1]
+
+
 # Stands in for a running `poll --live`: the OS lock on data/scanner/poll.lock,
 # held until stdin closes.
 HOLD = """
@@ -373,9 +404,11 @@ sys.stdin.read()
 """
 
 
-def test_a_loop_that_holds_the_lock_is_running_however_old_its_beat(env, monkeypatch):
+def test_a_loop_that_holds_the_lock_is_never_doubled_however_old_its_beat(env, monkeypatch):
     # A slow tick, a sleeping PC, or a first tick not finished yet: the
-    # heartbeat can be minutes old, or missing, while the loop is there.
+    # heartbeat can be minutes old, or missing, while the loop is there. A
+    # second loop is never started beside it - but a beat hours old under a
+    # held lock is a hung loop, and ensure() says so instead of "running".
     monkeypatch.setattr(config, "POLLING_ENABLED", True)
     for name in ("Poller", "OddsSource"):
         monkeypatch.setattr(poll, name, lambda *a, **k: pytest.fail("a second loop"))
@@ -394,7 +427,9 @@ def test_a_loop_that_holds_the_lock_is_running_however_old_its_beat(env, monkeyp
                               stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     try:
         assert holder.stdout.readline().strip() == "held"
-        assert poll.ensure(spawn=spawn, now=T0).startswith("running")
+        msg = poll.ensure(spawn=spawn, now=T0)
+        assert msg.startswith("the polling loop holds its lock but has not beaten for"
+                              " 480 min - it may be hung; end pid 7"), msg
         assert poll.live() == 2
         assert not started
     finally:

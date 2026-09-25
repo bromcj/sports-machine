@@ -104,6 +104,46 @@ def test_a_loop_on_its_first_tick_holds_the_lock_before_any_beat(con, monkeypatc
     assert [x["level"] for x in loop] == [level]
 
 
+def _loop_findings(con, monkeypatch, tmp_path, hb):
+    """The loop findings while this process holds the lock, as `poll --live`
+    does, with this heartbeat (None: no heartbeat file)."""
+    monkeypatch.setattr(poll, "STATE_DIR", tmp_path)
+    if hb is not None:
+        poll.HEARTBEAT.write_text(json.dumps(hb))
+    held = poll.take_lock()
+    try:
+        return [(x["level"], x["detail"]) for x in
+                monitor.scanner_checks(con, NOW, _tables(con)) if "loop" in x["check"]]
+    finally:
+        held.close()
+
+
+@pytest.mark.parametrize("age_min, level", [(7, "INFO"), (16, "ERROR"), (480, "ERROR")])
+def test_a_loop_that_holds_its_lock_but_stopped_beating_is_an_error(con, monkeypatch,
+                                                                    tmp_path, age_min, level):
+    # A request that never returns, or a console paused by a click, keeps the
+    # lock held while the beat ages. Called "running", closing prices stopped
+    # with no alert, even 8 hours on. A slow but live tick - every request
+    # timing out, 378 s, then the 30 s sleep - beats again inside 7 minutes.
+    monkeypatch.setattr(config, "POLLING_ENABLED", True)
+    loop = _loop_findings(con, monkeypatch, tmp_path, {
+        "state": "running", "pid": 4321, "level": 3,
+        "beat_at": (NOW - dt.timedelta(minutes=age_min)).isoformat()})
+    assert [lv for lv, _ in loop] == [level]
+    if level == "ERROR":
+        assert f"has not beaten for {age_min} min - it may be hung; end pid 4321" in loop[0][1]
+
+
+@pytest.mark.parametrize("hb", [None, {"state": "stopped: asked to", "stop_kind": "asked",
+                                       "pid": 7, "level": 2, "beat_at": "2026-11-03T08:00:00Z"}])
+def test_a_loop_before_its_own_first_beat_says_so(con, monkeypatch, tmp_path, hb):
+    # No heartbeat, or the last loop's 'stopped' one: nothing about this loop
+    # yet. It said 'None (level None)', or 'stopped: asked to (level 2)'.
+    monkeypatch.setattr(config, "POLLING_ENABLED", True)
+    assert _loop_findings(con, monkeypatch, tmp_path, hb) == [
+        ("INFO", "first tick, no beat yet")]
+
+
 def test_a_dead_polling_loop_is_an_error_once_polling_is_on(con, monkeypatch):
     monkeypatch.setattr(config, "POLLING_ENABLED", True)
     f = [x for x in monitor.scanner_checks(con, NOW, _tables(con))

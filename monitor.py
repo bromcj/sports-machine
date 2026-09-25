@@ -227,8 +227,14 @@ def scanner_checks(con, now, tables) -> list[dict]:
         from scanner import poll
         hb = poll.heartbeat() or {}      # none yet while a loop's first tick runs
         if poll.alive(hb, now):
-            out.append(_find("INFO", "the polling loop is running",
-                             f"{hb.get('state')} (level {hb.get('level')})"))
+            # Alive keeps a second loop out; a held lock whose beat has
+            # stopped is still no loop polling.
+            hung = poll.hung(hb, now)
+            own = hb and not str(hb.get("state", "")).startswith("stopped")
+            out.append(_find("ERROR", "the polling loop is running", hung) if hung else
+                       _find("INFO", "the polling loop is running",
+                             f"{hb.get('state')} (level {hb.get('level')})" if own
+                             else "first tick, no beat yet"))
         elif hb and str(hb.get("state", "")).startswith("stopped"):
             out.append(_find("ERROR", "the polling loop is running",
                              f"it {hb['state']} - see logs/poll.log"))
