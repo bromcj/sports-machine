@@ -251,6 +251,44 @@ def test_with_no_books_an_exchange_falls_back_to_its_own_mid(con):
     assert fv["p"] == pytest.approx((0.68 + 0.70) / 2)    # bid 0.68, ask 1 - 0.30
 
 
+LATE_BOOK = {"orderbook_fp": {"yes_dollars": [["0.9500", "10"]],
+                              "no_dollars": [["0.0300", "10"]]}}
+
+
+def test_the_exchange_mid_reads_nothing_after_the_moment(con):
+    k = _kalshi(con, yes_outcome=None)                      # mid .69 at PULL1
+    store.insert_prices(con, kalshi.price_rows(k, LATE_BOOK, PULL2,
+                                               "kalshi:quadratic:1", sport="nfl"))
+    for at in (PULL1, "2026-09-27T22:00:00+00:00"):
+        fv = fair_value(con, k, "yes", at)
+        assert fv["as_of"] == store.canon_ts(PULL1)
+        assert fv["p"] == pytest.approx((0.68 + 0.70) / 2)
+    assert fair_value(con, k, "yes", "2026-09-27T19:59:59+00:00") is None
+
+
+def test_an_exchange_mid_in_play_is_never_a_fair_price(con):
+    # The mid obeys the same start as the books: a quote captured at or
+    # after the start is not a market opinion.
+    k = _kalshi(con, yes_outcome=None)                      # mid .69 at PULL1
+    for when in (START, INPLAY):
+        store.insert_prices(con, kalshi.price_rows(k, LATE_BOOK, when,
+                                                   "kalshi:quadratic:1", sport="nfl"))
+    for at in (START, INPLAY):
+        fv = fair_value(con, k, "yes", at)
+        assert fv["as_of"] == store.canon_ts(PULL1)
+        assert fv["p"] == pytest.approx((0.68 + 0.70) / 2)
+    assert fair_value(con, k, "yes", INPLAY, max_age_s=600) is None
+
+
+def test_stale_books_do_not_fall_through_to_an_in_play_mid(con):
+    sportsbook.write(con, "nfl", _event({"pinnacle": (205, -230)}), PULL1)
+    k = _kalshi(con, yes_outcome="home")
+    store.insert_prices(con, kalshi.price_rows(k, LATE_BOOK, INPLAY,
+                                               "kalshi:quadratic:1", sport="nfl"))
+    assert fair_value(con, k, "yes", INPLAY)["source"] == "pinnacle"
+    assert fair_value(con, k, "yes", INPLAY, max_age_s=600) is None
+
+
 def test_the_kill_switch_takes_kalshi_sports_out_of_fair_value(con, monkeypatch):
     sportsbook.write(con, "nfl", _event({"pinnacle": (205, -230)}), PULL1)
     k = _kalshi(con)

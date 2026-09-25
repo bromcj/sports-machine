@@ -143,11 +143,12 @@ def _book_value(con, mkt, want: str, at: str):
 
 
 def _mid(con, mkt, outcome: str, at: str):
-    """The market's own best bid and ask for this outcome, averaged."""
+    """The market's own best bid and ask for this outcome, averaged - pregame
+    only, by the same start as the books."""
     pull = con.execute(
         "SELECT MAX(captured_at) FROM prices WHERE market_id=? AND outcome=?"
         " AND level=1 AND captured_at <= ?",
-        (mkt["market_id"], outcome, at)).fetchone()[0]
+        (mkt["market_id"], outcome, _pregame(con, mkt, at))).fetchone()[0]
     if pull is None:
         return None
     q = {r["quote"]: r["price"] for r in con.execute(
