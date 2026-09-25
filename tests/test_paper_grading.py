@@ -36,11 +36,11 @@ def _pinnacle(con, away, home, when):
     sportsbook.write(con, "nba", ev, when)
 
 
-def _position(con):
+def _position(con, own_start=START):
     """A Kalshi 'home wins' YES position, filled a minute after NOW."""
     row = kalshi.market_row("KXG", canonical_event_id="nba-g1", first_seen=NOW,
                             sport="nba", market_type="h2h", yes_outcome="home",
-                            event_start=START, resolves_at="2026-11-04T03:00:00Z")
+                            event_start=own_start, resolves_at="2026-11-04T03:00:00Z")
     store.upsert_markets(con, [row])
     book = {"orderbook_fp": {"yes_dollars": [["0.5500", "100"]],
                              "no_dollars": [["0.4000", "100"]]}}
@@ -87,3 +87,19 @@ def test_grading_reads_nothing_captured_after_the_moment_it_is_asked(con):
     _pinnacle(con, 100, -120, "2026-11-04T00:05:00Z")
     assert paper.grade(con, pid, BEFORE)["graded"] is False
     assert paper.grade(con, pid, START)["graded"] is True      # at the start: in
+
+
+def test_grading_uses_the_games_start_not_the_contracts_own(con):
+    # The contract says 01:10; the books say the game starts at 00:10.
+    # fair_value cuts off at 00:10 (scanner.fair.game_start), so grade() does
+    # too: the close is the last pull before 00:10, and the 60-minute window
+    # is measured to 00:10. By the contract's own start it waited an hour
+    # longer, then called the 00:05 close 65 minutes early.
+    _pinnacle(con, 130, -150, NOW - dt.timedelta(minutes=5))
+    mid, pid = _position(con, own_start="2026-11-04T01:10:00Z")
+    _pinnacle(con, 100, -120, "2026-11-04T00:05:00Z")
+    assert paper.grade(con, pid, "2026-11-04T00:30:00Z")["graded"] is True
+    close = fair_value(con, mid, "yes", START)
+    assert close["as_of"] == store.canon_ts("2026-11-04T00:05:00Z")
+    assert _graded(con, pid)["fair_close_p"] == close["p"]
+    assert paper.grade(con, pid, "2026-11-04T01:30:00Z")["graded"] is True
