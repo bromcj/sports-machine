@@ -189,6 +189,153 @@ CREATE TABLE IF NOT EXISTS bets (
     pnl REAL,
     model_version TEXT
 );
+
+-- ------------------------------------------------------------- scanner ---
+-- Every venue in one shape: sportsbooks (via The Odds API), Kalshi and
+-- Polymarket. See docs/venues.md. Added 2026-09-25 as new tables only; no
+-- existing table or column is touched.
+
+-- A market is one venue's contract on one question. A sportsbook's spread at
+-- -3.5 and the same book's spread at -3 are two markets, because they are two
+-- different bets. market_id is ours, built from the other columns
+-- (scanner.store.market_key), so re-polling finds the same row.
+CREATE TABLE IF NOT EXISTS markets (
+    market_id TEXT PRIMARY KEY,
+    venue TEXT NOT NULL,               -- 'sportsbook:<book>' | 'kalshi' | 'polymarket'
+    venue_market_id TEXT NOT NULL,     -- the venue's id: odds event id, Kalshi ticker, condition id
+    sport TEXT,                        -- NULL for a non-game market
+    canonical_event_id TEXT NOT NULL,  -- a games.game_id, matched through feeds; or a
+                                       -- non-game key of its own ('weather:KNYC:2026-10-01')
+    market_type TEXT NOT NULL,         -- h2h | spread | total | prop | futures | binary
+    line REAL,                         -- the home side's spread, or the total; NULL otherwise
+    yes_outcome TEXT,                  -- a yes/no contract on a game: which canonical
+                                       -- outcome YES is ('home', 'over'...). NULL otherwise
+    event_start TEXT,                  -- first pitch / tip-off, aware UTC; NULL if none
+    resolves_at TEXT,                  -- when it settles, for capital lock-up
+    resolution_source TEXT,
+    first_seen TEXT NOT NULL
+);
+
+-- APPEND-ONLY, like archive/. One row is one price on offer at one moment.
+-- `price` is always a probability: 1/decimal for a book (the vig still in it -
+-- scanner.fair takes it out), the contract price in dollars for an exchange.
+CREATE TABLE IF NOT EXISTS prices (
+    price_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    market_id TEXT NOT NULL,
+    venue TEXT NOT NULL,
+    outcome TEXT NOT NULL,             -- home | away | over | under | yes | no
+    quote TEXT NOT NULL,               -- 'ask': what buying this outcome costs;
+                                       -- 'bid': what selling it fetches. Books: ask only
+    level INTEGER NOT NULL DEFAULT 1,  -- 1 is the best price; order books keep three
+    price REAL NOT NULL,
+    price_native TEXT NOT NULL,        -- as received: '-110', '0.4500'
+    size_available REAL,               -- contracts at this price; NULL for a book
+    fee_model TEXT NOT NULL,           -- scanner.fees key: how EV after fees is computed
+    captured_at TEXT NOT NULL,         -- when WE saw it, aware UTC
+    source_last_update TEXT,           -- when the VENUE last moved it, if it says
+    raw_ref TEXT                       -- where the raw payload was saved
+);
+
+-- Every call to a metered API (only The Odds API is). The brief's credit cap
+-- and the monthly budget are sums over this table, checked BEFORE each call.
+CREATE TABLE IF NOT EXISTS credit_ledger (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts TEXT NOT NULL,
+    consumer TEXT NOT NULL,            -- which code spent it: 'poll'
+    sport TEXT,
+    endpoint TEXT NOT NULL,
+    estimated INTEGER NOT NULL,        -- the cost checked against the caps beforehand
+    cost INTEGER,                      -- x-requests-last; NULL if no response came back,
+                                       -- in which case the estimate counts
+    remaining INTEGER,                 -- x-requests-remaining afterwards
+    used INTEGER,                      -- x-requests-used afterwards
+    ok INTEGER NOT NULL,
+    note TEXT
+);
+
+-- Paper execution (scanner/paper.py). The CHECK is the database refusing any
+-- order that is not paper: there is no 'real' mode for a row to be in.
+CREATE TABLE IF NOT EXISTS paper_orders (
+    order_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    strategy TEXT NOT NULL,
+    mode TEXT NOT NULL CHECK (mode IN ('paper', 'placebo')),
+    venue TEXT NOT NULL,
+    market_id TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('taker', 'maker')),
+    size REAL NOT NULL,                -- contracts; for a book, dollars staked
+    limit_price REAL NOT NULL,         -- a probability; never fills worse than this
+    placed_at TEXT NOT NULL,
+    expires_at TEXT,                   -- a maker order rests until then
+    exposure REAL NOT NULL,            -- the most it can lose, fees included; the
+                                       -- daily cap is a sum of this
+    fair_p REAL,
+    fair_source TEXT,
+    fair_as_of TEXT,
+    ev_at_order REAL,                  -- per dollar, after fees, at the limit
+    status TEXT NOT NULL DEFAULT 'open',   -- open | partial | filled | expired
+    note TEXT
+);
+
+-- One row per simulated fill, against a price observed AFTER the order.
+CREATE TABLE IF NOT EXISTS paper_fills (
+    fill_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER NOT NULL,
+    price_id INTEGER NOT NULL,
+    filled_at TEXT NOT NULL,           -- that price's captured_at
+    contracts REAL NOT NULL,
+    price REAL NOT NULL,
+    fee REAL NOT NULL                  -- dollars
+);
+
+-- What an order became once something filled. Capital accounting lives here:
+-- ev is the return per dollar locked up, and annualized_ev says how long it is
+-- locked up for. Result and grading columns are filled at settlement.
+CREATE TABLE IF NOT EXISTS paper_positions (
+    position_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER NOT NULL UNIQUE,
+    strategy TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    venue TEXT NOT NULL,
+    market_id TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    contracts REAL NOT NULL,
+    avg_price REAL NOT NULL,
+    fee REAL NOT NULL,                 -- dollars
+    stake REAL NOT NULL,               -- capital locked: contracts x avg_price + fee
+    opened_at TEXT NOT NULL,
+    resolves_at TEXT,
+    days_to_resolution REAL,
+    fair_p REAL,
+    fair_source TEXT,
+    ev REAL,                           -- expected return per dollar staked, after fees
+    annualized_ev REAL,                -- ev / days_to_resolution x 365
+    result TEXT,                       -- win | loss | push | void
+    pnl REAL,
+    settled_at TEXT,
+    fair_close_p REAL,
+    fair_close_source TEXT,
+    info REAL,
+    realized_ev REAL,
+    graded_at TEXT
+);
+
+-- Every time a strategy's gate 2 is re-tested. Re-testing is optional
+-- stopping; the number of looks is what sets the false-pass rate, so it is
+-- recorded rather than assumed (docs/gates.md).
+CREATE TABLE IF NOT EXISTS gate_looks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    looked_at TEXT NOT NULL,
+    metric TEXT NOT NULL,
+    n INTEGER NOT NULL,
+    mean REAL,
+    se REAL,
+    t REAL,
+    coverage REAL,
+    passed INTEGER NOT NULL,
+    reason TEXT
+);
 """
 
 
@@ -479,6 +626,23 @@ INDEXES = [
     ("ux_prob_dedupe", "CREATE UNIQUE INDEX IF NOT EXISTS ux_prob_dedupe"
                        " ON probables_history(game_id, away_starter_id,"
                        " home_starter_id)"),
+    # One price, from one market, on one side of the book, at one moment. A
+    # second row with that key is the same observation twice.
+    ("ux_prices_dedupe", "CREATE UNIQUE INDEX IF NOT EXISTS ux_prices_dedupe"
+                         " ON prices(market_id, outcome, quote, level,"
+                         " captured_at)"),
+    # fair_value and the fill simulator both ask "the prices for this market
+    # at or after this moment".
+    ("ix_prices_market_time", "CREATE INDEX IF NOT EXISTS ix_prices_market_time"
+                              " ON prices(market_id, captured_at)"),
+    ("ix_markets_event", "CREATE INDEX IF NOT EXISTS ix_markets_event"
+                         " ON markets(canonical_event_id, market_type)"),
+    ("ix_orders_strategy", "CREATE INDEX IF NOT EXISTS ix_orders_strategy"
+                           " ON paper_orders(strategy, placed_at)"),
+    ("ix_fills_order", "CREATE INDEX IF NOT EXISTS ix_fills_order"
+                       " ON paper_fills(order_id)"),
+    ("ix_ledger_ts", "CREATE INDEX IF NOT EXISTS ix_ledger_ts"
+                     " ON credit_ledger(ts)"),
 ]
 # closing_snapshot() filters odds_snapshots on game_id alone; that is the
 # leading column of ux_snap_dedupe, so SQLite uses it. No separate index.

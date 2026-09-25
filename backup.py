@@ -44,7 +44,10 @@ KEEP = 14                      # newest files kept (not days); ~92 MB each now
 # odds_history_progress (which snapshots were bought) still "verified".
 TABLES = ["games", "odds_snapshots", "features", "models", "predictions",
           "market_scores", "api_usage", "probables_history",
-          "odds_history_progress", "market_close", "merged_files", "bets"]
+          "odds_history_progress", "market_close", "merged_files", "bets",
+          # the scanner's, 2026-09-25
+          "markets", "prices", "credit_ledger", "paper_orders", "paper_fills",
+          "paper_positions", "gate_looks"]
 
 
 def backup_dir() -> Path:
