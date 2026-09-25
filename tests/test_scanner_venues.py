@@ -184,6 +184,26 @@ def test_every_stored_time_has_one_shape():
         store.canon_ts("yesterday")
 
 
+def test_a_start_moves_later_only_if_reported_before_the_new_start(con):
+    # paper.simulate and grade read this stored start. A delay announced
+    # ahead of time moves it; a later start first reported after that time
+    # (the game was under way) does not; an earlier start always wins.
+    row = kalshi.market_row("KXG", canonical_event_id="nfl-e5fb", first_seen=T0,
+                            sport=None, event_start="2026-09-28T00:20:00Z")
+
+    def sighting(seen, start):
+        store.upsert_markets(con, [dict(row, first_seen=seen, event_start=start)])
+        return store.market(con, row["market_id"])["event_start"]
+    assert sighting(T0, "2026-09-28T00:20:00Z") == "2026-09-28T00:20:00.000000+00:00"
+    assert (sighting("2026-09-28T00:10:00Z", "2026-09-28T01:05:00Z")      # delay
+            == "2026-09-28T01:05:00.000000+00:00")
+    assert (sighting("2026-09-28T02:00:00Z", "2026-09-28T01:30:00Z")      # too late
+            == "2026-09-28T01:05:00.000000+00:00")
+    assert (sighting("2026-09-28T02:00:00Z", "2026-09-28T00:50:00Z")      # earlier
+            == "2026-09-28T00:50:00.000000+00:00")
+    assert sighting("2026-09-28T02:05:00Z", None) == "2026-09-28T00:50:00.000000+00:00"
+
+
 def test_a_malformed_fee_key_is_refused_but_an_unread_one_is_kept():
     row = {"market_id": "k1", "venue": "kalshi", "outcome": "yes", "quote": "ask",
            "level": 1, "price": 0.5, "price_native": "0.5000",

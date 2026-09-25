@@ -135,8 +135,10 @@ def from_snapshots(snaps) -> tuple[list, list]:
     """(markets, prices) from odds_snapshots rows - the moneylines the machine
     has collected since before the scanner existed. Used by audit.py to prove
     fair_value and bets/log.fair_prob agree on the same prices."""
-    markets, prices, latest = {}, [], {}
-    for s in snaps:
+    markets, prices = {}, []
+    # Oldest pull first (sorted() is stable), so each start is judged against
+    # the one before it, as upsert_markets does when polling live.
+    for s in sorted(snaps, key=lambda s: canon_ts(s["ts"])):
         start = parse_utc(s["commence_time"])
         if start is None:
             continue
@@ -150,13 +152,14 @@ def from_snapshots(snaps) -> tuple[list, list]:
             "market_type": "h2h", "line": None, "yes_outcome": None,
             "resolution_source": "final score", "first_seen": taken})
         m["first_seen"] = min(m["first_seen"], taken)
-        # The start the MOST RECENT pull reported. A rain delay moves it later
-        # pull by pull, and a price taken before the delayed start is still a
-        # pregame price - the first reported start would call it in-play.
-        # Live polling gets this from upsert_markets, which keeps the latest.
-        if taken >= latest.get(mid, ""):
-            latest[mid] = taken
-            m["event_start"] = canon_ts(start)
+        # The start the pulls reported, by upsert_markets' rule: an earlier one
+        # always wins; a later one (a rain delay moves it pull by pull, and a
+        # price taken before the delayed start is still pregame) only when the
+        # pull reporting it was taken before it. A later start reported after
+        # it had passed is the feed correcting itself mid-game.
+        new, old = canon_ts(start), m.get("event_start")
+        if old is None or new <= old or taken < new:
+            m["event_start"] = new
             m["resolves_at"] = resolves_at(sport, start)
         for side, ml in (("away", s["away_ml"]), ("home", s["home_ml"])):
             if ml is None:

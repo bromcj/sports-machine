@@ -85,9 +85,19 @@ def check_price(p: dict) -> str | None:
 
 # ---------------------------------------------------------------- writes ---
 
+# Whether a sighting's start replaces the stored one. An earlier start always
+# does. A later one (a rain delay, a flexed kickoff) only if the sighting was
+# made BEFORE that new start - `first_seen` on an incoming row is when it was
+# seen. A later start first reported after it had passed is a feed correcting
+# itself mid-game (Astros @ Rockies 2024-04-27: first pitch 22:05, re-reported
+# as 22:26:59 at 23:55); taking it would turn in-play prices into pregame ones.
+_MOVES = ("markets.event_start IS NULL OR excluded.event_start <= markets.event_start"
+          " OR excluded.first_seen < excluded.event_start")
+
+
 def upsert_markets(con, rows, rejects=None) -> int:
     """Insert new markets. A later sighting may fill a start or resolution time
-    that was missing, or move one (a flexed kickoff); a NULL never erases one."""
+    that was missing, or move one (_MOVES); a NULL never erases one."""
     n = 0
     for m in rows:
         bad = check_market(m)
@@ -101,8 +111,11 @@ def upsert_markets(con, rows, rejects=None) -> int:
             " resolves_at, resolution_source, first_seen)"
             " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
             " ON CONFLICT(market_id) DO UPDATE SET"
-            "   event_start=COALESCE(excluded.event_start, markets.event_start),"
-            "   resolves_at=COALESCE(excluded.resolves_at, markets.resolves_at)",
+            "   event_start=CASE WHEN excluded.event_start IS NULL THEN markets.event_start"
+            f"    WHEN {_MOVES} THEN excluded.event_start ELSE markets.event_start END,"
+            "   resolves_at=CASE WHEN excluded.resolves_at IS NULL THEN markets.resolves_at"
+            f"    WHEN excluded.event_start IS NULL OR {_MOVES} THEN excluded.resolves_at"
+            "    ELSE markets.resolves_at END",
             (m["market_id"], m["venue"], m["venue_market_id"], m.get("sport"),
              m["canonical_event_id"], m["market_type"], m.get("line"),
              m.get("yes_outcome"),

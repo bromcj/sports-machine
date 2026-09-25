@@ -109,6 +109,40 @@ def test_the_archive_conversion_keeps_the_latest_reported_start():
     assert markets[0]["first_seen"] == "2026-09-20T17:50:00.000000+00:00"
 
 
+def test_a_start_reported_later_after_the_game_began_does_not_reopen_it(con):
+    # mlb-3ccd92ca, 2024-04-27 (Astros @ Rockies): first pitch 22:05Z. The
+    # 22:25 pull still said 22:05 and carried in-play prices; pulls from 23:55
+    # re-reported the start as 22:26:59. That report came after 22:26:59, so it
+    # must not turn the 22:25 in-play pull into a pregame one.
+    def pull(when, start, books):
+        ev = _event(books)
+        ev[0]["commence_time"] = start
+        sportsbook.write(con, "mlb", ev, when)
+    pull("2024-04-27T21:20:00+00:00", "2024-04-27T22:05:00Z",
+         {"pinnacle": (-208, 188), "draftkings": (-218, 180)})
+    pull("2024-04-27T22:25:00+00:00", "2024-04-27T22:05:00Z",
+         {"pinnacle": (-212, 192), "draftkings": (-145, 114)})
+    before = fair_value(con, _h2h("draftkings"), "away", "2024-04-27T22:30:00+00:00")
+    pull("2024-04-27T23:55:00+00:00", "2024-04-27T22:26:59Z",
+         {"draftkings": (-1150, 650)})
+    pull("2024-04-28T00:20:00+00:00", "2024-04-27T22:26:59Z",
+         {"pinnacle": (-1067, 733), "draftkings": (-1750, 850)})
+    after = fair_value(con, _h2h("draftkings"), "away", "2024-04-27T22:30:00+00:00")
+    assert before["as_of"] == after["as_of"] == "2024-04-27T21:20:00.000000+00:00"
+    assert after["p"] == before["p"]
+
+
+def test_the_archive_conversion_ignores_a_start_reported_after_it():
+    snap = {"id": 1, "game_id": "mlb-abc", "book": "pinnacle", "away_ml": 110,
+            "home_ml": -120, "commence_time": "2024-04-27T22:05:00Z",
+            "ts": "2024-04-27T22:25:00+00:00"}
+    late = dict(snap, id=2, commence_time="2024-04-27T22:26:59Z",
+                ts="2024-04-27T23:55:00+00:00")
+    for order in ([snap, late], [late, snap]):
+        markets, _ = sportsbook.from_snapshots(order)
+        assert markets[0]["event_start"] == "2024-04-27T22:05:00.000000+00:00"
+
+
 def test_a_stale_price_is_refused_when_the_caller_says_so(con):
     sportsbook.write(con, "nfl", _event({"pinnacle": (205, -230)}), PULL1)
     at = "2026-09-27T20:30:00+00:00"
