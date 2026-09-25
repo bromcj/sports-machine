@@ -24,9 +24,8 @@ has no row in the week's player stats, so the join found nothing.
 
 THE BOOK LIST IS NAMED, NEVER `regions=us`. Pinnacle is not US-licensed and
 sits in the `eu` region, so a `regions=us` pull returns no sharp price and no
-error. Cost is the number of REGIONS the named books span, not the number of
-books - so asking for Pinnacle doubles every request, and once doubled the
-extra US books are free. See the BOOKS constant for the measurements.
+error. A named list bills as one region per ten books, so these fifteen cost
+two credits per market. See the BOOKS constant for the measurements.
 
 CREDIT CAP, ENFORCED IN CODE. The brief allows 3,000 credits a month. Every
 request's cost is logged to requests.jsonl, and a run starts from what this

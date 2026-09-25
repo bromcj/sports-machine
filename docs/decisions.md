@@ -36,6 +36,13 @@ the extra books are free. Pinnacle is not optional — it is the fair line the
 whole scoring path rests on — so the decision is *pay the two, take all
 fifteen*.
 
+**Corrected 2026-09-25.** The cause above is wrong; the numbers are right. The
+v4 docs bill a named list as **one region per ten books** ("between 11 and 20
+bookmakers counts as 2 regions"), which fits all three measurements, and the
+cloud's pull — Pinnacle plus three US books — costs exactly 1 credit per sport
+in its run logs. Pinnacle does not double a request; a list longer than ten
+does. The collector's fifteen books still cost two per market.
+
 ---
 
 ## 2026-09-24 — One UTC parser
