@@ -3,8 +3,10 @@
   gate 1   record_backtest(): its pre-registered backtest. Refused unless the
            strategy is registered, the experiment is the one it is
            registered against, and that is a heading in docs/experiments.md
-           above the Results log. This is the deliberate act that CREATES
-           the strategy's block, by hand, in a committed change.
+           above the Results log - and, once a block exists, the experiment
+           it holds: a new definition is a new name. This is the deliberate
+           act that CREATES the strategy's block, by hand, in a committed
+           change.
   gate 2   score(): model.validation.record_paper - unchanged, the sport
            models' rules - on the strategy's own graded paper positions,
            its own coverage, its own placebo. It only ever updates the

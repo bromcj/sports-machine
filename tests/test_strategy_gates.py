@@ -181,7 +181,9 @@ def test_a_strategy_passes_gate_2_on_its_own_positions_only(env):
     assert v.arm("t_two").startswith("REFUSED")
 
 
-def test_a_new_experiment_does_not_keep_the_old_definitions_gate_2(env):
+def test_a_new_experiment_never_inherits_the_old_definitions_gate_2(env):
+    # The name files the positions, so a new definition under the old name
+    # would be re-passed on the old one's positions at its next look.
     _strategy()
     gates.record_backtest("t_one", T1, True, "passed", {"n": 500})
     rng = random.Random(1)
@@ -190,12 +192,13 @@ def test_a_new_experiment_does_not_keep_the_old_definitions_gate_2(env):
     assert gates.score(env, "t_one", NOW)["passed"]
     gates.record_backtest("t_one", T1, True, "re-run", {"n": 800})   # same test
     assert v.gates("t_one")["paper_trading"]
+    before = v.PATH.read_text(encoding="utf-8")
     strategies.REGISTRY.pop("t_one")
     _strategy(experiment=T2)                         # the file edited: a new test
-    gates.record_backtest("t_one", T2, True, "passed", {"n": 800})
-    assert v.gates("t_one") == {"walk_forward": True, "paper_trading": False,
-                                "armed": False}
-    assert v.arm("t_one").startswith("REFUSED - gate 2")
+    with pytest.raises(ValueError, match="new name"):
+        gates.record_backtest("t_one", T2, True, "passed", {"n": 800})
+    assert v.PATH.read_text(encoding="utf-8") == before
+    assert v.status("t_one")["experiment"] == T1
 
 
 def test_a_new_backtest_result_disarms_the_strategy(env):

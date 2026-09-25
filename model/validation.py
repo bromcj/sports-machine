@@ -299,8 +299,9 @@ def record_backtest(name: str, experiment: str, passed: bool, reason: str,
     (scanner.gates.record_backtest checks the entry exists). The block has
     the same shape as a sport's - cleared, reason, recorded_at, armed,
     paper_trading - so gates(), arm() and only_paper_changed() treat it the
-    same way. Like record(), a new result disarms; a result for a different
-    experiment also drops the old gate-2 record.
+    same way. Like record(), a new result disarms. A result for a different
+    experiment is refused: a new definition starts under a new name, with
+    none of the old one's positions or gate-2 record.
 
     It never writes onto a sport's block, or onto any block that is not
     already a strategy's: a sport's gate 1 is record()'s walk-forward against
@@ -317,14 +318,16 @@ def record_backtest(name: str, experiment: str, passed: bool, reason: str,
         raise ValueError(f"{name!r} is a sport's block (or another non-strategy"
                          f" block): its gate 1 is a walk-forward, record(),"
                          f" never a backtest")
+    old = (existing or {}).get("experiment")
+    if old is not None and old.strip() != experiment.strip():
+        # A different experiment is a different definition. The name is what
+        # its positions, looks and gate 2 are filed under, so under this name
+        # gate 2 would be re-passed on the OLD definition's positions.
+        raise ValueError(f"{name}'s gate record is for {old!r}, not"
+                         f" {experiment!r}: a new definition is a new strategy -"
+                         f" register it under a new name")
     entry = data.setdefault(name, {})
     new_entry = dict(entry)
-    old = entry.get("experiment")
-    if old is not None and old.strip() != experiment.strip():
-        # A different experiment is a different definition, and the gate-2
-        # record was earned by the old one: kept, arm() would open at once
-        # on a definition gate 2 has never looked at.
-        new_entry.pop("paper_trading", None)
     new_entry.update({"kind": "strategy", "baseline_kind": "backtest",
                       "experiment": experiment, "cleared": passed,
                       "reason": reason, "backtest": evidence,
