@@ -60,13 +60,17 @@ def backup_dir() -> Path:
     return Path.home() / "sports-machine-backups"
 
 
+def _counts(con) -> dict:
+    have = {r[0] for r in con.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'")}
+    return {t: con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+            for t in TABLES if t in have}
+
+
 def counts(path: Path) -> dict:
     con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     try:
-        have = {r[0] for r in con.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'")}
-        return {t: con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
-                for t in TABLES if t in have}
+        return _counts(con)
     finally:
         con.close()
 
@@ -116,16 +120,22 @@ def take() -> Path:
     stamp = dt.datetime.now().strftime("%Y-%m-%d-%H%M")
     dest = dest_dir / f"machine-{stamp}.db"
 
-    source = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
+    source = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True, isolation_level=None)
     target = sqlite3.connect(dest)
     try:
+        # Count the source in the same read transaction the copy is taken in.
+        # Counted afterwards over a new connection, any row written in between
+        # - the scanner's polling loop writes around the clock - made a good
+        # backup fail verification and be deleted.
+        source.execute("BEGIN")
+        before = _counts(source)
         # The online backup API, not shutil.copy: this is consistent even if
         # something is mid-write, which a plain file copy is not.
         source.backup(target)
+        source.execute("COMMIT")
     finally:
-        target.close()
-        before = counts(DB_PATH)
         source.close()
+        target.close()
 
     ok, detail = verify(dest, expect=before)
     if not ok:
