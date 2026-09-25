@@ -187,6 +187,44 @@ def test_books_priced_together_that_disagree_on_the_start_take_the_earliest(con)
         assert fv["as_of"] == "2026-09-20T18:20:00.000000+00:00", (via, fv)
 
 
+def test_a_delay_announced_while_a_book_was_missing_still_moves_its_start(con):
+    # mlb-746c8fcb, 2024-04-03: the start moved 17:05 -> 19:00 -> 19:30 ->
+    # 22:05, each announced before it passed, but DraftKings was not in the
+    # 22:00 pull that announced 22:05. It came back at 22:55 saying 22:05,
+    # after 22:05 had passed. Judged book by book that late report was
+    # refused, DraftKings kept 19:30, and the game's start fell back to it:
+    # the pregame 22:00 pull was answered with the 19:20 one. A game has one
+    # start; every book's market carries it.
+    _pull(con, "2024-04-03T16:20:00+00:00", "2024-04-03T17:05:00Z",
+          {"pinnacle": (140, -163), "draftkings": (142, -170)})
+    _pull(con, "2024-04-03T18:52:00+00:00", "2024-04-03T19:00:00Z",
+          {"pinnacle": (147, -161), "draftkings": (140, -166)})
+    _pull(con, "2024-04-03T19:20:00+00:00", "2024-04-03T19:30:00Z",
+          {"pinnacle": (154, -168), "draftkings": (145, -175)})
+    _pull(con, "2024-04-03T22:00:00+00:00", "2024-04-03T22:05:00Z",
+          {"pinnacle": (153, -167)})
+    _pull(con, "2024-04-03T22:55:00+00:00", "2024-04-03T22:05:00Z",
+          {"pinnacle": (160, -180), "draftkings": (150, -175)})
+    for via in ("draftkings", "pinnacle"):
+        assert game_start(con, store.market(con, _h2h(via))) == (
+            "2024-04-03T22:05:00.000000+00:00"), via
+        fv = fair_value(con, _h2h(via), "home", "2024-04-03T22:00:00+00:00")
+        assert fv["as_of"] == "2024-04-03T22:00:00.000000+00:00", (via, fv)
+        assert fv["p"] == novig_probs(153, -167)[1]
+    # The archive conversion reaches the same start for every book.
+    snaps = []
+    for i, (ts, start, books) in enumerate((
+            ("2024-04-03T16:20:00+00:00", "2024-04-03T17:05:00Z", ("pinnacle", "draftkings")),
+            ("2024-04-03T18:52:00+00:00", "2024-04-03T19:00:00Z", ("pinnacle", "draftkings")),
+            ("2024-04-03T22:00:00+00:00", "2024-04-03T22:05:00Z", ("pinnacle",)),
+            ("2024-04-03T22:55:00+00:00", "2024-04-03T22:05:00Z", ("pinnacle", "draftkings")))):
+        snaps += [{"id": 10 * i + j, "game_id": "mlb-abc", "book": b, "away_ml": 150,
+                   "home_ml": -170, "commence_time": start, "ts": ts}
+                  for j, b in enumerate(books)]
+    markets, _ = sportsbook.from_snapshots(snaps)
+    assert {m["event_start"] for m in markets} == {"2024-04-03T22:05:00.000000+00:00"}
+
+
 def test_game_start_is_the_start_fair_value_cuts_off_at(con):
     # The one public rule, so paper's fills and grading can judge "pregame"
     # by the same start. Royals @ Twins, reduced: the books' latest word is

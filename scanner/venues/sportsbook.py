@@ -39,6 +39,24 @@ def resolves_at(sport: str, start: dt.datetime) -> str:
     return canon_ts(start + dt.timedelta(hours=GAME_HOURS.get(sport, 3.5)))
 
 
+def next_start(current: str | None, reported: str, taken: str) -> str:
+    """A game's start once a pull taken at `taken` has reported `reported`
+    (canon_ts strings). An earlier start always wins. A later one - a rain
+    delay moves it pull by pull, and a price taken before the delayed start
+    is still pregame - only when it was reported before it passed: a later
+    start first reported after it had passed is the feed correcting itself
+    mid-game (Astros @ Rockies 2024-04-27: first pitch 22:05, re-reported as
+    22:26:59 at 23:55), and taking it would turn in-play prices pregame.
+
+    It is judged for the GAME, pull by pull, and every book's market carries
+    the result. Judged book by book, a book missing from the pull that
+    announced a delay reported it only after it passed, kept the old start,
+    and dragged the game's start back (mlb-746c8fcb, 2024-04-03)."""
+    if current is None or reported <= current or taken < reported:
+        return reported
+    return current
+
+
 def _sides(mkt: str, outcomes: list, away: str, home: str):
     """[(outcome, american price, point)] in canonical terms, or a reason."""
     got = {}
@@ -146,9 +164,9 @@ def from_snapshots(snaps) -> tuple[list, list]:
     """(markets, prices) from odds_snapshots rows - the moneylines the machine
     has collected since before the scanner existed. Used by audit.py to prove
     fair_value and bets/log.fair_prob agree on the same prices."""
-    markets, prices = {}, []
+    markets, prices, starts = {}, [], {}
     # Oldest pull first (sorted() is stable), so each start is judged against
-    # the one before it, as upsert_markets does when polling live.
+    # the one before it, as write() does when polling live.
     for s in sorted(snaps, key=lambda s: canon_ts(s["ts"])):
         start = parse_utc(s["commence_time"])
         if start is None:
@@ -163,15 +181,7 @@ def from_snapshots(snaps) -> tuple[list, list]:
             "market_type": "h2h", "line": None, "yes_outcome": None,
             "resolution_source": "final score", "first_seen": taken})
         m["first_seen"] = min(m["first_seen"], taken)
-        # The start the pulls reported, by upsert_markets' rule: an earlier one
-        # always wins; a later one (a rain delay moves it pull by pull, and a
-        # price taken before the delayed start is still pregame) only when the
-        # pull reporting it was taken before it. A later start reported after
-        # it had passed is the feed correcting itself mid-game.
-        new, old = canon_ts(start), m.get("event_start")
-        if old is None or new <= old or taken < new:
-            m["event_start"] = new
-            m["resolves_at"] = resolves_at(sport, start)
+        starts[s["game_id"]] = next_start(starts.get(s["game_id"]), canon_ts(start), taken)
         for side, ml in (("away", s["away_ml"]), ("home", s["home_ml"])):
             if ml is None:
                 continue
@@ -181,6 +191,10 @@ def from_snapshots(snaps) -> tuple[list, list]:
                 "price_native": str(int(ml)), "size_available": None,
                 "fee_model": FEE_MODEL, "captured_at": canon_ts(s["ts"]),
                 "source_last_update": None, "raw_ref": f"odds_snapshots:{s['id']}"})
+    for m in markets.values():                   # the game's start, every book
+        start = starts[m["canonical_event_id"]]
+        m["event_start"] = start
+        m["resolves_at"] = resolves_at(m["sport"], parse_utc(start))
     return list(markets.values()), prices
 
 
@@ -198,7 +212,27 @@ def write(con, sport: str, events: list, captured_at, raw_ref: str | None = None
                            g["away"], g["home"], rejects)}
     markets = [m for m in markets if m["canonical_event_id"] in kept]
     ids = {m["market_id"] for m in markets}
+    # One start per game (next_start), judged against the start the game's
+    # book markets already carry, and written onto every one of them - the
+    # books missing from this pull included.
+    captured = canon_ts(captured_at)
+    starts = {}
+    for g in games:
+        if g["game_id"] in kept:
+            now_is = con.execute(
+                "SELECT event_start FROM markets WHERE canonical_event_id=? AND"
+                " venue LIKE 'sportsbook:%' AND event_start IS NOT NULL LIMIT 1",
+                (g["game_id"],)).fetchone()
+            starts[g["game_id"]] = next_start(now_is[0] if now_is else None,
+                                              canon_ts(g["commence_time"]), captured)
+    for m in markets:
+        m["event_start"] = starts[m["canonical_event_id"]]
+        m["resolves_at"] = resolves_at(sport, parse_utc(m["event_start"]))
     n_m = store.upsert_markets(con, markets, rejects)
+    for gid, start in starts.items():
+        con.execute("UPDATE markets SET event_start=?, resolves_at=? WHERE"
+                    " canonical_event_id=? AND venue LIKE 'sportsbook:%'",
+                    (start, resolves_at(sport, parse_utc(start)), gid))
     n_p = store.insert_prices(con, [p for p in prices if p["market_id"] in ids],
                               rejects)
     return {"games": len(kept), "markets": n_m, "prices": n_p,
