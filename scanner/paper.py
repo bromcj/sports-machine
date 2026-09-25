@@ -48,6 +48,8 @@ There is no code path here, or anywhere, that sends an order to a venue.
 paper_orders.mode is CHECKed to paper/placebo by the database itself.
 """
 import datetime as dt
+import math
+import numbers
 from decimal import ROUND_CEILING, Decimal
 
 import config
@@ -108,10 +110,10 @@ def submit(con, *, strategy: str, mode: str, market_id: str, outcome: str,
     if role == "taker" and expires_at is not None:
         raise Refused("a taker order does not rest - it takes the next observation"
                       " or is cancelled - so it cannot carry an expires_at")
-    if not (size > 0):
-        raise Refused(f"size must be positive, got {size}")
-    if not (0 < limit_price < 1):
-        raise Refused(f"limit price {limit_price} is not a probability in (0, 1)")
+    if not (isinstance(size, numbers.Real) and math.isfinite(size) and size > 0):
+        raise Refused(f"size must be a finite positive number, got {size!r}")
+    if not (isinstance(limit_price, numbers.Real) and 0 < limit_price < 1):
+        raise Refused(f"limit price {limit_price!r} is not a probability in (0, 1)")
     mkt = con.execute("SELECT * FROM markets WHERE market_id=?", (market_id,)).fetchone()
     if mkt is None:
         raise Refused(f"unknown market {market_id!r}")
@@ -147,6 +149,9 @@ def submit(con, *, strategy: str, mode: str, market_id: str, outcome: str,
         worst = contracts * limit_price + fees.fee(model, limit_price, contracts, role)
     except fees.UnknownFee as e:
         raise Refused(f"cannot price this order's fees: {e}")
+    except ArithmeticError as e:             # a size too big for Decimal to hold
+        raise Refused(f"cannot price this order's fees at size {size}:"
+                      f" {type(e).__name__}")
     room = daily_cap(strategy) - exposure_today(con, strategy, mode, now)
     if worst > room + 1e-9:
         raise Refused(f"daily exposure cap: {worst:.2f} needed, {max(room, 0):.2f} of "

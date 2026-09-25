@@ -315,6 +315,17 @@ def test_only_paper_and_placebo_orders_exist(con):
     _order(con, mid, mode="placebo")
 
 
+def test_an_absurd_size_or_limit_is_refused_not_raised(con):
+    # strategies.run() catches Refused only: anything else ends the pass.
+    mid, _ = _kmarket(con)
+    _book(con, mid, -1, [("0.5000", "500")])
+    for bad in (dict(size=float("inf")), dict(size=1e25), dict(size="10"),
+                dict(limit_price=float("nan")), dict(limit_price="0.5")):
+        with pytest.raises(Refused):
+            _order(con, mid, **bad)
+    assert con.execute("SELECT COUNT(*) FROM paper_orders").fetchone()[0] == 0
+
+
 def test_the_daily_exposure_cap_is_enforced_before_an_order_exists(con, monkeypatch):
     monkeypatch.setattr(config, "STRATEGY_DAILY_EXPOSURE", {"default": 60.0})
     mid, _ = _kmarket(con, resolves_at="2026-11-06T04:00:00Z")   # open tomorrow too
