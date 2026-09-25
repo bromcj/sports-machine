@@ -7,6 +7,7 @@ import pytest
 
 import config
 import db
+from feeds import ET
 from scanner import capital, paper, store
 from scanner.paper import Refused
 from scanner.venues import kalshi, sportsbook
@@ -191,6 +192,22 @@ def test_a_resting_order_stops_at_the_start(con):
     assert _status(con, oid) == "expired"
 
 
+@pytest.mark.parametrize("role, limit", [("taker", 0.50), ("maker", 0.40)])
+def test_a_price_captured_exactly_at_the_start_is_in_play(con, role, limit):
+    # "Nothing fills at or after a game's start" - AT it too. Every other
+    # in-play test uses a price captured after the start.
+    mid, _ = _kmarket(con)
+    con.execute("UPDATE markets SET event_start=? WHERE market_id=?",
+                (store.canon_ts(at(10)), mid))
+    _book(con, mid, -1, [("0.5000", "500")])
+    oid = _order(con, mid, role=role, size=50, limit_price=limit,
+                 expires_at=at(60) if role == "maker" else None)
+    _book(con, mid, 10, [("0.7000", "500")])               # yes ask 0.30, at 10: the start
+    paper.simulate(con, at(30))
+    assert _status(con, oid) == "expired"
+    assert con.execute("SELECT COUNT(*) FROM paper_fills").fetchone()[0] == 0
+
+
 def test_an_order_after_the_start_or_the_resolution_is_refused(con):
     # It could never fill at a pregame price; and a market with no start
     # (weather, economics) has no other cutoff than its resolution.
@@ -339,6 +356,27 @@ def test_the_daily_exposure_cap_is_enforced_before_an_order_exists(con, monkeypa
     _order(con, mid, size=100, limit_price=0.50, now=(T + dt.timedelta(days=1)).isoformat())
 
 
+@pytest.mark.parametrize("day", [dt.date(2026, 11, 3), dt.date(2026, 10, 13)],
+                         ids=["EST", "EDT"])
+def test_the_daily_exposure_cap_is_an_et_day_not_a_utc_day(con, monkeypatch, day):
+    # 9:30pm ET is already the next day in UTC; the cap must still count the
+    # morning's order. The test above cannot tell: its "tomorrow" is a new
+    # day on either clock.
+    monkeypatch.setattr(config, "STRATEGY_DAILY_EXPOSURE", {"default": 60.0})
+
+    def et(h, m=0, days=0):                                # as minutes from T
+        return (dt.datetime(day.year, day.month, day.day, h, m, tzinfo=ET)
+                + dt.timedelta(days=days) - T) / dt.timedelta(minutes=1)
+
+    mid, _ = _kmarket(con, resolves_at=at(et(12, days=3)))
+    _book(con, mid, et(9), [("0.5000", "500")])
+    assert at(et(10))[:10] != at(et(21, 30))[:10]          # the UTC date changes...
+    _order(con, mid, size=100, limit_price=0.50, now=at(et(10)))          # 51.75 of 60
+    with pytest.raises(Refused, match="daily exposure cap"):
+        _order(con, mid, size=20, limit_price=0.50, now=at(et(21, 30)))   # ...ET's does not
+    _order(con, mid, size=100, limit_price=0.50, now=at(et(0, 30, days=1)))   # a new ET day
+
+
 def test_an_order_whose_fees_cannot_be_priced_is_refused(con):
     mid, _ = _kmarket(con)
     _book(con, mid, -1, [("0.5000", "500")], fee="kalshi:flat:1")
@@ -443,6 +481,19 @@ def test_capital_locked_by_strategy_and_by_the_month_it_comes_back(con):
     pnl = paper.settle(con, pid, "win", at(300))
     assert pnl == pytest.approx(10 - 5.18)
     assert capital.locked(con)["total"] == pytest.approx(2 * 5.18)
+
+
+def test_capital_comes_back_in_the_et_month_it_resolves_in(con):
+    # 03:30Z on Nov 1 is 11:30pm ET on Oct 31. The test above resolves at
+    # 04:00Z Nov 4, which is November on either clock.
+    assert capital.resolution_month("2026-11-01T03:30:00Z") == "2026-10"
+    assert capital.resolution_month("2026-11-01T04:30:00Z") == "2026-11"   # 12:30am ET
+    mid, _ = _kmarket(con, resolves_at="2026-11-01T03:30:00Z")
+    _book(con, mid, -3 * 1440 - 1, [("0.5000", "500")])    # Oct 31, 2pm ET
+    _order(con, mid, size=10, limit_price=0.60, now=at(-3 * 1440))
+    _book(con, mid, -3 * 1440 + 1, [("0.5000", "500")])
+    paper.simulate(con, at(-3 * 1440 + 2))
+    assert set(capital.locked(con)["by_month"]) == {"2026-10"}
 
 
 def test_annualizing_says_what_a_long_contract_is_worth():
