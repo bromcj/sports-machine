@@ -79,7 +79,10 @@ SHAPES = {
 
 # Where a plant can sit. Only data, history and tooling folders are skipped.
 PLACES = ["scanner/zz_plant.py", "zz_plant.py", "research/zz_plant.py",
-          "tests/zz_plant.py", "dataflow.py", "datasets/zz_plant.py"]
+          "tests/zz_plant.py", "dataflow.py", "datasets/zz_plant.py",
+          # archive/ is tracked history, but a module can sit there and be
+          # imported; a .pyw file imports and runs like a .py one.
+          "archive/zz_plant.py", "scanner/zz_plant.pyw"]
 
 # The scheduled jobs and workflows are code too.
 SCRIPTS = {

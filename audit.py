@@ -1155,9 +1155,10 @@ def main() -> int:
     return _finish()
 
 
-# Top-level folders that hold data, history or tooling, never code. The
-# paper-only scans read everything else, tests/ and the job files included.
-NOT_CODE = {"archive", "data", "data_golden", "data_phase1", "logs",
+# Top-level folders that hold data or tooling, never code. The paper-only
+# scans read everything else, tests/, archive/ and the job files included:
+# archive/ is tracked, and a module sitting there can still be imported.
+NOT_CODE = {"data", "data_golden", "data_phase1", "logs",
             ".git", ".venv", ".pytest_cache", "__pycache__"}
 
 
@@ -1205,7 +1206,7 @@ def paper_only_scan(root=ROOT):
             node = node.value
         return node.id if isinstance(node, ast.Name) else None
 
-    for p in found("*.py"):
+    for p in found("*.py") + found("*.pyw"):       # .pyw imports and runs too
         rel = p.relative_to(root).as_posix()
         tree = ast.parse(p.read_text(encoding="utf-8"))
         owner = {}
