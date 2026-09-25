@@ -477,6 +477,10 @@ else the mean de-vigged price across books at that pull → else the venue's own
 mid; the source is recorded. Every EV is after fees, and the fee model is
 recorded on the price row. A paper fill uses the **next** observed price strictly
 after the order, never the current one, and never more than the size shown.
+*Added 2026-09-25, during Phase A, before any strategy existed:* nor a price
+captured at or after the game's start. A-V4's run showed pregame orders
+reaching in-play prices; `fair_value` already refuses those, so a fill there
+would be graded against a price from a different market state.
 None of these, the gate thresholds, the coverage rule or a strategy's placebo is
 changed after seeing any strategy's result. A fee model changes only to match a
 venue's published schedule, with the date.

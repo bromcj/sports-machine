@@ -21,6 +21,11 @@ THE FILL RULES (pre-registered in docs/experiments.md, section S0):
 
 A sportsbook shows no size, so a book order fills in full or not at all.
 
+Nothing fills at or after a game's start. The Odds API keeps quoting in-play
+prices, and a pregame order must not be filled at one: fair_value refuses
+them, so the position would be graded against a different market state. An
+order still open at the start expires.
+
 UNITS. An exchange order's size is contracts; a book order's size is dollars
 staked. Both are held as contracts paying $1 if they win - a $100 stake at
 -110 is 190.9 contracts at 0.5238 - so one set of arithmetic serves both.
@@ -186,12 +191,16 @@ def simulate(con, now) -> dict:
     for o in orders:
         is_book = family(o["venue"]) == "sportsbook"
         target = _contracts(is_book, o["size"], o["limit_price"])
+        start = _start(con, o["market_id"])
         if o["role"] == "taker":
             quotes = next_quotes_after(con, o["market_id"], o["outcome"], "ask",
                                        o["placed_at"])
-            if not quotes or quotes[0]["captured_at"] > now:
+            started = start is not None and now >= start
+            if (not quotes or quotes[0]["captured_at"] > now) and not started:
                 tally["waiting"] += 1
                 continue
+            if start is not None and (not quotes or quotes[0]["captured_at"] >= start):
+                quotes = []                      # the next price is in play: no fill
             left = target
             for q in quotes:
                 if q["price"] > o["limit_price"] + 1e-12 or left <= 1e-9:
@@ -223,10 +232,18 @@ def simulate(con, now) -> dict:
     return tally
 
 
+def _start(con, market_id: str) -> str | None:
+    row = con.execute("SELECT event_start FROM markets WHERE market_id=?",
+                      (market_id,)).fetchone()
+    return row["event_start"] if row else None
+
+
 def _simulate_maker(con, o, target: float, now: str, tally: dict) -> str:
     """Walk every observation after the order (and after the last one used)."""
     after = _last_seen(con, o["order_id"]) or o["placed_at"]
-    end = min(now, o["expires_at"]) if o["expires_at"] else now
+    start = _start(con, o["market_id"])
+    expires = min(x for x in (o["expires_at"], start) if x) if (o["expires_at"] or start) else None
+    end = min(now, expires) if expires else now
     got = _filled_so_far(con, o["order_id"])
     while got < target - 1e-9:
         quotes = next_quotes_after(con, o["market_id"], o["outcome"], "ask", after)
@@ -234,7 +251,9 @@ def _simulate_maker(con, o, target: float, now: str, tally: dict) -> str:
         # strictly-after; if that ever broke, this loop would spin forever
         # on one observation (it did, when that rule was broken on purpose
         # to test the tests). Stop instead.
-        if not quotes or quotes[0]["captured_at"] > end or quotes[0]["captured_at"] <= after:
+        if (not quotes or quotes[0]["captured_at"] > end
+                or quotes[0]["captured_at"] <= after
+                or (start is not None and quotes[0]["captured_at"] >= start)):
             break
         after = quotes[0]["captured_at"]
         through = [q for q in quotes if q["price"] < o["limit_price"] - 1e-12]
@@ -247,7 +266,7 @@ def _simulate_maker(con, o, target: float, now: str, tally: dict) -> str:
     if got >= target - 1e-9:
         _refresh_position(con, o["order_id"])
         return "filled"
-    if o["expires_at"] and now >= o["expires_at"]:
+    if expires and now >= expires:
         _refresh_position(con, o["order_id"])
         return "partial" if got > 0 else "expired"
     if got > 0:

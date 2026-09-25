@@ -131,6 +131,47 @@ def test_a_maker_expires(con):
     assert _status(con, oid) == "expired"
 
 
+def _game_book(con, when, away_ml):
+    ev = [{"id": "g", "commence_time": START, "home_team": "H", "away_team": "A",
+           "bookmakers": [{"key": "draftkings", "markets": [{"key": "h2h", "outcomes": [
+               {"name": "A", "price": away_ml}, {"name": "H", "price": -170}]}]}]}]
+    sportsbook.write(con, "nba", ev, when)
+    return store.market_key("sportsbook:draftkings", "g", "h2h")
+
+
+def test_a_pregame_order_never_fills_at_an_in_play_price(con):
+    # Found by A-V4 on real data: the next price after a late order was an
+    # in-play one. It must expire, not fill.
+    mid = _game_book(con, "2026-11-04T00:00:00Z", 150)
+    oid = _order(con, mid, outcome="away", size=100, limit_price=0.9,
+                 now="2026-11-04T00:05:00Z")
+    _game_book(con, "2026-11-04T00:20:00Z", 120)          # after the 00:10 start
+    paper.simulate(con, "2026-11-04T00:30:00Z")
+    assert _status(con, oid) == "expired"
+    assert con.execute("SELECT COUNT(*) FROM paper_fills").fetchone()[0] == 0
+
+
+def test_an_order_still_waiting_at_the_start_expires(con):
+    mid = _game_book(con, "2026-11-04T00:00:00Z", 150)
+    oid = _order(con, mid, outcome="away", size=100, limit_price=0.9,
+                 now="2026-11-04T00:05:00Z")
+    paper.simulate(con, "2026-11-04T00:08:00Z")
+    assert _status(con, oid) == "open"                     # nothing yet, not started
+    paper.simulate(con, "2026-11-04T00:10:00Z")
+    assert _status(con, oid) == "expired"                  # the start: too late
+
+
+def test_a_resting_order_stops_at_the_start(con):
+    mid, _ = _kmarket(con)
+    con.execute("UPDATE markets SET event_start=? WHERE market_id=?",
+                (store.canon_ts(at(10)), mid))
+    _book(con, mid, -1, [("0.5000", "500")])
+    oid = _order(con, mid, role="maker", size=50, limit_price=0.40, expires_at=at(60))
+    _book(con, mid, 20, [("0.7000", "500")])               # traded through, but in play
+    paper.simulate(con, at(30))
+    assert _status(con, oid) == "expired"
+
+
 def test_an_order_on_a_market_with_no_price_yet_is_refused(con):
     mid, _ = _kmarket(con)
     with pytest.raises(Refused, match="no price"):
