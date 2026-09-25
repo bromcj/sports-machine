@@ -9,6 +9,52 @@ version", or "measured on 2026-09-…" belongs here.
 
 ---
 
+## 2026-09-25 — Scanner Phase A: the judgment calls
+
+**Built on a branch, not on main.** Production runs `git pull` of `main` at
+every scheduled run, so anything pushed to `main` is live within hours. The
+brief requires a fresh-session review of Phase A before anything is built on
+it; Phase A lives on `phase-a-foundations` until that review says "safe to
+build on", and only then merges. Production keeps collecting MLB paper bets
+for gate 2 untouched in the meantime.
+
+**The schema change was made without stopping to ask.** CLAUDE.md asks first
+for schema changes; the owner's brief lists these tables column by column and
+says not to stop for approval. Treated as the answer, and kept to what cannot
+hurt existing data: new tables and indexes only, no `ALTER`, nothing dropped.
+Proved on a copy of production's database (existing definitions and row
+counts identical; a second `db.init()` changes nothing).
+
+**The brief's polling cadence is a target, not a schedule.** It costs about
+55,600 credits a month for three sports; the brief allows 6,000 in total and
+normal operation about 15,000 a month. A fixed ladder of slower cadences, a
+daily pace and hard caps, all checked before each call, with one guarantee
+kept at every level: each game is priced in its last 30 minutes.
+
+**A strategy's record is a top-level block, the same shape as a sport's.**
+So `arm()`, `gates()` and the production guard's `only_paper_changed()` work
+unchanged, and a scheduled re-score can always be discarded by the next run.
+`kind: "strategy"` marks it; names may not collide with a sport's.
+
+**Gate 2 metrics are the brief's two: `info` and `realized_ev`.** Not
+`ev_fair_close`, although for a price-taking strategy (E1's sharp-line control,
+E2's Kalshi taker) `info` measures forecasting, which they do not claim, and
+`realized_ev` is honest but slow. Adding a third, lower-variance metric would
+make a gate easier to pass; that is the owner's call at E's pre-registration,
+not Phase A's.
+
+**`info` needs the same fair source at both ends.** The review found the MLB
+gate mixing consensus at entry with Pinnacle at the close on every graded
+bet. For strategies it is ruled out from the start; the MLB gate is unchanged
+(still the owner's decision).
+
+**No paper fill after the start.** Found by A-V4 on real prices: 617 of 3,629
+pregame orders reached in-play prices. `fair_value` already refused those, so
+such a position would have been graded against a different market state.
+Added to the pre-registration as a dated rule before any strategy existed.
+
+---
+
 ## 2026-09-24 — Where the history goes
 
 `model/validation.py` carried two simulation tables in comment blocks: the

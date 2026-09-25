@@ -532,6 +532,10 @@ Filled in as each experiment completes. Failures stay in the file.
 | E5 | 2026-09-23 | **FAIL** | +2.73 pts at Pinnacle, t = +1.46; right direction, underpowered |
 | B3 | 2026-09-24 | **FAIL** | loses to the market by 5-11 SE and to a player season average by 11 |
 | E6 | 2026-09-23 | **FAIL** | April-May +0.0028 vs July-Aug +0.0024; velocity wrong-signed early |
+| A-V1 | 2026-09-25 | **PASS**, after one fix | 2,012 of 2,012 pregame values equal (largest difference 0.0), 354 in-play refused. First run: 10 disagreements — a conversion bug on rain-delayed games, fixed |
+| A-V2 | 2026-09-25 | **PASS** | 0.0175 / 1.75 / maker 0 / `flat` refuses |
+| A-V3 | 2026-09-25 | **PASS** | brief ~4,410 of 6,000; normal ~10,319 + 3,000 props of 15,000 |
+| A-V4 | 2026-09-25 | **PASS**, after one fix | 0 of 3,629 fills at or before the order. It also found 617 fills at in-play prices; nothing fills after the start now (3,012 fills, 0 in play) |
 
 ### A1, run 2026-09-23 on 6,513 games (2024-2026)
 
