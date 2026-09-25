@@ -122,6 +122,25 @@ def test_a_maker_is_not_filled_by_the_market_merely_touching_its_price(con):
     assert con.execute("SELECT SUM(contracts) FROM paper_fills").fetchone()[0] == 50
 
 
+def test_a_maker_that_would_cross_the_ask_is_refused(con):
+    # A limit at or above the ask showing now takes at once on a real
+    # exchange (at the ask, with the taker fee), or is cancelled if it is
+    # post-only. It must not be booked as a maker at its own price and fee.
+    mid, _ = _kmarket(con)
+    _book(con, mid, -1, [("0.6000", "500")])     # yes ask 0.40
+    for lim in (0.40, 0.41, 0.60):
+        with pytest.raises(Refused, match="as a taker"):
+            _order(con, mid, role="maker", size=100, limit_price=lim,
+                   expires_at=at(60))
+    assert con.execute("SELECT COUNT(*) FROM paper_orders").fetchone()[0] == 0
+    _order(con, mid, role="maker", size=100, limit_price=0.39, expires_at=at(60))
+    # Only what showed at or before the order counts: a later ask is unseen.
+    _book(con, mid, 5, [("0.6500", "500")])      # yes ask 0.35, after the order
+    _order(con, mid, role="maker", size=10, limit_price=0.38, now=at(1),
+           expires_at=at(60))
+    _order(con, mid, role="taker", size=10, limit_price=0.41, now=at(1))
+
+
 def test_a_maker_expires(con):
     mid, _ = _kmarket(con)
     _book(con, mid, -1, [("0.5000", "500")])

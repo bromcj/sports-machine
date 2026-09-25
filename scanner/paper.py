@@ -18,6 +18,8 @@ THE FILL RULES (pre-registered in docs/experiments.md, section S0):
           the market trading THROUGH its price - the best ask strictly below
           the bid - at the order's own price, never more than the size shown.
           Touching the price is not enough: others may be ahead in the queue.
+          A maker at or above the ask showing when it is placed is refused:
+          it would not rest, it would take.
 
 A size shown is filled once per strategy and mode. Our fills never leave the
 recorded book, so an offer still showing at the same price in a later
@@ -107,6 +109,18 @@ def submit(con, *, strategy: str, mode: str, market_id: str, outcome: str,
     if is_book and role != "taker":
         raise Refused("a sportsbook order can only take the posted price")
     now = canon_ts(now)
+    if role == "maker":
+        # A limit at or through the ask showing now would not rest: the venue
+        # matches it at once, at the ask, with the taker fee (or cancels it,
+        # if post-only). Only what was captured by `now` is read.
+        ask = con.execute(
+            "SELECT price, captured_at FROM prices WHERE market_id=? AND outcome=?"
+            " AND quote='ask' AND level=1 AND captured_at <= ?"
+            " ORDER BY captured_at DESC LIMIT 1", (market_id, outcome, now)).fetchone()
+        if ask is not None and limit_price >= ask["price"] - 1e-12:
+            raise Refused(f"a maker at {limit_price} would cross the {ask['price']} ask"
+                          f" showing at {ask['captured_at']}; it would take, so place"
+                          " it as a taker")
     model = _fee_model(con, market_id)
     contracts = _contracts(is_book, size, limit_price)
     try:
