@@ -132,14 +132,17 @@ the computer when it runs.
 Both runs do the same steps, in order: merge what the cloud collected
 (`merge_archive`), fetch results (`finals`), build predictions (`predict`),
 `paper` (place any paper bet that is due, settle finished ones, re-score
-gate 2), `market`, `cronstatus`, and the health checks (`monitor.py`).
+gate 2), `market`, `cronstatus`, `poll --ensure` (a no-op while the scanner's
+loop is switched off), and the health checks (`monitor.py`).
 
 | Time | In practice |
 |---|---|
 | 11:30 am | no game has started, so this is when paper bets get **placed**, at the newest prices that have arrived — the cloud's 10:13 morning pull is often still hours late at 11:30 (on 9/23 it fired at 2:22 pm), so these can be the previous evening's. Last night's games get settled |
 | 10:00 pm | most of the day's games are over, so this one mostly **settles** |
 
-Nothing costs API credits and no real bet is ever placed.
+None of these steps costs API credits and no real bet is ever placed. (The
+scanner's polling loop, which `poll --ensure` starts once it is switched on,
+does spend credits — within its limits; see the scanner section below.)
 
 **Before it does anything**, it throws away the changes the machine makes to
 tracked files on its own: `STATUS.md`, and `validation.json` when only its
@@ -278,6 +281,30 @@ It is +EV by construction, so a negative result over a real sample means the
 fair-line or grading code is broken — that is its main job. It never stakes
 money and never feeds a gate.
 
+### The scanner's polling loop (brief of 2026-09-25)
+
+```
+python run_daily.py poll --plan      the credit arithmetic: what each cadence costs. Free, no calls
+python run_daily.py poll --status    is the loop running, what has it spent. Free, no calls
+python run_daily.py poll --ensure    start it if it should be running (the scheduled job runs this). Free
+python run_daily.py poll --live      run the loop in this window. COSTS CREDITS
+```
+
+**It is switched off**, and stays off until Phase C of the brief turns it on
+with a commit: `POLLING_ENABLED = False` in `config.py`. While it is off,
+`--ensure` does nothing and `--live` refuses.
+
+When it is on, it asks The Odds API for every NFL, NBA and NHL game's prices
+(h2h, spreads, totals; Pinnacle plus nine NJ books) at 3 credits a call, as
+often as the budget allows — up to every 2 minutes near a start, less often
+further out, never once a game has started. It spends the **paid** key. Before
+every call it checks three limits in code: the brief's **6,000 credits in
+total**, **12,000 a month**, and a daily pace so one day cannot spend the lot.
+`--plan` shows the arithmetic: the brief's own cadence would cost ~55,600 a
+month, so the loop slows down in fixed steps, and even at its slowest every game
+still gets a price in its last 30 minutes. A refused key or an exhausted
+account stops it until you run `--live` once by hand.
+
 ### Collection (Phase 0)
 
 ```
@@ -333,6 +360,8 @@ credits; 41,742 left on 2026-09-24). It is spent by:
 - `python ingest/odds.py`
 - `python backfill_odds_history.py --execute` — 10 credits per request
 - the scripts in `research/b3/`
+- `python run_daily.py poll --live`, and the loop the scheduled job starts
+  once `POLLING_ENABLED` is on — 3 credits a call, within the limits above
 
 `python monitor.py`'s credit line reports this key, not the cloud's.
 

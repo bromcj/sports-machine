@@ -14,6 +14,9 @@
   python run_daily.py bet ...    -> record a bet you placed elsewhere. free
   python run_daily.py scoreboard -> grade and report your recorded bets. free
   python run_daily.py shop       -> books beating Pinnacle's fair price. free
+  python run_daily.py poll ...   -> the scanner's polling loop. --plan,
+                                    --status, --ensure free; --live COSTS
+                                    CREDITS and refuses unless switched on
 
 A mode is required. It used to default to `morning`, which spends credits.
 """
@@ -188,7 +191,8 @@ def grade():
 
 
 MODES = ("morning", "close", "picks", "refresh", "grade", "predict", "finals",
-         "cronstatus", "market", "bet", "shop", "scoreboard", "paper", "backup")
+         "cronstatus", "market", "bet", "shop", "scoreboard", "paper", "backup",
+         "poll")
 
 if __name__ == "__main__":
     mode = sys.argv[1] if len(sys.argv) > 1 else ""
@@ -247,6 +251,9 @@ if __name__ == "__main__":
         bk.take()
         bk.prune()
         raise SystemExit(0)
+    if mode == "poll":
+        from scanner.poll import main as poll_main
+        raise SystemExit(poll_main(sys.argv[2:]))
     {"morning": morning, "close": close, "picks": show_picks,
      "refresh": refresh, "grade": grade, "predict": predict,
      "finals": finals}[mode]()
