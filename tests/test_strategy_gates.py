@@ -98,6 +98,19 @@ def test_gate_1_needs_a_registered_strategy_and_a_preregistered_experiment(env):
     assert "backtest FAIL (lost)" in v.explain("t_one")
 
 
+def test_gate_1_refuses_a_prefix_of_a_heading(env):
+    # "E1" alone would match the unrelated 2026-09-23 "E1. The market's
+    # recipe vs reality's recipe". Registered against the prefix itself, so
+    # the own-entry check cannot refuse it first (with it refusing first, a
+    # rule that accepted prefixes passed every test).
+    for i, prefix in enumerate(("T1", "T1.", "T1. A test")):
+        name = f"t_prefix{i}"
+        _strategy(name, experiment=prefix)
+        with pytest.raises(ValueError, match="whole heading"):
+            gates.record_backtest(name, prefix, True, "r", {"n": 1})
+        assert v.status(name) is None
+
+
 def test_gate_1_is_the_strategys_own_entry_and_a_real_pre_registration(env):
     _strategy()                                                  # on T1
     with pytest.raises(ValueError, match="pre-register"):       # a real, other entry
@@ -414,6 +427,45 @@ def test_two_scorers_at_once_still_get_two_looks_a_day(env, monkeypatch):
     first = threading.Thread(target=run)
     first.start()
     inside.wait(5)
+    second = threading.Thread(target=run)
+    second.start()
+    first.join()
+    second.join()
+    assert env.execute("SELECT COUNT(*) FROM gate_looks").fetchone()[0] == 2
+    assert sum(r is None for r in results) == 1
+
+
+def test_two_scorers_cannot_both_count_before_either_claims(env, monkeypatch):
+    # The window the test above never reaches: between counting today's
+    # looks and inserting the claim. The count and the insert share one
+    # write lock (BEGIN IMMEDIATE); without it both scorers count one look,
+    # both claim, and the day gets three.
+    _looked_at_before(env)
+    assert gates.score(env, "t_one", NOW) is not None           # look 1
+    env.commit()
+    counted, real = threading.Event(), gates.looks_today
+
+    def slow_count(*a, **k):                  # the first scorer, between the two
+        n = real(*a, **k)
+        if not counted.is_set():
+            counted.set()
+            time.sleep(0.8)
+        return n
+
+    monkeypatch.setattr(gates, "looks_today", slow_count)
+    results = []
+
+    def run():
+        c = db.connect()
+        try:
+            results.append(gates.score(c, "t_one", NOW + dt.timedelta(hours=1)))
+            c.commit()
+        finally:
+            c.close()
+
+    first = threading.Thread(target=run)
+    first.start()
+    counted.wait(5)
     second = threading.Thread(target=run)
     second.start()
     first.join()
