@@ -241,7 +241,15 @@ if __name__ == "__main__":
         print(f"graded {t['graded']} manual bet(s)"
               f"  ({t['no_close']} with no usable close,"
               f" {t['no_result']} awaiting a result)\n")
-        raise SystemExit(report())
+        code = report()
+        from db import connect as _connect
+        from scanner.scoreboard import report as scanner_report
+        _con = _connect()
+        try:
+            scanner_report(_con)
+        finally:
+            _con.close()
+        raise SystemExit(code)
     if mode == "paper":
         from bets.paper import run as paper_run
         paper_run()
