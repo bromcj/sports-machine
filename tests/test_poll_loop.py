@@ -421,6 +421,28 @@ def test_ensure_starts_a_missing_loop_and_leaves_a_live_one(env, monkeypatch):
     assert len(started) == 2
 
 
+def test_ensure_does_not_restart_until_the_old_loop_has_stopped(env, monkeypatch):
+    # The old loop reads STOP only between ticks, and a tick on a hanging
+    # server outlasts ensure()'s two-minute wait. Spawning then gets the new
+    # loop refused (or, with a stale beat, runs two) while the log says
+    # 'restarted'.
+    monkeypatch.setattr(config, "POLLING_ENABLED", True)
+
+    class P:
+        pid = 4242
+    started = []
+    spawn = lambda: (started.append(1), P())[1]               # noqa: E731
+    poll.STATE_DIR.mkdir(exist_ok=True)
+    poll.RECORD.write_text("")
+    poll.HEARTBEAT.write_text(json.dumps({"state": "running", "beat_at": T0.isoformat(),
+                                          "pid": 7, "code_sha": "old"}))
+    msg = poll.ensure(spawn=spawn, now=T0, wait=lambda s: None)     # it never stops
+    assert msg.startswith("NOT restarted") and not started and poll.STOP.exists()
+    msg = poll.ensure(spawn=spawn, now=T0,                          # it stops in time
+                      wait=lambda s: poll.STOP.unlink(missing_ok=True))
+    assert msg.startswith("restarted on new code") and started == [1]
+
+
 def test_the_loop_runs_only_against_the_ledger_of_record(env, monkeypatch, capsys):
     # The limits count one data folder's ledger; every checkout spends the
     # same paid key. A loop in a second folder would start again from zero.

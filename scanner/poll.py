@@ -442,6 +442,12 @@ def ensure(spawn=_spawn, now=None, wait=time.sleep) -> str:
                 wait(10)
                 if not STOP.exists():
                     break
+            else:
+                # Mid-way through a long tick. A new loop now would be
+                # refused, or run beside it; it stops at its next check.
+                return (f"NOT restarted - the old loop (pid {hb.get('pid')}) has"
+                        " not stopped yet; it stops at its next check, and the"
+                        " next scheduled run starts the new code")
             why = _not_of_record()
             if why:
                 return f"NOT restarted - {why}"
