@@ -19,8 +19,11 @@ build on", and only then merges. Production keeps collecting MLB paper bets
 for gate 2 untouched in the meantime.
 
 **The schema change was made without stopping to ask.** CLAUDE.md asks first
-for schema changes; the owner's brief lists these tables column by column and
-says not to stop for approval. Treated as the answer, and kept to what cannot
+for schema changes; the owner's brief specifies `prices` and `markets` column
+by column and names the fields of a paper order, and says not to stop for
+approval. Treated as the answer. (*Corrected by the Phase A review:* the
+other four tables - `credit_ledger`, `paper_fills`, `paper_positions`,
+`gate_looks` - are the builder's design, not the brief's.) Kept to what cannot
 hurt existing data: new tables and indexes only, no `ALTER`, nothing dropped.
 Proved on a copy of production's database (existing definitions and row
 counts identical; a second `db.init()` changes nothing).
@@ -48,10 +51,19 @@ gate mixing consensus at entry with Pinnacle at the close on every graded
 bet. For strategies it is ruled out from the start; the MLB gate is unchanged
 (still the owner's decision).
 
-**No paper fill after the start.** Found by A-V4 on real prices: 617 of 3,629
-pregame orders reached in-play prices. `fair_value` already refused those, so
+**No paper fill after the start.** Found by A-V4 on real prices: 640 of 3,652
+pregame orders reached in-play prices - 617 of the 3,629 fills were at an
+in-play price, and 23 more orders met one above their limit. `fair_value` already refused those, so
 such a position would have been graded against a different market state.
 Added to the pre-registration as a dated rule before any strategy existed.
+
+**Kalshi's terms were not read before its adapter was written** (*recorded by
+the Phase A review*). The brief says to read Kalshi's API docs *and terms*
+before writing a line. The API docs were read (00:40-00:42) before
+`scanner/venues/kalshi.py` (00:56); the terms were not, and `docs/venues.md`
+lists them as still for C1. The adapter only parses payloads and calls
+nothing, so nothing was at risk, but C1 must read and date the terms in
+`docs/venues.md` before any Kalshi network call.
 
 ---
 

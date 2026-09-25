@@ -70,7 +70,8 @@ taking a book's price = fair probability × decimal odds − 1.
 
 **Not read, and why.** The fee schedule itself,
 `kalshi.com/docs/kalshi-fee-schedule.pdf` (titled "Fee Schedule for July 2026 -
-7.7.26 Update" in search results), returned HTTP 429 to three requests. So:
+7.7.26 Update" in search results), returned HTTP 429 to both requests for it
+(and `kalshi.com/fee-schedule` to a third; still 429 to the Phase A review). So:
 
 - The **0.07** taker coefficient, the **0.25** maker share and the **0.5** combo
   share come from the brief, the API docs' description of the tables above,
@@ -101,6 +102,12 @@ API, and is C2's.**
 - **The book**: `GET https://clob.polymarket.com/book?token_id=…` returns
   `bids` and `asks` as lists of `{price, size}` strings, per outcome token,
   with a `timestamp` and a `hash`. The adapter sorts levels itself.
+  *Corrected by the Phase A review:* Phase A's own fetch of this page returned
+  HTTP 404, so the shape above was written from memory. The review read
+  [prices and order books](https://docs.polymarket.com/market-data/prices-order-books.md)
+  on 2026-09-25 and it matches. The page does not state the timestamp's
+  unit; its example (`"1782753357257"`, 13 digits) is epoch milliseconds,
+  which is how the adapter reads it.
 
 **Still for C1:** whether the US-regulated Polymarket is available to a New
 Jersey resident, and what its public data API provides. If it is not, the
