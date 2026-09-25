@@ -101,6 +101,12 @@ def _fake_loop(monkeypatch):
         def __init__(self, source, *a, **k):
             pass
 
+        def clock(self):
+            return T0
+
+        def beat(self, now):
+            pass
+
         def run(self):
             other = poll.take_lock()                 # a second loop, right now
             seen["second loop took the lock"] = other is not None
@@ -667,6 +673,32 @@ def test_a_marker_written_as_utf16_is_refused_not_a_crash(env, monkeypatch, caps
     assert "not UTF-8 text" in out and line in out, out
     msg = poll.ensure(spawn=lambda: pytest.fail("a loop was started"), now=T0)
     assert msg.startswith("NOT started") and "not UTF-8 text" in msg and line in msg
+
+
+def test_a_restarted_loop_beats_before_it_opens_the_database(env, monkeypatch):
+    # The last loop ended without a 'stopped' beat (a reboot, taskkill), so
+    # its heartbeat was hours old. The scheduled job runs `poll --ensure` and
+    # then monitor.py. The new loop took the lock at once but beat only after
+    # db.init(), which takes seconds when it has migrating to do - and the
+    # monitor, reading in that gap, found the dead loop's beat under a held
+    # lock: "ERROR ... may be hung; end pid 99999", a pid that after a reboot
+    # can be any program's. 9 of 20 trials on a copy db.init had to migrate.
+    monkeypatch.setattr(config, "POLLING_ENABLED", True)
+    monkeypatch.setattr(poll, "OddsSource", lambda *a, **k: None)
+    monkeypatch.setattr(poll.Poller, "run", lambda self: 0)
+    _of_record()
+    poll.HEARTBEAT.write_text(json.dumps({
+        "state": "running", "pid": 99999, "code_sha": db.code_sha(),
+        "beat_at": (poll.utcnow() - dt.timedelta(hours=8)).isoformat()}))
+    poll.take_lock().close()                  # the dead loop's lock file
+    seen = {}
+
+    def init():                               # what monitor.py reads meanwhile
+        hb = poll.heartbeat()
+        seen.update(pid=hb.get("pid"), state=hb.get("state"), hung=poll.hung())
+    monkeypatch.setattr(db, "init", init)
+    assert poll.live() == 0
+    assert seen == {"pid": os.getpid(), "state": "starting", "hung": None}
 
 
 def test_ensure_leaves_a_loop_stopped_by_a_refused_key(env, monkeypatch):

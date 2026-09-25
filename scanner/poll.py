@@ -553,10 +553,15 @@ def live() -> int:
     if lock is None:
         print(f"REFUSED: a polling loop is already running (it holds {LOCK}).")
         return 2
-    db.init()
     from ingest.raw import save_raw
+    poller = Poller(OddsSource(save_raw=save_raw))
+    # Beat before db.init(), which can take seconds: until this loop beats,
+    # the heartbeat under its lock is the last loop's, and a monitor reading
+    # a dead loop's hours-old beat there reported this one hung.
+    poller.beat(poller.clock())
+    db.init()
     print(f"polling {', '.join(config.POLL_SPORTS)} - {budget.call_cost()} credits a call")
-    return Poller(OddsSource(save_raw=save_raw)).run()
+    return poller.run()
 
 
 def show_status() -> int:
