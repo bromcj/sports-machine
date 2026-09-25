@@ -171,6 +171,33 @@ def test_a_pregame_order_never_fills_at_an_in_play_price(con):
     assert con.execute("SELECT COUNT(*) FROM paper_fills").fetchone()[0] == 0
 
 
+def test_an_exchange_contract_stops_at_the_games_start_not_its_own(con):
+    # A Kalshi contract on a game whose own start says 01:10 while the books
+    # say the game starts at 00:10. fair_value cuts off at 00:10 (the one
+    # rule, scanner.fair.game_start); a fill at a 00:20 price would be in
+    # play, and an order at 00:15 is too late. Paper uses the same start.
+    _game_book(con, "2026-11-04T00:00:00Z", 150)
+    row = kalshi.market_row("KXGAME", canonical_event_id="nba-g", first_seen=at(0),
+                            sport="nba", market_type="h2h", yes_outcome="home",
+                            event_start="2026-11-04T01:10:00Z")
+    store.upsert_markets(con, [row])
+    mid = row["market_id"]
+    store.insert_prices(con, kalshi.price_rows(
+        mid, {"orderbook_fp": {"yes_dollars": [["0.3000", "10"]],
+                               "no_dollars": [["0.6000", "500"]]}},
+        "2026-11-04T00:01:00Z", K, sport="nba"))
+    oid = _order(con, mid, now="2026-11-04T00:05:00Z")
+    store.insert_prices(con, kalshi.price_rows(
+        mid, {"orderbook_fp": {"yes_dollars": [["0.3000", "10"]],
+                               "no_dollars": [["0.6000", "500"]]}},
+        "2026-11-04T00:20:00Z", K, sport="nba"))            # yes ask 0.40, in play
+    paper.simulate(con, "2026-11-04T00:30:00Z")
+    assert _status(con, oid) == "expired"
+    assert con.execute("SELECT COUNT(*) FROM paper_fills").fetchone()[0] == 0
+    with pytest.raises(Refused, match="started"):
+        _order(con, mid, now="2026-11-04T00:15:00Z")
+
+
 def test_an_order_still_waiting_at_the_start_expires(con):
     mid = _game_book(con, "2026-11-04T00:00:00Z", 150)
     oid = _order(con, mid, outcome="away", size=100, limit_price=0.9,

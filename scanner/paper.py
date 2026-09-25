@@ -56,7 +56,7 @@ from decimal import ROUND_CEILING, Decimal
 import config
 from feeds import ET, parse_utc
 from scanner import capital, fees
-from scanner.fair import fair_value
+from scanner.fair import fair_value, game_start
 from scanner.store import canon_ts, next_quotes_after
 from scanner.venues import family, paper_allowed
 
@@ -126,9 +126,11 @@ def submit(con, *, strategy: str, mode: str, market_id: str, outcome: str,
         raise Refused("a sportsbook order can only take the posted price")
     now = canon_ts(now)
     # Too late: nothing fills at or after a game's start, and a market with
-    # no start (weather, economics) settles at resolves_at.
-    if mkt["event_start"] and now >= canon_ts(mkt["event_start"]):
-        raise Refused(f"the market started at {mkt['event_start']}: nothing fills"
+    # no start (weather, economics) settles at resolves_at. The start is the
+    # one fair_value uses (game_start), not only this market's own.
+    start = game_start(con, mkt)
+    if start and now >= start:
+        raise Refused(f"the market started at {start}: nothing fills"
                       " at or after the start")
     if mkt["resolves_at"] and now >= canon_ts(mkt["resolves_at"]):
         raise Refused(f"the market resolved at {mkt['resolves_at']}")
@@ -160,7 +162,7 @@ def submit(con, *, strategy: str, mode: str, market_id: str, outcome: str,
     fv = fair_value(con, market_id, outcome, now)
     ev = None if fv is None else fees.ev(fv["p"], model, limit_price, contracts, role)
     if role == "maker" and expires_at is None:
-        expires_at = mkt["event_start"] or canon_ts(parse_utc(now) + dt.timedelta(days=1))
+        expires_at = start or canon_ts(parse_utc(now) + dt.timedelta(days=1))
     cur = con.execute(
         "INSERT INTO paper_orders (strategy, mode, venue, market_id, outcome, role,"
         " size, limit_price, placed_at, expires_at, exposure, fair_p, fair_source,"
@@ -339,9 +341,12 @@ def simulate(con, now) -> dict:
 
 
 def _start(con, market_id: str) -> str | None:
-    row = con.execute("SELECT event_start FROM markets WHERE market_id=?",
+    """The game's start by fair_value's own rule (scanner.fair.game_start): an
+    exchange contract's own start can be later than the books', and a fill
+    between the two would be at an in-play price fair_value refuses."""
+    row = con.execute("SELECT * FROM markets WHERE market_id=?",
                       (market_id,)).fetchone()
-    return row["event_start"] if row else None
+    return game_start(con, row) if row else None
 
 
 def _simulate_maker(con, o, target: float, now: str, tally: dict) -> str:
@@ -401,15 +406,16 @@ def grade(con, position_id: int, when) -> dict:
                     (position_id,)).fetchone()
     m = con.execute("SELECT * FROM markets WHERE market_id=?",
                     (p["market_id"],)).fetchone()
-    if m is None or not m["event_start"]:
+    start = game_start(con, m) if m is not None else None
+    if not start:
         return {"graded": False, "why": "no start time, so no closing price"}
-    if canon_ts(when) < canon_ts(m["event_start"]):
+    if canon_ts(when) < start:
         return {"graded": False, "why": "not started yet, so the close is not in"}
-    close = fair_value(con, p["market_id"], p["outcome"], m["event_start"])
+    close = fair_value(con, p["market_id"], p["outcome"], start)
     entry = fair_value(con, p["market_id"], p["outcome"], p["opened_at"])
     if close is None or entry is None:
         return {"graded": False, "why": "no fair price at entry or at the close"}
-    early = capital.days_between(close["as_of"], m["event_start"]) * 1440
+    early = capital.days_between(close["as_of"], start) * 1440
     if early > CLOSING_WINDOW_MIN:
         return {"graded": False,
                 "why": f"nearest close {early:.0f} min before the start"
