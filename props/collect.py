@@ -65,20 +65,21 @@ LOG = OUT / "requests.jsonl"
 # reference. E4's "almost nothing to shop" was measured across four books, and
 # the cheapest open question is whether a wider list changes that.
 #
-# NAMING BOOKS IS NOT QUITE FREE, and the earlier note in this project that it
-# was is only true within one region. Measured 2026-09-24, same market, same
-# endpoint:
+# NAMING BOOKS IS NOT QUITE FREE. The Odds API bills a named list as one
+# region per TEN books: "Every group of 10 bookmakers is the equivalent of 1
+# region ... between 11 and 20 bookmakers counts as 2 regions" (v4 docs, read
+# 2026-09-25). Measured 2026-09-24, same market, same endpoint:
 #
-#   11 NJ books + Pinnacle       2 credits per market
-#    4 offshore books alone      1 credit  per market
-#   all 15                       2 credits per market
+#   11 NJ books + Pinnacle  (12)   2 credits per market
+#    4 offshore books alone  (4)   1 credit  per market
+#   all 15                  (15)   2 credits per market
 #
-# So the cost is the number of REGIONS the named books span, not the number of
-# books. Pinnacle sits in `eu` and every US book in `us`/`us2`, so asking for
-# the sharp anchor doubles every request - and once it is doubled, the four
-# offshore books cost nothing extra. Pinnacle is not optional: it is the fair
-# line the whole scoring path is built on, and B2 exists because getting it
-# wrong returns no error. So: pay the two, take all fifteen.
+# An earlier reading of these numbers blamed Pinnacle for sitting in the `eu`
+# region. That is wrong: the cloud's pull names Pinnacle plus three US books
+# and costs exactly 1 credit per sport (its run logs, 2026-09-24: 473 -> 472
+# -> 471 across consecutive pulls). Pinnacle is not optional - it is the fair
+# line the whole scoring path is built on, and B2 exists because leaving it
+# out returns no error. This list is fifteen books, so 2 credits per market.
 BOOKS = ",".join([
     "pinnacle",                                   # the sharp anchor, eu region
     "draftkings", "fanduel", "betmgm", "williamhill_us", "betrivers",
@@ -339,8 +340,8 @@ def snapshot_injuries(stamp: str) -> int:
 
 # ------------------------------------------------------------------ cost ---
 
-# Measured, not assumed: the named book list spans two regions because
-# Pinnacle is in `eu`. Every request therefore costs markets x 2.
+# Measured, not assumed: fifteen named books bill as two regions (one per
+# ten books - see BOOKS). Every request therefore costs markets x 2.
 REGIONS = 2
 
 

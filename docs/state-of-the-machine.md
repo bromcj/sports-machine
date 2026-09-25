@@ -67,8 +67,9 @@ can only ever be fed from this machine.
 A second task, **`SportsMachine-Collect`**, runs `collect_props.bat` at
 **11:45, 15:45, 18:00, 20:00 and 21:00** ET. It records NFL and NBA prop and
 game prices while they are cheap — live, a request costs 1 credit per market
-per region (2 with Pinnacle in the book list, because Pinnacle is in a second
-region), where the same snapshot bought historically costs ten times as much.
+per region, and a named book list bills as one region per ten books (its
+fifteen books cost 2 per market), where the same snapshot bought historically
+costs ten times as much.
 An idle run spends **nothing**: the events list is free and a game is pulled
 only inside its lead window and only once. It spends the **paid** key, stops
 before the calendar month's total would pass 3,000 credits, and appends its
