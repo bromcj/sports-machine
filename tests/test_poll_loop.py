@@ -3,6 +3,8 @@ HTTP call goes to FakeGet, which also proves no call happens before the budget
 has been checked."""
 import datetime as dt
 import json
+import sqlite3
+import threading
 
 import pytest
 import requests
@@ -164,6 +166,108 @@ def test_a_restart_remembers_the_last_poll_from_the_ledger(env):
     _poller(get, lambda: T0).tick(T0)
     again = _poller(get, lambda: T0)
     assert again.tick(T0 + dt.timedelta(seconds=40)) == []     # not a second poll
+
+
+# ------------------------------------------- no ledger row, no request ---
+
+def _impatient_connect():
+    """db.connect with a 0.1 s busy wait instead of 5 s, so a held lock fails
+    fast."""
+    c = db.connect()
+    c.execute("PRAGMA busy_timeout = 100")
+    return c
+
+
+def test_no_request_is_made_while_the_ledger_cannot_be_written(env):
+    # Another process mid-write holds the database. A request made now could
+    # be billed and never recorded, and no limit would see it.
+    blocker = sqlite3.connect(db.DB_PATH, isolation_level=None)
+    blocker.execute("BEGIN IMMEDIATE")
+    try:
+        get = FakeGet([T0 + dt.timedelta(minutes=45)])
+        p = _poller(get, lambda: T0)
+        p.connect = _impatient_connect
+        p.level, p.level_at, p.schedule_at = 6, T0, T0
+        p.schedule = {"nba": [T0 + dt.timedelta(minutes=45)]}
+        assert p.tick(T0) == []                              # the odds call
+        p.schedule_at = None
+        p.tick(T0 + dt.timedelta(minutes=1))                 # the free events list
+        assert get.calls == []
+    finally:
+        blocker.execute("ROLLBACK")
+        blocker.close()
+
+
+@pytest.mark.parametrize("lock", ["BEGIN IMMEDIATE", "BEGIN; SELECT COUNT(*) FROM prices"])
+def test_a_billed_call_counts_even_when_its_result_cannot_be_written(env, lock):
+    # The request is made and billed; then another connection takes a write
+    # lock, or holds a read open across the commit. The call must still count.
+    blockers = []
+
+    class LockAfter(FakeGet):
+        def __call__(self, url, **kw):
+            r = super().__call__(url, **kw)
+            b = sqlite3.connect(db.DB_PATH, isolation_level=None)
+            for stmt in lock.split("; "):
+                b.execute(stmt).fetchall()
+            blockers.append(b)
+            return r
+
+    get = LockAfter([T0 + dt.timedelta(minutes=45)])
+    con = _impatient_connect()
+    with pytest.raises(sqlite3.OperationalError):
+        poll.OddsSource(get=get, key="test-key", clock=lambda: T0).poll(con, "nba", T0)
+    con.close()
+    for b in blockers:
+        b.execute("ROLLBACK")
+        b.close()
+    assert get.calls == [("odds", 1)]                        # billed once
+    con = db.connect()
+    assert budget.spent(con) == budget.call_cost()           # and counted once
+    con.close()
+
+
+def test_two_loops_cannot_both_spend_the_last_credits(env):
+    # 5,997 of 6,000 spent over 41 earlier ET days: room for one 3-credit call.
+    con = db.connect()
+    for i in range(41):
+        budget.record(con, consumer="poll", endpoint="odds", sport="nba", estimated=3,
+                      cost=146 if i < 40 else 5997 - 146 * 40, ok=True,
+                      ts=T0 - dt.timedelta(days=41 - i))
+    con.commit()
+    con.close()
+    in_get, release, calls, results = threading.Event(), threading.Event(), [], {}
+
+    def get(url, params=None, label="", attempts=3, **_):
+        calls.append(label)
+        in_get.set()
+        if len(calls) > 1:
+            release.set()
+        release.wait(10)                    # A's request is in flight until B is done
+        return Resp([], budget.call_cost())
+
+    def loop(name):
+        c = db.connect()
+        try:
+            poll.OddsSource(get=get, key="test-key", clock=lambda: T0).poll(c, "nba", T0)
+            results[name] = "polled"
+        except budget.OverBudget as e:
+            results[name] = e.limit
+        finally:
+            c.close()
+            release.set()
+
+    a = threading.Thread(target=loop, args=("A",))
+    a.start()
+    assert in_get.wait(10)
+    b = threading.Thread(target=loop, args=("B",))
+    b.start()
+    a.join(20)
+    b.join(20)
+    con = db.connect()
+    brief = budget.status(con, T0)["brief_spent"]
+    con.close()
+    assert (len(calls), sorted(results.values()), brief) == (1, ["brief", "polled"], 6000)
 
 
 def test_a_stop_file_ends_the_loop(env):

@@ -8,7 +8,8 @@ Pinnacle plus three books, one market, costs 1). config.ODDS_BOOKS names ten,
 config.ODDS_MARKETS three, so one sport-wide call costs 3 credits. The events
 list, which says when every game starts, is free.
 
-THREE LIMITS, checked BEFORE every metered call (check()), from the ledger:
+THREE LIMITS, checked BEFORE every metered call (check(), inside reserve(),
+which also writes the call's ledger row before the request), from the ledger:
 
   brief    everything the scanner has spent must stay within
            config.CREDIT_CAP_BRIEF while config.BRIEF_ACTIVE
@@ -79,15 +80,52 @@ def call_cost(n_markets: int | None = None, n_books: int | None = None) -> int:
 # ---------------------------------------------------------------- ledger ---
 
 def record(con, *, consumer: str, endpoint: str, estimated: int, ok: bool,
-           cost=None, remaining=None, used=None, sport=None, note=None, ts=None):
-    """One row per metered (or supposedly free) call. The caller commits."""
-    con.execute(
+           cost=None, remaining=None, used=None, sport=None, note=None, ts=None) -> int:
+    """One row per metered (or supposedly free) call. The caller commits.
+    Returns the row's id."""
+    return con.execute(
         "INSERT INTO credit_ledger (ts, consumer, sport, endpoint, estimated,"
         " cost, remaining, used, ok, note) VALUES (?,?,?,?,?,?,?,?,?,?)",
         (canon_ts(ts or dt.datetime.now(dt.timezone.utc)), consumer, sport,
          endpoint, int(estimated), None if cost is None else int(cost),
          None if remaining is None else int(remaining),
-         None if used is None else int(used), 1 if ok else 0, note))
+         None if used is None else int(used), 1 if ok else 0, note)).lastrowid
+
+
+def reserve(con, *, consumer: str, endpoint: str, estimated: int, sport=None,
+            now=None) -> int:
+    """No ledger row, no request. check() (for a metered call) and the call's
+    row at its estimate, in ONE write transaction committed BEFORE the
+    request. A second loop waits for the lock and then sees this row, so two
+    cannot both spend the last credits; and a request whose result cannot be
+    written back still counts, at its estimate. Raises OverBudget, or the
+    database's own error, with nothing requested. Returns the row's id."""
+    now = now or dt.datetime.now(dt.timezone.utc)
+    if con.in_transaction:
+        con.commit()
+    con.execute("BEGIN IMMEDIATE")
+    try:
+        if estimated:
+            check(con, estimated, now)
+        row = record(con, consumer=consumer, endpoint=endpoint, sport=sport,
+                     estimated=estimated, ok=False, note="in flight", ts=now)
+        con.commit()
+    except BaseException:
+        con.rollback()
+        raise
+    return row
+
+
+def settle(con, row: int, *, ok: bool, cost=None, remaining=None, used=None,
+           note=None):
+    """Fill in a reserve()d row once the response, or its absence, is known.
+    The caller commits; until then the row counts at its estimate."""
+    con.execute(
+        "UPDATE credit_ledger SET cost=?, remaining=?, used=?, ok=?, note=?"
+        " WHERE id=?",
+        (None if cost is None else int(cost),
+         None if remaining is None else int(remaining),
+         None if used is None else int(used), 1 if ok else 0, note, row))
 
 
 def spent(con, since=None, until=None) -> int:

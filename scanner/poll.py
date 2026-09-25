@@ -21,10 +21,12 @@ Safety, in the order it applies:
   - budget.check() before every metered call; OverBudget means no request.
     A daily-pace refusal waits for tomorrow; the brief's cap or the month's
     budget stops the loop.
+  - no ledger row, no request: every call, free or not, is written to
+    credit_ledger at its estimate BEFORE it is made (budget.reserve(), in
+    the same transaction as the check), then filled in with what it cost,
+    and written to api_usage so monitor.py's account check sees the balance.
   - a 401 (bad key) or 429 (out of credits / rate limit) stops the loop:
     retrying either spends nothing useful.
-  - every call, free or not, is written to credit_ledger with what it cost,
-    and to api_usage so monitor.py's account check sees the balance.
 
 "Is it running" is judged by the heartbeat file's age, never by probing a
 process id: on Windows, os.kill(pid, 0) does not test a process, it ends it.
@@ -96,13 +98,22 @@ class OddsSource:
         return self._key
 
     def _call(self, con, sport, endpoint, url, params, estimated, now):
-        """One GET, always ledgered. Returns the response or raises."""
+        """One GET, ledgered BEFORE it is made. Returns the response or raises.
+
+        budget.reserve() checks the limits and writes the call's row at its
+        estimate, committed, and only then is the request made: a database
+        that cannot be written means no request (it raises, and the tick
+        logs 'poll failed'). The row is filled in afterwards; if that write
+        fails, the call still counts at its estimate."""
+        key = self.key()
+        row = budget.reserve(con, consumer="poll", endpoint=endpoint, sport=sport,
+                             estimated=estimated, now=now)   # OverBudget: no request
         resp = err = None
         try:
             # One attempt for a metered call: a retry can be billed, and the
             # ledger would record only the last response's cost. The next due
             # poll is the retry.
-            resp = self._get(url, params={"apiKey": self.key(), **params},
+            resp = self._get(url, params={"apiKey": key, **params},
                              label=f"{endpoint} {sport}",
                              attempts=1 if estimated else http.ATTEMPTS)
         except requests.HTTPError as e:
@@ -112,12 +123,11 @@ class OddsSource:
         h = resp.headers if resp is not None else {}
         cost = h.get("x-requests-last")
         rem, used = h.get("x-requests-remaining"), h.get("x-requests-used")
-        budget.record(con, consumer="poll", endpoint=endpoint, sport=sport,
-                      estimated=estimated, ok=err is None,
+        budget.settle(con, row, ok=err is None,
                       cost=int(cost) if str(cost).isdigit() else None,
                       remaining=int(rem) if str(rem).isdigit() else None,
                       used=int(used) if str(used).isdigit() else None,
-                      note=None if err is None else http.redact(err)[:200], ts=now)
+                      note=None if err is None else http.redact(err)[:200])
         if rem is not None:
             con.execute("INSERT INTO api_usage (ts, sport, endpoint, remaining, used)"
                         " VALUES (?,?,?,?,?)",
@@ -142,10 +152,10 @@ class OddsSource:
         return sorted(s for s in starts if s is not None)
 
     def poll(self, con, sport: str, now) -> dict:
-        """One sport-wide odds call, stored. Checked against every limit first."""
+        """One sport-wide odds call, stored. Checked against every limit first
+        (in _call, with its ledger row)."""
         from scanner.venues import sportsbook
         est = budget.call_cost()
-        budget.check(con, est, now)              # raises OverBudget: no request
         key = config.SPORTS[sport]["odds_key"]
         r = self._call(con, sport, "odds", f"{API}/sports/{key}/odds",
                        {"bookmakers": ",".join(config.ODDS_BOOKS),
