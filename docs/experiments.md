@@ -426,6 +426,292 @@ The four-week lookback and the `Out` status are fixed here and now.
 
 ---
 
+## Scanner brief (2026-09-25) — pre-registered before any strategy exists
+
+**Written 2026-09-25, during Phase A of `docs/briefs/2026-09-25-next-task.md`,
+before a single scanner price was collected and before any strategy was
+written.** The brief changes the machine's job from predicting games to finding
+prices that are wrong. Every strategy it adds (B, E1–E5) gets its own entry
+here before its first result is looked at. This section fixes what they all
+share, so no later entry can loosen it quietly.
+
+### S0. Rules every strategy inherits
+
+**Its own record, nobody else's.** Each strategy has a block in
+`validation.json` under its own name, the same shape as a sport's. No strategy
+counts another's positions, and a pass by one opens nothing for another.
+
+**Gate 1 — its own backtest.** The strategy's entry here names one historical
+test, its pass rule, and what will not be tuned. `scanner.gates.record_backtest`
+refuses a strategy whose experiment id is not a heading in this file.
+
+**Gate 2 — its own paper record.** Exactly the rules sport models are held to
+(`model.validation.record_paper`, unchanged): 50+ graded positions; the metric's
+mean clears zero by `PAPER_CLV_SIGMA` = 3 standard errors; coverage (graded ÷
+settled) at least 0.75; no ET slot over 60% of graded positions unless coverage
+is at least 0.90 (a position's slot is its event's start time, or its first
+fill's time when the market has no start time); and a placebo, run through the
+same pipeline under the same strategy name, that must **not** clear the same bar.
+*Note added 2026-09-25 by the Phase A re-verification:* the dated amendments
+below tighten this paragraph. Gate 2 now takes one value per event (game) -
+the strategy's first position on it - not every position, and coverage is
+counted over those first positions that are due.
+
+**The metric is one of two, chosen in the strategy's own entry:**
+
+- `info` = fair close ÷ fair at entry − 1, both from `scanner.fair.fair_value`.
+  **Both ends must come from the same source** (Pinnacle and Pinnacle, or
+  consensus and consensus). A position whose ends disagree is settled but not
+  graded, so it counts against coverage. (The 2026-09-24 review found the MLB
+  gate mixing the two on every graded bet; strategies start without that flaw.)
+- `realized_ev` = profit ÷ capital staked, after fees, per position, where
+  `info` has no meaning (no fair close exists).
+
+**Looks.** Gate 2 is re-tested at most **twice per ET day** per strategy, and
+every look is written to the `gate_looks` table. That is the cadence the
+SEQUENTIAL TESTING simulation in `audit.py` covers; a faster cadence would turn
+the 3-SE bar into a looser one without anyone changing a number.
+
+**Gate 3.** A person calls `arm("<strategy>")`. It refuses unless gates 1 and 2
+pass. Nothing automated calls it.
+
+**Shared machinery, not tunable after a result.** Fair value comes only from
+`fair_value`: Pinnacle de-vigged at the latest pull at or before the moment →
+else the mean de-vigged price across books at that pull → else the venue's own
+mid; the source is recorded. Every EV is after fees, and the fee model is
+recorded on the price row. A paper fill uses the **next** observed price strictly
+after the order, never the current one, and never more than the size shown.
+*Added 2026-09-25, during Phase A, before any strategy existed:* nor a price
+captured at or after the game's start. A-V4's run showed pregame orders
+reaching in-play prices; `fair_value` already refuses those, so a fill there
+would be graded against a price from a different market state.
+None of these, the gate thresholds, the coverage rule or a strategy's placebo is
+changed after seeing any strategy's result. A fee model changes only to match a
+venue's published schedule, with the date.
+
+**Amendments from the Phase A review.** *Added 2026-09-25 by the Phase A
+review, before any strategy existed.* The review found gaps in S0 as written.
+Every change below tightens a rule. None loosens one, and no threshold moves.
+Each one names the code that enforces it.
+
+- **Gate 1 is the strategy's own entry.** "A heading in this file" was not
+  enough: any heading counted, even "Results log", and nothing tied the
+  experiment to the strategy. `scanner.gates.record_backtest` now refuses
+  unless the experiment is the one the strategy registered against. It must be
+  a whole markdown heading above the Results log, outside code fences. No two
+  strategies may register against the same entry: `scanner.strategies.register`
+  refuses the second. A name whose gate record already holds a different
+  experiment is refused (`model.validation.record_backtest`). *Tightened
+  2026-09-25 by the re-verification (below):* the gate record also holds the
+  strategy's metric, and gate 1 refuses an entry that any other name's gate
+  record holds, a retired strategy's included. A new definition is a new
+  strategy under a new name, with none of the old one's positions, looks or
+  gate-2 record. S0 itself, and the other section headings in this
+  file, are not entries. The code cannot tell a section heading from an entry,
+  so that rule rests on whoever writes the strategy.
+- **Gate 2 counts only positions that are graded AND settled.** A position
+  graded but not yet settled is not in the sample. Coverage counts the
+  positions that are due: the market resolved more than 36 hours ago, or the
+  position has no `resolves_at` at all, in which case it counts against
+  coverage until it settles. For `info`, coverage is positions graded and
+  settled among those due ÷ positions due. For `realized_ev`, it is positions
+  settled among those due ÷ positions due. The top and the bottom count the
+  same positions (`scanner.gates.measured`), and a due position that never
+  settles counts against coverage.
+  *Changed 2026-09-25 by the re-verification:* for `info` this bullet first
+  said "positions graded and settled ÷ positions settled". A position that
+  never settles was then on neither side of that fraction, so it could not
+  lower coverage: 60 graded positions out of 260 resolved read as 100%
+  coverage, and gate 2 passed. Counted over the positions due, the same 260
+  give 23%, and gate 2 fails. *And changed again the same day:* the positions
+  counted, top and bottom, are each game's first position only (below), so
+  re-entering the games that get graded cannot lift coverage either (60
+  graded games of 100 read as 82% counted per position; it is 60%).
+- **The placebo must place.** A placebo that must "not clear the same bar"
+  blocks nothing if it never places. So gate 2 also fails unless the placebo
+  has graded, settled positions on at least 50 distinct events of its own.
+  That means Phase B's settlement must settle placebo positions too, or no
+  strategy can pass. *Changed 2026-09-25 by the re-verification:* this first
+  said "at least 50 graded, settled positions", which 50 copies of one game
+  satisfied. Gate 2 now counts events (below).
+- **`realized_ev` cannot pass gate 2 yet.** The 3-SE bar was simulated on
+  near-normal values, the kind `info` produces. `realized_ev` is win-or-lose
+  instead. On it, a strategy with no skill that buys favourites at their fair
+  price clears the bar 5.5% of the time at 80¢, 14.7% at 95¢ and 40.6% at 98¢
+  (120 days, 50 graded a day, two looks a day, 4,000 trials). The same volume
+  on `info` gives 2.3%. So a `realized_ev` strategy's evidence is recorded and
+  its gate 2 fails (`scanner.gates.UNCALIBRATED`), until a bar simulated for
+  that payoff is pre-registered here.
+- **A look is claimed before it is taken.** Each gate-2 look is written to
+  `gate_looks` and committed, under a write lock, before gate 2 is evaluated.
+  A crash, a rollback, a busy database or a second scorer running at the same
+  moment can cost a look but never add one.
+- **Fills.**
+  - A size shown is filled once per strategy and mode, with paper and
+    placebo kept apart. Our fills never leave the recorded book. So an offer
+    still showing at the same price in a later observation is the same offer,
+    and what this strategy already took from it is gone, until an observation
+    shows a worse price and not that one. This can under-fill, never
+    over-fill.
+  - A maker whose limit is at or through the ask showing when it is placed
+    is refused: it would take, not rest. *Clarified 2026-09-25 by the
+    re-verification:* the ask is read from the latest observation of that
+    outcome's book at or before the order. If that observation shows no ask,
+    there is nothing to cross; an older ask is no longer there.
+  - No order is accepted at or after the game's start, or at or after the
+    market's `resolves_at`, or (*added 2026-09-25 by the re-verification*)
+    on a game with no known start (below).
+  - *Added 2026-09-25 by the re-verification:* a market with no start
+    (weather, economics) stops filling at its `resolves_at`, where it
+    already stopped accepting orders. Orders are filled in the order they
+    were placed, not the order they were recorded, so a replay that records
+    a later order first cannot fill one offer twice.
+  - A taker order cannot carry an `expires_at`. It never rests, so it never
+    honoured one.
+  - An order's fees, exposure and EV are priced on the fee model showing at
+    the order's moment (the market's latest price at or before it), not on a
+    schedule first seen later.
+  - Kalshi fees are rounded once per order, as Kalshi's published Fee
+    Rounding rule does (see [venues.md](venues.md)). Once a fill is in, the
+    order has paid its whole cash so far rounded up to the cent once. The
+    final sub-cent rebate is still ignored, so this stays conservative.
+  - A fill that would take a position's stake past the exposure its daily
+    cap counted is not made.
+- **Grading waits for the market to resolve.** A position is graded only
+  once its game has started and its market has reached its `resolves_at`.
+  Before the start, the newest pull is only the latest price so far. Before
+  the market resolves, a delay can still move the start later, and the close
+  with it. A graded position is never graded again.
+  *Changed 2026-09-25 by the re-verification:* this bullet was "Grading waits
+  for the start", and a position was graded as soon as its game had started.
+  But a delay announced after the scheduled start had passed still moves the
+  start later (a later start counts if it was reported before that later
+  start passed), so a position graded in between kept a close taken before
+  the real one. In
+  production's archive, 134 of 7,414 games had their start moved later after
+  the known start had passed. A sportsbook game's `resolves_at` is its start
+  plus a fixed game length, so it moves with a delay. An exchange contract's
+  `resolves_at` is the venue's own and does not, so the start check stays too
+  (`scanner.paper.grade`).
+- **"The start" is one start per game.** Everywhere above, and in
+  `fair_value`'s in-play cutoff, the start is `scanner.fair.game_start()`:
+  the one start the books give the game, capped by an exchange contract's own
+  start when that is earlier. It is never a market's own `event_start` alone.
+  The books' start is judged pull by pull for the whole game by
+  `scanner.venues.sportsbook.next_start`. An earlier start always wins. A later
+  one counts only if it was reported before it passed.
+
+**Amendments from the Phase A re-verification.** *Added 2026-09-25 by the
+Phase A re-verification, before any strategy existed.* A second pass
+re-checked the review's fixes and found more gaps. Again every change
+tightens a rule, none loosens one, and no threshold moves. The bullets above
+that changed with it are marked where they did.
+
+- **Gate 2 counts each game's FIRST position, not every position.**
+  Positions on one game share its move, so entering a game again is not new
+  evidence. Nothing stops a strategy from entering the same market on every
+  pass while its price stays attractive, and the 3-SE bar was simulated on
+  one value per game. Counted per position, a strategy with no skill that
+  entered each game k times passed 15.2% of the time at k = 2, 29.3% at 3,
+  50.2% at 5 and 72.3% at 10, against 1.8% at k = 1 (10 games a day, two looks
+  a day, 120 days, 4,000 trials). The first version of this fix took the MEAN
+  of a game's positions; that is unfair when how often a strategy re-enters
+  depends on the price. Buying again once the price fell below the first
+  entry halves every losing first entry: a no-skill strategy doing that passed
+  65% of the time re-entering at most twice, and 99–100% re-entering more
+  (per position it was 13.7–44%), and scored by the real code 11 of 20
+  no-skill histories passed. `scanner.gates.measured` therefore gives
+  `record_paper` one value per event (the market's `canonical_event_id`): the
+  strategy's FIRST position on it, the order placed first. It was decided
+  before the path it is judged on, so a no-skill strategy's first entries
+  average zero whatever it does afterwards: 1.9% at every re-entry rule
+  simulated, and 0 of the same 20 histories. The slot is that game's; the
+  placebo is taken the same way, so both 50 floors count games. Coverage
+  counts the same unit: of the games whose first position is due, the share
+  whose first position is graded and settled. A first position that cannot be
+  graded counts against coverage; a later, gradable entry on the same game
+  does not stand in for it.
+- **The gate record pins the definition.** A strategy's gate record now
+  holds its metric beside its experiment, and `model.validation.record_backtest`
+  refuses a different metric under an existing name, as it already refused a
+  different experiment. `scanner.gates.score` records gate 2 as failed, and
+  `arm()` refuses, while the strategy registered under that name has a
+  different experiment or metric from its record (`scanner.gates.redefined`);
+  `arm()` also refuses a name that is no longer registered. Before, a
+  strategy's file edited in place, under the same name, kept the old
+  definition's gates: gate 2 passed again and `arm()` armed it. Gate 1 also
+  refuses an experiment that another name's
+  gate record already holds, a retired strategy's included, since
+  `scanner.strategies.register` sees only the strategies loaded at the time.
+  And `model.validation.record()`, a sport's walk-forward gate 1, refuses to
+  write onto a strategy's block, so a winning walk-forward cannot turn a
+  failed backtest into a pass.
+- **A game market with no known start is neither priced nor traded.** When
+  `scanner.fair.game_start()` finds no start and the market's
+  `canonical_event_id` is a `games` row, `fair_value` returns nothing and
+  `paper.submit` refuses: in play cannot be ruled out. An exchange contract
+  with no start of its own, on a game whose book prices were all rejected,
+  had been priced from an in-play mid 45 minutes after the start. A market
+  that is not a game (weather, economics) has no start by nature and is
+  unaffected. A contract whose `canonical_event_id` is not a `games` row at
+  all is not known to be a game, so it is still priced; that waits for
+  Phase C's mapping.
+- **A price is stored only under its own venue's market.**
+  `scanner.store.insert_prices` rejects a price filed under another venue's
+  market, or under a market that is not stored, as a counted reject.
+  `fair_value` reads a book row's price as a moneyline and a fill charges
+  the price row's own fee, so a Kalshi row under a sportsbook market made
+  `fair_value` crash and could fill a book order at the exchange's price.
+
+### A-V. Phase A verification checks, pass rules fixed before running
+
+These check code, not the market. None of them computes a strategy's profit or
+EV on real data; the first such number belongs to Phase B or E and needs its own
+entry above.
+
+- **A-V1. One fair price, two code paths.** Copy every archived moneyline pull
+  (`odds_snapshots`) from the last seven days of the 2026-09-25 00:45 ET copy of
+  production into the new `prices` table, then ask `fair_value` for both sides of
+  every pull. **Pass:** every value equals `bets/log.fair_prob` on the same pull
+  within 1e-12, with the same source label. Any disagreement is a defect in one of
+  them, fixed before Phase A is reported.
+  *Clarification, added 2026-09-25 after `fair_value` was written and before
+  A-V1 was run:* `fair_value` refuses any price captured at or after the game's
+  start (in-play), which `fair_prob` does not check because its callers only
+  ever pass pregame times. In-play pulls in the sample are counted and reported
+  as refusals, not scored as agreements or disagreements.
+  *Clarification, added 2026-09-25 by the Phase A review, after A-V1 was first
+  run:* `audit.py` now enforces that rule, and it decides "in play" the way
+  `fair_value` does. It works out each game's start again from the raw pulls,
+  pull by pull, by `scanner.venues.sportsbook.next_start`'s rule: an earlier
+  reported start always wins, and a later one counts only if it was reported
+  before it passed. A pull captured at or after that start is in play and
+  must be refused. A value priced from any price captured at or after the
+  start fails A-V1. One case is neither kind. A pull taken before that start,
+  but after the start its own report gave, is pregame to `fair_value` and in
+  play to `fair_prob`, which judges a pull by its own report alone. That
+  happens when the feed announced a delay only after the old time had passed
+  but before the new one. Such a pull is counted as "delayed-start, not
+  scored". Replayed over the whole archive (83,294 pulls, 2024-03-28 to
+  2026-09-25; each pull gives two values, home and away): 141,638 agree,
+  0 disagree, 24,942 of 24,942 in-play values refused. There are 8
+  delayed-start values, in 4 games: mlb-979a1e9d 2024-04-02, mlb-e841062c
+  2025-05-13, mlb-bdf1f383 2025-06-27 and mlb-8ea201bd 2026-07-05. The same
+  replay of the pre-review code, under the audit's old rule, gave 141,614
+  agree and 48 disagree, and it priced 34 in-play pulls.
+- **A-V2. Kalshi's fee arithmetic.** **Pass:** a 50¢ taker contract carries a
+  model fee of $0.0175; 100 of them $1.75; a maker on a plain `quadratic` series
+  pays nothing; an unread fee type (`flat`) refuses rather than guessing.
+- **A-V3. The polling budget.** **Pass:** the planner's own projection keeps the
+  whole brief at or under 6,000 credits, and normal operation at or under 15,000 a
+  month including the props collector's 3,000 cap.
+- **A-V4. No look-ahead.** Orders placed at real capture times against real
+  archived price sequences. **Pass:** every simulated fill uses a price captured
+  strictly after the order; zero exceptions. Timestamps only — no P&L is
+  computed.
+
+---
+
 ## Results log
 
 Part E is written up in full in [part-e-results.md](part-e-results.md);
@@ -443,6 +729,10 @@ Filled in as each experiment completes. Failures stay in the file.
 | E5 | 2026-09-23 | **FAIL** | +2.73 pts at Pinnacle, t = +1.46; right direction, underpowered |
 | B3 | 2026-09-24 | **FAIL** | loses to the market by 5-11 SE and to a player season average by 11 |
 | E6 | 2026-09-23 | **FAIL** | April-May +0.0028 vs July-Aug +0.0024; velocity wrong-signed early |
+| A-V1 | 2026-09-25 | **PASS**, after one fix | 2,012 of 2,012 pregame values equal (largest difference 0.0), 354 in-play refused. First run: 10 disagreements — a conversion bug on rain-delayed games, fixed. *Rerun 2026-09-25 after the Phase A review, under the stricter rule above:* the same copy gives 2,012 agree, 0 disagree, 354 of 354 in-play refused, 0 delayed-start (1,183 pulls since 2026-09-18). The whole archive gives 141,638 / 0 / 24,942 of 24,942, with 8 delayed-start values in 4 games. The week ending 2026-06-06 12:00 UTC failed on the pre-review code (1,794 agree, 4 disagree) and now passes (1,798 agree, 0 disagree, 286 of 286 in-play refused) |
+| A-V2 | 2026-09-25 | **PASS** | 0.0175 / 1.75 / maker 0 / `flat` refuses |
+| A-V3 | 2026-09-25 | **PASS** | brief ~4,410 of 6,000; normal ~10,319 + 3,000 props of 15,000. *Corrected 2026-09-25 by the Phase A review:* those were the planner's figures for one level held all day at a flat pace. The loop re-picks its level every 5 minutes and rolls unspent credits forward, so it spends up to its caps: 6,000 of 6,000 over the brief, and 12,000 a month + 3,000 props = 15,000 of 15,000. `poll --plan` now prints these. The pre-registered rule is "at or under", so it still passes |
+| A-V4 | 2026-09-25 | **PASS**, after one fix | 0 of 3,629 fills at or before the order. It also found 617 fills at in-play prices; nothing fills after the start now (3,012 fills, 0 in play) |
 
 ### A1, run 2026-09-23 on 6,513 games (2024-2026)
 

@@ -13,9 +13,11 @@
   the golden test runs against) and `data_phase1/` (a copy the command sweep
   ran against). A command run in dev reads and writes dev's `data/` unless you
   point it elsewhere.
-- `python -m pytest tests/ -q` passes: 385 passed, 2 skipped on a checkout
-  without `data_golden/` (the two skipped are the golden test).
-- `python audit.py` reports **86 passed, 0 failed** against a copy of
+- `python -m pytest tests/ -q` passes: 690 passed, 2 skipped on a checkout
+  without `data_golden/` (the two skipped are the golden test), and 692
+  passed in the dev folder, which has it (both measured 2026-09-25 on the
+  `phase-a-foundations` branch at 201a80e).
+- `python audit.py` reports **100 passed, 0 failed** against a copy of
   production's data.
 
 **What is left for you:** edit in the dev folder, never in production. That
@@ -83,7 +85,7 @@ python -m pip install -r requirements-dev.txt
 python -m pytest tests/ -q
 ```
 
-You should see everything pass (385 passed, 2 skipped on 2026-09-24 — the two
+You should see everything pass (690 passed, 2 skipped on 2026-09-25 — the two
 skipped are the golden test, which needs `data_golden/`). That works with no
 data at all — which is the point of those tests.
 
@@ -233,7 +235,7 @@ Expect: a `data` path **inside the dev folder**, and every test passing.
 ```powershell
 cd C:\Users\BromC\sports-machine ; python paths.py ; python audit.py
 ```
-Expect: your real data path, and **86 passed, 0 failed**.
+Expect: your real data path, and **100 passed, 0 failed**.
 
 **3. The scheduled job is not refusing.** After the next 11:30am or 10pm run:
 

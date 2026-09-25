@@ -74,6 +74,16 @@ def test_info_is_reported_per_slot(isolated):
     assert set(r["info_by_slot"]) == set(v.SLOTS)
 
 
+def test_a_refusal_from_the_caller_fails_closed_and_keeps_the_evidence(isolated):
+    # scanner.gates.score holds strategies to rules sports do not have. The
+    # numbers are still recorded; the record just cannot pass.
+    r = isolated.record_paper("t", STRONG, slots=MIXED, coverage=0.95,
+                              metric="realized_ev", refuse="not calibrated")
+    assert not r["passed"] and r["reason"].startswith("not calibrated")
+    assert r["n_bets"] == 60 and "mean realized_ev" in r["reason"]
+    assert isolated.status("t")["paper_trading"]["passed"] is False
+
+
 def test_two_standard_errors_is_not_enough(isolated):
     # Pins PAPER_CLV_SIGMA as used inside record_paper: nothing else tested a
     # result between 1 and 3 SE, so lowering the bar to 1 SE passed everything.

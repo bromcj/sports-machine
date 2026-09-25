@@ -67,8 +67,9 @@ can only ever be fed from this machine.
 A second task, **`SportsMachine-Collect`**, runs `collect_props.bat` at
 **11:45, 15:45, 18:00, 20:00 and 21:00** ET. It records NFL and NBA prop and
 game prices while they are cheap — live, a request costs 1 credit per market
-per region (2 with Pinnacle in the book list, because Pinnacle is in a second
-region), where the same snapshot bought historically costs ten times as much.
+per region, and a named book list bills as one region per ten books (its
+fifteen books cost 2 per market), where the same snapshot bought historically
+costs ten times as much.
 An idle run spends **nothing**: the events list is free and a game is pulled
 only inside its lead window and only once. It spends the **paid** key, stops
 before the calendar month's total would pass 3,000 credits, and appends its
@@ -199,11 +200,33 @@ worthwhile price appearing about once in a hundred games.
 
 ---
 
+## The scanner (Phase A built 2026-09-25, switched off)
+
+The brief of 2026-09-25 changes the machine's job from predicting games to
+finding prices that are wrong and proving it on paper. Phase A built the
+foundation — one price table for every venue, one fair price, fees, a
+credit-limited polling loop, paper orders filled only against later prices,
+capital accounting, and per-strategy gates — on a branch, reviewed before it
+reaches production. **It is switched off** (`config.POLLING_ENABLED = False`),
+**has no strategies**, and **cannot place a real order**: there is no order
+path in the code, the database refuses a non-paper order, and `audit.py`
+checks both. For the code, it reads every module, `.py` and `.pyw` alike
+(tests and the tracked `archive/` folder included, since a module sitting
+there can still be imported), and every scheduled job and workflow, looking
+for anything that sends more than a GET,
+an order endpoint, or an order call such as `create_order`. CI runs the same
+scan on every push (`tests/test_paper_only_scan.py`). It is a tripwire for
+the ordinary ways to write an order path, not a proof against a hidden one.
+How it works: [scanner.md](scanner.md). The venues and what has been read
+about them: [venues.md](venues.md).
+
+---
+
 ## How to tell if something is broken
 
 Three things, in order of how much they tell you.
 
-**1. `python audit.py`** — must come back **86 passed, 0 failed**. It
+**1. `python audit.py`** — must come back **100 passed, 0 failed**. It
 re-derives every answer from live data rather than trusting a comment, and it
 is the fastest way to know whether a change broke something. It is free and
 safe to run any time: it rewrites `validation.json` during its gate checks and
@@ -214,7 +237,12 @@ reaching a final state, no impossible finals, feeds agreeing on first pitch,
 paper bets settling, no price used from after first pitch, Statcast currency,
 no truncated Statcast game, predictions covering the slate, the mean predicted
 home probability, and credits remaining (the paid key's; nothing on this PC
-can see the cloud key's). Findings are written to `ALERTS.md` at the repo
+can see the cloud key's). Once the scanner's tables exist it adds the
+scanner's two credit limits (a warning at 25% left, critical at 10%), and an
+ERROR once the brief's 42 planned polling days are used. Once polling is
+switched on, it adds whether the loop is alive, and an ERROR if the loop
+holds its lock but has not written its heartbeat for 15 minutes (it may be
+hung; the finding names the process to end). Findings are written to `ALERTS.md` at the repo
 root, which every scheduled run rewrites — including one that refuses — and
 whose first line is the time it was written.
 
@@ -226,11 +254,12 @@ file carrying an intercept is the one trained at 2026-09-24 03:00 UTC. As the
 older predictions age out, the mean should rise toward the new ones. If it
 drifts back under 0.50, the intercept is not reaching the serving path.
 
-**Every entry point.** `run_daily.py` has 14 modes: `morning`, `close`,
+**Every entry point.** `run_daily.py` has 16 modes: `morning`, `close`,
 `picks`, `refresh`, `grade`, `predict`, `finals`, `cronstatus`, `market`,
-`bet`, `shop`, `scoreboard`, `paper` and `backup`. It needs one; with none, or
-an unknown word, it prints that list and exits. Of these, only `morning` and
-`close` spend credits. `tests/test_entry_points.py` checks, in CI, that
+`bet`, `shop`, `scoreboard`, `paper`, `backup`, and the scanner's `poll` and
+`strategies`. It needs one; with none, or an unknown word, it prints that list
+and exits. Of these, only `morning`, `close` and `poll --live` spend credits,
+and `poll --live` refuses while polling is switched off. `tests/test_entry_points.py` checks, in CI, that
 every mode is documented in COMMANDS.md and every module is reachable from
 an entry point.
 
@@ -254,19 +283,23 @@ import check on every push, on Python 3.11. It was red for 11 pushes until
 noticed. `.github/workflows/daily.yml` is the three-times-a-day
 collection.
 
-`python -m pytest tests/` gave 385 passed, 2 skipped on 2026-09-24, and needs
-no database or network. The two skipped are the golden test, which runs only
-where `data_golden/` exists.
+`python -m pytest tests/` gave 690 passed, 2 skipped on 2026-09-25 (on the
+`phase-a-foundations` branch at 201a80e, in a checkout without
+`data_golden/`), and needs no database or network. The two skipped are the
+golden test, which runs only where `data_golden/` exists; in the dev folder,
+which has it, all 692 pass.
 
 **Free and safe any time:** `picks`, `audit`, `dashboard`, `backup`,
 `cronstatus`, `validation`, `merge_archive`. **Free, but they rewrite tracked
-files:** `healthcheck` (`STATUS.md`) and `grade`, `paper`, `refresh`
-(`validation.json`). The scheduled job discards what `healthcheck`, `grade`
-and `paper` change; a `refresh` in production changes gate 1, so the next
-scheduled run refuses until `validation.json` is reset. **Costs credits:** `morning`, `close`,
+files:** `healthcheck` (`STATUS.md`) and `grade`, `paper`,
+`strategies --score`, `refresh` (`validation.json`). The scheduled job
+discards what `healthcheck`, `grade` and `paper` change; a `refresh` in
+production changes gate 1, so the next scheduled run refuses until
+`validation.json` is reset. **Costs credits:** `morning`, `close`,
 `collect_props.bat` / `props/collect.py --run`,
-`backfill_odds_history.py --execute`, `ingest/odds.py`, and the
-`research/b3` scripts.
+`backfill_odds_history.py --execute`, `ingest/odds.py`, the
+`research/b3` scripts, and `poll --live` (refused while polling is switched
+off).
 
 ---
 
@@ -280,6 +313,7 @@ scheduled run refuses until `validation.json` is reset. **Costs credits:** `morn
 | [part-e-results.md](part-e-results.md), [b3-results.md](b3-results.md) | the two full write-ups |
 | [reports/](reports/) | one per phase of the last brief, plus the 2026-09-24 review (`review-independent.md`, `review-claims.md`) |
 | [briefs/](briefs/) | every brief, by date |
+| [scanner.md](scanner.md), [venues.md](venues.md) | the scanner: how it works; what each venue is, costs, and what has been read |
 
 ## Things this codebase has already got wrong
 

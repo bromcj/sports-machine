@@ -194,7 +194,79 @@ def run_checks() -> list[dict]:
             out.append(_find(lvl, "odds API credits",
                              f"{row['remaining']} left of {total} ({frac:.0%})",
                              remaining=row["remaining"]))
+    out += scanner_checks(con, now, tables)
     con.close()
+    return out
+
+
+def _credit_level(frac_left: float) -> str:
+    return ("CRITICAL" if frac_left < CREDITS_CRIT else
+            "WARNING" if frac_left < CREDITS_WARN else "INFO")
+
+
+def scanner_checks(con, now, tables) -> list[dict]:
+    """The scanner's own limits and its polling loop. Silent until the
+    scanner exists here (its tables, polling switched on, or a loop still
+    running after it was switched off), so the scheduled job's findings do
+    not change before then."""
+    import config
+    out = []
+    if "credit_ledger" in tables:
+        from scanner import budget
+        s = budget.status(con, now)
+        if s["brief_active"]:
+            frac = s["brief_left"] / s["brief_cap"]
+            out.append(_find(_credit_level(frac), "scanner credits: the brief's cap",
+                             f"{s['brief_spent']:,} of {s['brief_cap']:,} spent"
+                             f" ({frac:.0%} left)", spent=s["brief_spent"]))
+            if s["brief_days_left"] == 0:
+                # By design the loop then pauses, with no metered call and
+                # nothing in its log, until the owner extends BRIEF_POLL_DAYS
+                # by a commit. This is the alert, in check()'s own words.
+                why = "the brief's planned polling days are used"
+                try:
+                    budget.check(con, budget.call_cost(), now)
+                except budget.OverBudget as e:
+                    why = str(e)
+                out.append(_find("ERROR", "scanner credits: the brief's polling days",
+                                 f"the loop makes no metered call: {why}"))
+        frac = s["month_left"] / s["month_budget"]
+        out.append(_find(_credit_level(frac), "scanner credits: this month",
+                         f"{s['month_spent']:,} of {s['month_budget']:,} spent"
+                         f" ({frac:.0%} left)", spent=s["month_spent"]))
+    if config.POLLING_ENABLED:
+        from scanner import poll
+        hb = poll.heartbeat() or {}      # none yet while a loop's first tick runs
+        if poll.alive(hb, now):
+            # Alive keeps a second loop out; a held lock whose beat has
+            # stopped is still no loop polling.
+            hung = poll.hung(hb, now)
+            own = hb and not str(hb.get("state", "")).startswith("stopped")
+            out.append(_find("ERROR", "the polling loop is running", hung) if hung else
+                       _find("INFO", "the polling loop is running",
+                             f"{hb.get('state')} (level {hb.get('level')})" if own
+                             else "first tick, no beat yet"))
+        elif hb and str(hb.get("state", "")).startswith("stopped"):
+            out.append(_find("ERROR", "the polling loop is running",
+                             f"it {hb['state']} - see logs/poll.log"))
+        else:
+            beat = parse_utc((hb or {}).get("beat_at"))
+            ago = "never" if beat is None else \
+                f"{(now - beat).total_seconds() / 60:.0f} min ago"
+            out.append(_find("ERROR", "the polling loop is running",
+                             f"no heartbeat since {ago}; the next scheduled run"
+                             f" restarts it (`python run_daily.py poll --ensure`)"))
+    else:
+        # A loop started while polling was on never rereads the flag. Silent
+        # when there is no fresh heartbeat, as there is none today.
+        from scanner import poll
+        hb = poll.heartbeat() or {}
+        if poll.alive(hb, now):
+            out.append(_find("ERROR", "no polling loop while polling is switched off",
+                             f"a polling loop is running while polling is switched"
+                             f" off (pid {hb.get('pid')}); the next scheduled"
+                             f" `poll --ensure` asks it to stop, or create"
+                             f" {poll.STOP} to stop it now"))
     return out
 
 

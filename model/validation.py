@@ -200,6 +200,10 @@ def record(sport: str, baseline_kind: str, seasons: list[dict]) -> dict:
 
     seasons: one dict per test season with keys
              season, logloss_model, logloss_market.
+
+    It never writes onto a scanner strategy's block: a strategy's gate 1
+    is its pre-registered backtest, record_backtest(), and a walk-forward
+    written over it would turn a failed backtest into a pass.
     """
     if baseline_kind not in (REAL_MARKET, PLACEHOLDER):
         raise ValueError(f"baseline_kind must be {REAL_MARKET!r} or {PLACEHOLDER!r}")
@@ -266,6 +270,9 @@ def record(sport: str, baseline_kind: str, seasons: list[dict]) -> dict:
                                  f"{loso['worst_season']} dropped"))
 
     data = _load()
+    if (data.get(sport) or {}).get("kind") == "strategy":
+        raise ValueError(f"{sport!r} is a scanner strategy's block: its gate 1 is"
+                         f" its backtest, record_backtest(), never a walk-forward")
     entry = data.setdefault(sport, {})
     new_entry = dict(entry)
     new_entry.update({"recorded_at": _now(), "baseline_kind": baseline_kind,
@@ -289,8 +296,67 @@ def record(sport: str, baseline_kind: str, seasons: list[dict]) -> dict:
     _save(data)
     return new_entry
 
+def record_backtest(name: str, experiment: str, passed: bool, reason: str,
+                    evidence: dict, metric: str | None = None) -> dict:
+    """Gate 1 for a scanner STRATEGY: its own pre-registered backtest.
+
+    A strategy is not a forecaster, so its gate 1 is not a walk-forward
+    against the close: it is the one historical test its entry in
+    docs/experiments.md names, with that entry's pass rule
+    (scanner.gates.record_backtest checks the entry exists). The block has
+    the same shape as a sport's - cleared, reason, recorded_at, armed,
+    paper_trading - so gates(), arm() and only_paper_changed() treat it the
+    same way. Like record(), a new result disarms. The block also holds the
+    strategy's definition - its experiment and the metric its gate 2
+    measures - and a result for a different one is refused: a new
+    definition starts under a new name, with none of the old one's
+    positions or gate-2 record.
+
+    It never writes onto a sport's block, or onto any block that is not
+    already a strategy's: a sport's gate 1 is record()'s walk-forward against
+    a real market, and a typed-in backtest must not stand in for it.
+    """
+    import config
+    if not isinstance(passed, bool):
+        raise ValueError("passed must be True or False")
+    if not evidence:
+        raise ValueError("a backtest verdict needs its evidence")
+    data = _load()
+    existing = data.get(name)
+    if name in config.SPORTS or (existing and existing.get("kind") != "strategy"):
+        raise ValueError(f"{name!r} is a sport's block (or another non-strategy"
+                         f" block): its gate 1 is a walk-forward, record(),"
+                         f" never a backtest")
+    old = (existing or {}).get("experiment")
+    if old is not None and old.strip() != experiment.strip():
+        # A different experiment is a different definition. The name is what
+        # its positions, looks and gate 2 are filed under, so under this name
+        # gate 2 would be re-passed on the OLD definition's positions.
+        raise ValueError(f"{name}'s gate record is for {old!r}, not"
+                         f" {experiment!r}: a new definition is a new strategy -"
+                         f" register it under a new name")
+    if existing and existing.get("metric") != metric:
+        # The same, for what gate 2 measures: flipped from realized_ev (which
+        # cannot pass yet) to info and re-recorded, gate 2 passed on the
+        # same positions (re-verification 2026-09-25).
+        raise ValueError(f"{name}'s gate record measures {existing.get('metric')!r},"
+                         f" not {metric!r}: a new definition is a new strategy -"
+                         f" register it under a new name")
+    entry = data.setdefault(name, {})
+    new_entry = dict(entry)
+    new_entry.update({"kind": "strategy", "baseline_kind": "backtest",
+                      "experiment": experiment, "metric": metric, "cleared": passed,
+                      "reason": reason, "backtest": evidence,
+                      "recorded_at": _now(), "armed": False})
+    if entry and _same_except_time(entry, new_entry):
+        return entry
+    data[name] = new_entry
+    _save(data)
+    return new_entry
+
+
 def record_paper(sport: str, clvs, slots=None, coverage=None,
-                 placebo=None) -> dict:
+                 placebo=None, metric="info", refuse=None) -> dict:
     """Gate 2: the model moved the fair line its way, by more than noise.
 
     `clvs` is the per-bet INFO component, not raw CLV. CLV against the same
@@ -337,6 +403,12 @@ def record_paper(sport: str, clvs, slots=None, coverage=None,
 
     The 50-bet floor stays as a separate, independent condition: a handful
     of lucky bets can clear a t-statistic, and n is the cheaper guard.
+
+    For scanner strategies (scanner.gates.score) only: `metric` names what
+    `clvs` holds in the reason, and `refuse`, when given, is a rule the
+    caller holds this record to that sports are not. The evidence is
+    recorded as usual, but it cannot pass, and the reason says why first.
+    The defaults leave every sport caller exactly as it was.
     """
     clvs = [float(c) for c in clvs]
     n_bets = len(clvs)
@@ -382,16 +454,16 @@ def record_paper(sport: str, clvs, slots=None, coverage=None,
         placebo_passes = False
 
     passed = (enough and convincing and covered and lopsided is None
-              and not placebo_passes)
+              and not placebo_passes and refuse is None)
     if not enough:
         reason = f"only {n_bets} graded paper bets, need {MIN_PAPER_BETS}"
     elif avg_clv <= 0:
-        reason = f"mean info {avg_clv:+.2f}% over {n_bets} bets is not positive"
+        reason = f"mean {metric} {avg_clv:+.2f}% over {n_bets} bets is not positive"
     elif not convincing:
-        reason = (f"mean info {avg_clv:+.2f}% over {n_bets} bets is within noise "
+        reason = (f"mean {metric} {avg_clv:+.2f}% over {n_bets} bets is within noise "
                   f"(SE {se:.2f}%, needs to clear {PAPER_CLV_SIGMA:g} SE; t={t:.2f})")
     elif cov is None:
-        reason = (f"mean info {avg_clv:+.2f}% over {n_bets} bets clears the noise, "
+        reason = (f"mean {metric} {avg_clv:+.2f}% over {n_bets} bets clears the noise, "
                   f"but coverage was not supplied, so the graded bets cannot be "
                   f"shown to represent the bets actually placed")
     elif not covered:
@@ -399,20 +471,22 @@ def record_paper(sport: str, clvs, slots=None, coverage=None,
                   f"could be graded (need {MIN_COVERAGE:.0%}). The graded ones are "
                   f"whichever games a cron happened to land near, not a random "
                   f"sample. Fix pre-game collection before reading anything into "
-                  f"the {avg_clv:+.2f}% info over {n_bets} bets")
+                  f"the {avg_clv:+.2f}% {metric} over {n_bets} bets")
     elif placebo_passes:
-        reason = (f"mean info {avg_clv:+.2f}% over {n_bets} bets clears the bar, "
+        reason = (f"mean {metric} {avg_clv:+.2f}% over {n_bets} bets clears the bar, "
                   f"but SO DOES A RANDOM-SIDE PLACEBO "
                   f"({placebo_stat['mean']:+.2f}% over {placebo_stat['n']}) - "
                   f"whatever this is measuring, it is not the model")
     elif lopsided is not None:
-        reason = (f"mean info {avg_clv:+.2f}% over {n_bets} bets clears the noise "
+        reason = (f"mean {metric} {avg_clv:+.2f}% over {n_bets} bets clears the noise "
                   f"at {cov:.0%} coverage, but {slot_share[lopsided]:.0%} of them "
                   f"are '{lopsided}' games (max {MAX_SLOT_SHARE:.0%}) - that "
                   f"validates a slate slot, not the model")
     else:
-        reason = (f"mean info {avg_clv:+.2f}% over {n_bets} bets, {t:.1f} SE "
+        reason = (f"mean {metric} {avg_clv:+.2f}% over {n_bets} bets, {t:.1f} SE "
                   f"above zero, at {cov:.0%} coverage")
+    if refuse is not None:
+        reason = f"{refuse}. Measured: {reason}"
 
     data = _load()
     entry = data.setdefault(sport, {})
@@ -442,7 +516,9 @@ def arm(sport: str) -> str:
     """Gate 3: a person decides this sport may stake money.
 
     Deliberately not called anywhere in the pipeline. Refuses unless both
-    measured gates already pass, so it cannot be used to skip them.
+    measured gates already pass, so it cannot be used to skip them - and,
+    for a scanner strategy, unless the strategy registered under that name
+    now is the definition its gates were recorded for.
     """
     g = gates(sport)
     if not g["walk_forward"]:
@@ -452,6 +528,14 @@ def arm(sport: str) -> str:
         return ("REFUSED - gate 2 not passed: "
                 + paper.get("reason", "no paper trading recorded"))
     data = _load()
+    if data[sport].get("kind") == "strategy":
+        # Its file edited in place - a new experiment or metric under the
+        # same name - the gates on record are the old definition's
+        # (re-verification 2026-09-25). A sport's block never gets here.
+        from scanner import gates as strategy_gates
+        changed = strategy_gates.redefined(sport, data[sport])
+        if changed:
+            return f"REFUSED - {changed}"
     data[sport]["armed"] = True
     data[sport]["armed_at"] = _now()
     _save(data)
@@ -493,9 +577,10 @@ def explain(sport: str) -> str:
     if all(g.values()):
         return f"{sport}: CLEARED - all three gates passed"
     paper = s.get("paper_trading") or {}
+    gate1 = "backtest" if s.get("kind") == "strategy" else "walk-forward"
     bits = [
-        "walk-forward " + ("PASS" if g["walk_forward"]
-                           else "FAIL (" + str(s.get("reason", "?")) + ")"),
+        gate1 + (" PASS" if g["walk_forward"]
+                 else " FAIL (" + str(s.get("reason", "?")) + ")"),
         "paper-trading " + ("PASS" if g["paper_trading"]
                             else "FAIL (" + paper.get("reason", "nothing recorded") + ")"),
         "armed " + ("YES" if g["armed"] else "NO (a human must call arm())"),

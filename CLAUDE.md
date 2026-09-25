@@ -18,24 +18,37 @@ familiarity with jargon.
   is a 500/month key; its three daily pulls project to ~372 in October
   (4 sports × 3 pulls × 31 days). Local scripts spend whatever
   `ODDS_API_KEY` they see — normally the paid key in the owner's Windows user
-  environment — and `props/collect.py` plus two `research/b3` scripts read
-  that one straight from the registry, so unsetting `ODDS_API_KEY` in your
-  shell does **not** stop them. Never run any of these just to test a change.
+  environment — and `props/collect.py`, two `research/b3` scripts and the
+  scanner's `poll --live` (through `props.collect._key`) read that one
+  straight from the registry, so unsetting `ODDS_API_KEY` in your shell does
+  **not** stop them. Never run any of these just to test a change.
+  The scanner's `run_daily.py poll --live` spends the paid key too (3 credits
+  a call), and so does the loop the scheduled job starts once
+  `config.POLLING_ENABLED` is True — it is False, and turning it on is a
+  deliberate commit (brief Phase C4). Its limits (6,000 for the brief,
+  12,000 a month, a daily pace) are in code, checked before every call, and
+  count the ledger in the data folder the loop runs against. So `poll --live`
+  runs only where `data/scanner/ledger-of-record` exists and contains that
+  data folder's own full path (production's, written by hand when polling
+  is turned on; a copy of the folder is refused), and it holds
+  `data/scanner/poll.lock` so only one loop runs.
   Free and safe any time: `picks`, `audit`, `dashboard`, `backup`,
-  `cronstatus`, `validation`, `merge_archive`. Free, but they rewrite tracked
-  files: `healthcheck` rewrites `STATUS.md`; `grade`, `paper` and `refresh`
-  rewrite `validation.json`. The production scheduled job discards only the
+  `cronstatus`, `validation`, `merge_archive`, `poll --plan`, `poll --status`,
+  `strategies` (without `--score`). Free, but they rewrite tracked
+  files: `healthcheck` rewrites `STATUS.md`; `grade`, `paper`,
+  `strategies --score` and `refresh` rewrite `validation.json`. The production scheduled job discards only the
   machine's own changes (`STATUS.md`, and `validation.json` when only its
   gate-2 block moved) and refuses on anything else — a `refresh` changes
-  gate 1, so it stops the next run. Don't run those four in production.
+  gate 1, so it stops the next run. Don't run those five in production.
   (`refresh` is free but slow — it re-downloads Statcast and retrains.)
   To exercise the cloud workflow end to end, dispatch it with `mode=grade` —
   that path pulls no odds.
 - **Don't rewrite or delete `archive/` history.** Those CSVs are the only
   record of what prices existed at what moment. They are append-only.
 - **Don't touch the API key handling.** It reads from an env var, the Windows
-  user registry (`props/collect.py`, two `research/b3` scripts) and a repo
-  secret. Leave it alone.
+  user registry (`props/collect.py`, two `research/b3` scripts, and
+  `scanner/poll.py` through `props.collect._key`) and a repo secret. Leave it
+  alone.
 - **Ask before changing the database schema.** `db.py` migrates in place;
   a careless `ALTER` or a dropped column is not recoverable from `archive/`.
 - **Don't rebuild a whole module.** If that's where you're heading, stop and
@@ -48,13 +61,14 @@ familiarity with jargon.
   than the usual 2.0 because gate 2 is re-tested over and over and optional
   stopping turns a 2.5% false-pass rate into 15%. Rerun at the job's real
   cadence (up to 10 graded bets a day, tested twice a day) it holds a no-skill
-  model to 1.6-1.8% ([docs/gates.md](docs/gates.md)). If you change a sigma or
+  model to about 2% ([docs/gates.md](docs/gates.md); 1.9–2.0% at 100,000+
+  trials, the first 20,000-trial runs said 1.6–1.8%). If you change a sigma or
   the cadence, rerun the simulation in the SEQUENTIAL TESTING section of
   `audit.py`.
 
 ## Before you claim anything is fixed
 
-`python audit.py` must come back **86 passed, 0 failed**. It re-derives its
+`python audit.py` must come back **100 passed, 0 failed**. It re-derives its
 answers from live data rather than trusting comments, and it is the fastest
 way to know whether a change broke something.
 
@@ -91,7 +105,19 @@ If you were wrong, say so plainly in one sentence and move on.
   14:00 cron fired at 17:58. Any schedule aimed close to first pitch will
   capture in-play prices, which are worthless as a CLV anchor.
 - **Timestamps go in as aware UTC**, via `db.utc_now()`. Mixing naive and
-  aware datetimes raises `TypeError`, not a wrong answer.
+  aware datetimes raises `TypeError`, not a wrong answer. The scanner's
+  tables go further: every time through `scanner.store.canon_ts`, one shape,
+  because they are compared as strings.
+- **A rain delay moves the start time pull by pull.** A game reported at
+  18:11, then 19:11, then 19:41 UTC was still pregame at 18:25. But a later
+  start first reported after it had passed is the feed correcting itself
+  mid-game (Astros @ Rockies 2024-04-27: 22:05 re-reported as 22:26:59 at
+  23:55). Anything that decides "in play" uses the game's one start by
+  `scanner.venues.sportsbook.next_start`: an earlier start always wins, a
+  later one only if reported before it passed, judged for the whole game.
+  In code that is `scanner.fair.game_start()`, never a market's own
+  `event_start` (found by A-V1 and the Phase A review). Paper orders, fills
+  and grading never use a price captured at or after it (found by A-V4).
 - **Finished is final.** In every upsert, `status='final'` is terminal and a
   NULL never overwrites a real value. Both ingest paths once wiped completed
   scores when a feed re-reported a game as not started.

@@ -1151,7 +1151,417 @@ def main() -> int:
         elif live.exists():
             live.unlink()
 
+    scanner_checks(_false_pass)
     return _finish()
+
+
+# Top-level folders that hold data or tooling, never code. The paper-only
+# scans read everything else, tests/, archive/ and the job files included:
+# archive/ is tracked, and a module sitting there can still be imported.
+NOT_CODE = {"data", "data_golden", "data_phase1", "logs",
+            ".git", ".venv", ".pytest_cache", "__pycache__"}
+
+
+def paper_only_scan(root=ROOT):
+    """What the three static paper-only checks find under `root`: (senders,
+    order endpoints or calls, arm() calls), each a list of "file:line" hits.
+    It reads code, not data, so tests/test_paper_only_scan.py runs it on every
+    push as well."""
+    import ast
+    import re
+    # Nothing may SEND anything to anyone, except the owner's opt-in phone
+    # alert. Found by parsing every module and reading every job file, not
+    # from a list of known files. A sending name counts wherever it appears -
+    # called, passed along (functools.partial, `send_it = requests.post`) or
+    # imported under another name - not only where it is called.
+    SEND = {"post", "put", "patch", "delete", "request", "urlopen", "send",
+            "stream", "putrequest", "build_opener", "sendall", "sendto"}
+    NET = {"requests", "httpx", "aiohttp", "urllib", "urllib3", "http", "socket"}
+    ALLOWED = {("notify.py", "_ntfy")}
+    # Matched against strings and against names: an SDK's create_order() is
+    # an order path with no URL in sight.
+    ORDER = re.compile(r"(?i)/portfolio/|/orders?\b|(?<![a-z0-9])"
+                       r"(?:place|create|submit|cancel|amend|post)_?orders?(?![a-z0-9])")
+    # A shell doing the sending, in a job file or handed to subprocess / os.
+    SHELL = re.compile(r"(?i:\bcurl\b.*\s(?:-X\s*|--request\s+)(?:POST|PUT|PATCH|DELETE)\b)"
+                       r"|\bcurl\b.*\s(?:-d|--data[\w-]*|--json)\b"
+                       r"|(?i:\bwget\b.*\s--(?:post-data|post-file|method)\b)"
+                       r"|(?i:\b(?:Invoke-WebRequest|Invoke-RestMethod|iwr|irm)\b"
+                       r".*\s-Method\s+(?:Post|Put|Patch|Delete)\b)")
+    RUN = {"run", "call", "check_call", "check_output", "Popen", "system", "popen",
+           "getoutput", "getstatusoutput", "startfile"}
+    # arm() is gate 3, a person's act. Any reference to it counts, not only a
+    # call spelled arm(...): an alias, a bound name, getattr(v, "arm"),
+    # functools.partial, or a `python -c` in a string or a job file.
+    ARM = re.compile(r"\barm\s*\(\s*[^\s)]|\bimport\b.*\barm\b")
+    senders, order_strings, arm_calls = [], [], []
+    tops = [t for t in sorted(root.iterdir()) if t.name not in NOT_CODE]
+
+    def found(pattern):
+        return sorted(f for t in tops for f in ([t] if t.is_file() else t.rglob(pattern))
+                      if f.match(pattern))
+
+    def base(node):                      # requests in requests.api.post
+        while isinstance(node, ast.Attribute):
+            node = node.value
+        return node.id if isinstance(node, ast.Name) else None
+
+    for p in found("*.py") + found("*.pyw"):       # .pyw imports and runs too
+        rel = p.relative_to(root).as_posix()
+        tree = ast.parse(p.read_text(encoding="utf-8"))
+        owner = {}
+        for fn in ast.walk(tree):
+            if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                for n in ast.walk(fn):
+                    owner.setdefault(id(n), fn.name)
+        # This file's strings are exempt from the order and arm() scans: they
+        # hold the patterns themselves. Its one allowed arm() is BETTING
+        # GUARD's, on a throwaway probe inside a validation.json it restores
+        # exactly. The tests call arm() on throwaway files too, so they are
+        # read for senders and orders but not for arm().
+        itself = rel == "audit.py"
+        gate = rel != "model/validation.py" and rel.split("/")[0] != "tests"
+        probe = {id(n.func) for n in ast.walk(tree) if itself and isinstance(n, ast.Call)
+                 and ast.unparse(n).endswith(".arm(probe)")}
+        docs = {id(n.value) for n in ast.walk(tree)     # docstrings describe arm(),
+                if isinstance(n, ast.Expr)}                # they do not call it
+        # The names this file gave a network module: getattr(requests, ...)
+        # sends whatever it spells.
+        net = set()
+        for n in ast.walk(tree):
+            if isinstance(n, ast.Import):
+                net |= {a.asname or a.name.split(".")[0] for a in n.names
+                        if a.name.split(".")[0] in NET}
+            if isinstance(n, ast.ImportFrom) and (n.module or "").split(".")[0] in NET:
+                net |= {a.asname or a.name for a in n.names}
+        for n in ast.walk(tree):
+            allowed = (rel, owner.get(id(n))) in ALLOWED
+            if isinstance(n, ast.Attribute) and n.attr in SEND and not allowed:
+                senders.append(f"{rel}:{n.lineno} .{n.attr}")
+            if isinstance(n, (ast.Import, ast.ImportFrom)):
+                for a in n.names:
+                    if (isinstance(n, ast.ImportFrom) and a.name in SEND and not allowed
+                            and (n.module or "").split(".")[0] in NET):
+                        senders.append(f"{rel}:{n.lineno} from {n.module} import {a.name}")
+                    for name in (a.name, a.asname):
+                        if name and ORDER.search(name):
+                            order_strings.append(f"{rel}:{n.lineno} {name}")
+            if isinstance(n, ast.Call):
+                f = n.func
+                name = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", None)
+                if isinstance(f, ast.Name) and name in SEND and not allowed:
+                    senders.append(f"{rel}:{n.lineno} {name}()")
+                if name == "getattr" and n.args and base(n.args[0]) in net:
+                    senders.append(f"{rel}:{n.lineno} getattr({base(n.args[0])}, ...)")
+                if name in RUN or re.fullmatch(r"(?:exec|spawn)[lv]p?e?", str(name)):
+                    words = " ".join(c.value for c in ast.walk(n)
+                                     if isinstance(c, ast.Constant) and isinstance(c.value, str))
+                    if SHELL.search(words):
+                        senders.append(f"{rel}:{n.lineno} {name}() runs a sending shell command")
+            if gate and id(n) not in probe and (
+                    isinstance(n, ast.Attribute) and n.attr == "arm"
+                    or isinstance(n, ast.Name) and n.id == "arm"
+                    or isinstance(n, ast.ImportFrom) and any(a.name == "arm" for a in n.names)
+                    or (isinstance(n, ast.Constant) and isinstance(n.value, str) and not itself
+                        and id(n) not in docs and (n.value == "arm" or ARM.search(n.value)))):
+                arm_calls.append(f"{rel}:{n.lineno}")
+            ident = (n.id if isinstance(n, ast.Name) else n.attr if isinstance(n, ast.Attribute)
+                     else n.name if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef,
+                                                   ast.ClassDef)) else None)
+            if ident and ORDER.search(ident):
+                order_strings.append(f"{rel}:{n.lineno} {ident}")
+            if (isinstance(n, ast.Constant) and isinstance(n.value, str)
+                    and not itself and ORDER.search(n.value)):
+                order_strings.append(f"{rel}:{n.lineno}")
+    # The scheduled jobs and the cloud's workflows run code too.
+    jobs = [f for pattern in ("*.bat", "*.cmd", "*.ps1", "*.sh") for f in found(pattern)]
+    jobs += [f for pattern in ("*.yml", "*.yaml")
+             for f in sorted((root / ".github" / "workflows").glob(pattern))]
+    for p in jobs:
+        rel = p.relative_to(root).as_posix()
+        for i, line in enumerate(p.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+            if SHELL.search(line):
+                senders.append(f"{rel}:{i} {line.strip()[:60]}")
+            if ORDER.search(line):
+                order_strings.append(f"{rel}:{i}")
+            if ARM.search(line):
+                arm_calls.append(f"{rel}:{i}")
+    return senders, order_strings, arm_calls
+
+
+def scanner_checks(_false_pass):
+    """The scanner (docs/briefs/2026-09-25-next-task.md): paper only, one
+    fair price, fees that match the venue's rule, gates as strict as a sport's."""
+    import contextlib
+    import io
+    import re
+    import db as dbS
+    import config as cfg
+
+    section("SCANNER: PAPER ONLY")
+    senders, order_strings, arm_calls = paper_only_scan()
+    check("no module sends anything but GETs (only the opt-in phone alert posts)",
+          not senders, ", ".join(senders[:5]) or "0 non-GET calls outside notify._ntfy")
+    check("no order endpoint appears anywhere in the code", not order_strings,
+          ", ".join(order_strings[:5]) or "none")
+    check("nothing calls arm() outside the gate module itself", not arm_calls,
+          ", ".join(arm_calls[:5]) or "gate 3 stays a person's act")
+
+    live = ROOT / "validation.json"
+    data = __import__("json").loads(live.read_text(encoding="utf-8")) if live.exists() else {}
+    armed = [k for k, e in data.items() if isinstance(e, dict)
+             and e.get("kind") == "strategy" and e.get("armed")]
+    check("no strategy is armed", not armed,
+          ", ".join(armed) or f"{sum(1 for e in data.values() if isinstance(e, dict) and e.get('kind') == 'strategy')} strategy block(s), none armed")
+
+    real = dbS.DB_PATH
+    try:
+        tmpS = pathlib.Path(tempfile.mkdtemp())
+        dbS.DB_PATH = tmpS / "scanner.db"
+        with contextlib.redirect_stdout(io.StringIO()):
+            dbS.init()
+        cS = dbS.connect()
+        try:
+            cS.execute("INSERT INTO paper_orders (strategy, mode, venue, market_id,"
+                       " outcome, role, size, limit_price, placed_at, exposure)"
+                       " VALUES ('a','real','kalshi','m','yes','taker',1,.5,'t',.5)")
+            refused = False
+        except sqlite3.IntegrityError:
+            refused = True
+        check("the database refuses an order that is not paper", refused,
+              "CHECK (mode IN ('paper','placebo'))")
+
+        from scanner import paper as sp, store as ss
+        from scanner.fair import fair_value
+        from scanner.venues import kalshi as sk, polymarket as spm
+        t0 = "2026-11-03T18:00:00+00:00"
+        row = sk.market_row("KXAUDIT", canonical_event_id="nfl-audit", first_seen=t0,
+                            sport="nfl", market_type="h2h", yes_outcome="home")
+        ss.upsert_markets(cS, [row])
+        book = {"orderbook_fp": {"yes_dollars": [["0.4500", "10"]],
+                                 "no_dollars": [["0.5000", "10"]]}}
+        ss.insert_prices(cS, sk.price_rows(row["market_id"], book, t0,
+                                           "kalshi:quadratic:1", sport="nfl"))
+        bad_modes = []
+        for mode in ("real", "live", "", "PAPER"):
+            try:
+                sp.submit(cS, strategy="audit", mode=mode, market_id=row["market_id"],
+                          outcome="yes", role="taker", size=1, limit_price=0.5, now=t0)
+                bad_modes.append(mode)
+            except sp.Refused:
+                pass
+        check("paper.submit refuses every mode but paper and placebo", not bad_modes,
+              f"accepted: {bad_modes}" if bad_modes else "real, live, '', PAPER refused")
+
+        old = cfg.KALSHI_SPORTS_ENABLED
+        cfg.KALSHI_SPORTS_ENABLED = False
+        try:
+            closed = [sk.price_rows(row["market_id"], book, t0, "kalshi:quadratic:1",
+                                    sport="nfl") == [],
+                      fair_value(cS, row["market_id"], "yes", t0) is None]
+            try:
+                sp.submit(cS, strategy="audit", mode="paper", market_id=row["market_id"],
+                          outcome="yes", role="taker", size=1, limit_price=0.5, now=t0)
+                closed.append(False)
+            except sp.Refused:
+                closed.append(True)
+            try:
+                sk.market_row("KXAUDIT2", canonical_event_id="x", first_seen=t0, sport="nba")
+                closed.append(False)
+            except PermissionError:
+                closed.append(True)
+            open_weather = len(sk.price_rows("w", book, t0, "kalshi:quadratic:1", sport=None)) > 0
+        finally:
+            cfg.KALSHI_SPORTS_ENABLED = old
+        check("the legal kill switch closes every Kalshi sports path, and only those",
+              all(closed) and open_weather,
+              "adapter, market, fair value, paper order closed; weather still open"
+              if all(closed) and open_weather else f"{closed} weather open={open_weather}")
+        # Through paper.submit itself, on a Polymarket market with a price, not
+        # by asking the venue table: a submit that stopped consulting the
+        # table would record the order while the table still said no.
+        pm = spm.market_id("0xaudit")
+        ss.upsert_markets(cS, [{"market_id": pm, "venue": "polymarket",
+                                "venue_market_id": "0xaudit", "canonical_event_id": "pm-audit",
+                                "market_type": "binary", "first_seen": t0}])
+        pm_rows = spm.price_rows(pm, "yes", {"bids": [{"price": "0.4", "size": "1"}],
+                                             "asks": [{"price": "0.45", "size": "1"}]},
+                                 t0, "polymarket:0.05")
+        ss.insert_prices(cS, pm_rows)
+        try:
+            sp.submit(cS, strategy="audit", mode="paper", market_id=pm, outcome="yes",
+                      role="taker", size=1, limit_price=0.5, now=t0)
+            pm_why = "a paper order was accepted"
+        except sp.Refused as e:
+            pm_why = str(e)
+        check("Polymarket is a price source: no paper order can be placed there",
+              "price source" in pm_why and len(pm_rows) == 2, pm_why)
+        cS.close()
+    finally:
+        dbS.DB_PATH = real
+
+    section("SCANNER: ONE FAIR PRICE, FEES, GATES")
+    # A-V2 (docs/experiments.md): Kalshi's fee arithmetic, exactly.
+    from scanner import fees as sf
+    k = sf.kalshi_key("quadratic", 1)
+    fee_ok = (sf.fee(k, 0.5, 1, conservative=False) == 0.0175
+              and sf.fee(k, 0.5, 100, conservative=False) == 1.75
+              and sf.fee(k, 0.5, 100, role="maker") == 0.0
+              and sf.fee(k, 0.01, 1, conservative=False) == 0.000693)
+    try:
+        sf.fee(sf.kalshi_key("flat", 1), 0.5, 1)
+        flat_refused = False
+    except sf.UnknownFee:
+        flat_refused = True
+    check("Kalshi fees match the rule, exactly (A-V2)", fee_ok and flat_refused,
+          "50c taker 0.0175, x100 1.75, plain-series maker 0, flat refuses")
+
+    # A-V1: fair_value and bets/log.fair_prob agree on every recent pregame pull.
+    if paths.DB_PATH.exists():
+        from bets.log import fair_prob
+        from feeds import parse_utc
+        from scanner import store as ss
+        from scanner.fair import fair_value
+        from scanner.venues.sportsbook import from_snapshots
+        src = sqlite3.connect(f"file:{paths.DB_PATH}?mode=ro", uri=True)
+        src.row_factory = sqlite3.Row
+        have = {r[0] for r in src.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        newest = (src.execute("SELECT MAX(ts) FROM odds_snapshots").fetchone()[0]
+                  if "odds_snapshots" in have else None)
+        if newest:
+            since = (parse_utc(newest) - dt.timedelta(days=7)).isoformat()
+            snaps = src.execute("SELECT * FROM odds_snapshots WHERE ts >= ? AND"
+                                " commence_time IS NOT NULL ORDER BY id", (since,)).fetchall()
+            real = dbS.DB_PATH
+            try:
+                dbS.DB_PATH = pathlib.Path(tempfile.mkdtemp()) / "av1.db"
+                with contextlib.redirect_stdout(io.StringIO()):
+                    dbS.init()
+                cA = dbS.connect()
+                m, pr = from_snapshots(snaps)
+                ss.upsert_markets(cA, m)
+                ss.insert_prices(cA, pr)
+                # When each game started, by the rule fair_value documents
+                # (scanner.venues.sportsbook.next_start), worked out again here
+                # from the raw pulls rather than trusted: game by game, pull by
+                # pull, an earlier start always wins and a later one only if it
+                # was reported before it passed. A pull captured at or after
+                # that start is in play and must be refused - a value taken from
+                # a price captured at or after it fails the check, as the
+                # pre-registered clarification requires (docs/experiments.md).
+                # A pull before it that its own report called in play (the
+                # feed announced a delay only afterwards, but before the new
+                # start) is pregame to fair_value and in play to fair_prob,
+                # which judges a pull by its own report alone: counted as
+                # "delayed", not scored against it.
+                began = {}
+                for s in sorted(snaps, key=lambda s: ss.canon_ts(s["ts"])):
+                    c, t = ss.canon_ts(s["commence_time"]), ss.canon_ts(s["ts"])
+                    was = began.get(s["game_id"])
+                    if was is None or c <= was or t < c:
+                        began[s["game_id"]] = c
+                agree = disagree = inplay = answered = delayed = 0
+                seen = set()
+                for s in snaps:
+                    if (s["game_id"], s["ts"]) in seen:
+                        continue
+                    seen.add((s["game_id"], s["ts"]))
+                    mid = ss.market_key(f"sportsbook:{s['book']}",
+                                        s["game_id"].split("-", 1)[1], "h2h")
+                    for side in ("home", "away"):
+                        fv = fair_value(cA, mid, side, s["ts"])
+                        start, ts = began[s["game_id"]], ss.canon_ts(s["ts"])
+                        if ts >= start:
+                            inplay += 1
+                            answered += fv is not None and fv["as_of"] >= start
+                            continue
+                        if ts >= ss.canon_ts(s["commence_time"]):
+                            delayed += 1
+                            continue
+                        p, source = fair_prob(src, s["game_id"], s["ts"], side)
+                        ok = (fv is not None and p is not None and abs(fv["p"] - p) <= 1e-12
+                              and fv["source"] == source and fv["as_of"] == ss.canon_ts(s["ts"]))
+                        agree += ok
+                        disagree += not ok
+                cA.close()
+            finally:
+                dbS.DB_PATH = real
+            check("fair_value agrees with fair_prob on every recent pregame pull (A-V1)",
+                  disagree == 0 and agree > 0 and answered == 0,
+                  f"{agree} agree, {disagree} disagree, {inplay - answered} of {inplay}"
+                  f" in-play refused, {delayed} delayed-start not scored,"
+                  f" {len(seen)} pulls since {since[:10]}")
+        else:
+            skip("fair_value agrees with fair_prob on every recent pregame pull (A-V1)",
+                 "no odds_snapshots yet")
+        # Live scanner tables, if this folder has them: one timestamp shape, and
+        # no strategy looked at more than twice in an ET day.
+        TS = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}\+00:00$")
+        if "prices" in have:
+            bad_ts = 0
+            for table, cols in (("prices", ("captured_at", "source_last_update")),
+                                ("markets", ("event_start", "resolves_at", "first_seen")),
+                                ("paper_orders", ("placed_at", "expires_at", "fair_as_of")),
+                                ("paper_fills", ("filled_at",)),
+                                # resolves_at is compared as text (gates.measured)
+                                ("paper_positions", ("opened_at", "resolves_at",
+                                                     "settled_at", "graded_at")),
+                                ("credit_ledger", ("ts",)), ("gate_looks", ("looked_at",))):
+                for c in cols:
+                    for (v,) in src.execute(f"SELECT DISTINCT {c} FROM {table}"
+                                            f" WHERE {c} IS NOT NULL"):
+                        bad_ts += not TS.match(v)
+            check("every scanner timestamp has one shape", bad_ts == 0,
+                  f"{bad_ts} value(s) in another shape")
+            from feeds import ET
+            per_day = {}
+            for name, when in src.execute("SELECT name, looked_at FROM gate_looks"):
+                key = (name, parse_utc(when).astimezone(ET).date())
+                per_day[key] = per_day.get(key, 0) + 1
+            over = {k: n for k, n in per_day.items() if n > 2}
+            check("no strategy's gate 2 was looked at more than twice in an ET day",
+                  not over, f"{len(per_day)} strategy-day(s) looked at" if not over
+                  else str(list(over.items())[:3]))
+        else:
+            check("every scanner timestamp has one shape", True,
+                  "no scanner tables here yet - nothing stored")
+            check("no strategy's gate 2 was looked at more than twice in an ET day",
+                  True, "no scanner tables here yet - nothing looked at")
+        src.close()
+    else:
+        skip("fair_value agrees with fair_prob on every recent pregame pull (A-V1)",
+             "no database yet")
+        skip("every scanner timestamp has one shape", "no database yet")
+        skip("no strategy's gate 2 was looked at more than twice in an ET day",
+             "no database yet")
+
+    # A strategy may grade far more than 10 positions a day. The false-pass rate
+    # is set mostly by the number of looks, which scanner.gates caps at two a
+    # day. Exact block simulation: each look's block sum and its within-block
+    # sum of squares are drawn directly (normal theory), so 20,000 trials run
+    # in a fraction of a second.
+    import numpy as _np
+    from model.validation import PAPER_CLV_SIGMA, MIN_PAPER_BETS
+
+    def _blocks(sigma, days=120, per_day=50, looks=2, sd=2.965, trials=20000,
+                edge=0.0, seed=97):
+        rng = _np.random.default_rng(seed)
+        step, n_looks = per_day // looks, days * looks
+        S = rng.normal(step * edge, sd * _np.sqrt(step), (trials, n_looks))
+        W = (sd ** 2 * rng.chisquare(step - 1, (trials, n_looks)) if step > 1
+             else _np.zeros((trials, n_looks)))
+        cs, cq = _np.cumsum(S, axis=1), _np.cumsum(W + S ** 2 / step, axis=1)
+        ns = step * _np.arange(1, n_looks + 1)
+        mean = cs / ns
+        se = _np.sqrt(_np.maximum((cq - ns * mean ** 2) / _np.maximum(ns - 1, 1), 0) / ns)
+        return ((mean - sigma * se > 0) & (ns >= MIN_PAPER_BETS)).any(axis=1).mean()
+
+    b10, brute10 = _blocks(PAPER_CLV_SIGMA, per_day=10), _false_pass(PAPER_CLV_SIGMA)
+    check("the block simulation agrees with the brute-force one at 10 a day",
+          abs(b10 - brute10) <= 0.01, f"{b10:.1%} vs {brute10:.1%}")
+    fp50 = _blocks(PAPER_CLV_SIGMA)
+    check("a strategy grading 50 a day, re-tested twice a day, is held to <=5%",
+          fp50 <= 0.05, f"sigma {PAPER_CLV_SIGMA:g} -> {fp50:.1%} false pass over 120 days")
 
 
 def _finish() -> int:

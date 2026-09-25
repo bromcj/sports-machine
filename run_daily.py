@@ -14,6 +14,11 @@
   python run_daily.py bet ...    -> record a bet you placed elsewhere. free
   python run_daily.py scoreboard -> grade and report your recorded bets. free
   python run_daily.py shop       -> books beating Pinnacle's fair price. free
+  python run_daily.py poll ...   -> the scanner's polling loop. --plan,
+                                    --status, --ensure free; --live COSTS
+                                    CREDITS and refuses unless switched on
+  python run_daily.py strategies -> scanner strategies and their gates.
+                                    --score re-tests gate 2. free
 
 A mode is required. It used to default to `morning`, which spends credits.
 """
@@ -188,14 +193,15 @@ def grade():
 
 
 MODES = ("morning", "close", "picks", "refresh", "grade", "predict", "finals",
-         "cronstatus", "market", "bet", "shop", "scoreboard", "paper", "backup")
+         "cronstatus", "market", "bet", "shop", "scoreboard", "paper", "backup",
+         "poll", "strategies")
 
 if __name__ == "__main__":
     mode = sys.argv[1] if len(sys.argv) > 1 else ""
     if mode not in MODES:
         raise SystemExit(f"usage: python run_daily.py <mode>\n  modes: "
-                         f"{', '.join(MODES)}\n  (morning and close spend "
-                         f"API credits; see COMMANDS.md)")
+                         f"{', '.join(MODES)}\n  (morning, close and poll --live "
+                         f"spend API credits; see COMMANDS.md)")
     if mode == "cronstatus":
         from cronstatus import report
         raise SystemExit(report())
@@ -237,7 +243,15 @@ if __name__ == "__main__":
         print(f"graded {t['graded']} manual bet(s)"
               f"  ({t['no_close']} with no usable close,"
               f" {t['no_result']} awaiting a result)\n")
-        raise SystemExit(report())
+        code = report()
+        from db import connect as _connect
+        from scanner.scoreboard import report as scanner_report
+        _con = _connect()
+        try:
+            scanner_report(_con)
+        finally:
+            _con.close()
+        raise SystemExit(code)
     if mode == "paper":
         from bets.paper import run as paper_run
         paper_run()
@@ -247,6 +261,12 @@ if __name__ == "__main__":
         bk.take()
         bk.prune()
         raise SystemExit(0)
+    if mode == "poll":
+        from scanner.poll import main as poll_main
+        raise SystemExit(poll_main(sys.argv[2:]))
+    if mode == "strategies":
+        from scanner.gates import main as strategies_main
+        raise SystemExit(strategies_main(sys.argv[2:]))
     {"morning": morning, "close": close, "picks": show_picks,
      "refresh": refresh, "grade": grade, "predict": predict,
      "finals": finals}[mode]()

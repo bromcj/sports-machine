@@ -13,7 +13,7 @@ bar, type `powershell`, press Enter.
 |---|---|
 | `python dashboard.py` | Builds the visual page and opens it. Add `--png` for a shareable image. |
 | `python run_daily.py picks` | Tonight's games in the terminal — model vs bookmakers. |
-| `python audit.py` | 86 checks. All green = everything is sound. |
+| `python audit.py` | 100 checks. All green = everything is sound. |
 | **`machine_daily.bat`** | **Double-click.** Pulls what the cloud collected into your local database, then backs it up. |
 
 ---
@@ -55,7 +55,7 @@ python backup.py --restore <file>   put one back (asks first)
 They go to `OneDrive\sports-machine-backups` — off this disk, which is the
 point. Set `SPORTS_MACHINE_BACKUP_DIR` to put them elsewhere.
 
-Every backup is reopened, integrity-checked and row-counted (all twelve
+Every backup is reopened, integrity-checked and row-counted (all nineteen
 tables) before it is kept, and one that fails is deleted rather than left
 looking like protection. `python audit.py` also fails if the newest backup is
 over 7 days old.
@@ -132,14 +132,18 @@ the computer when it runs.
 Both runs do the same steps, in order: merge what the cloud collected
 (`merge_archive`), fetch results (`finals`), build predictions (`predict`),
 `paper` (place any paper bet that is due, settle finished ones, re-score
-gate 2), `market`, `cronstatus`, and the health checks (`monitor.py`).
+gate 2), `market`, `cronstatus`, `poll --ensure` (while the scanner's loop is
+switched off this starts nothing, and asks any loop still running to stop),
+and the health checks (`monitor.py`).
 
 | Time | In practice |
 |---|---|
 | 11:30 am | no game has started, so this is when paper bets get **placed**, at the newest prices that have arrived — the cloud's 10:13 morning pull is often still hours late at 11:30 (on 9/23 it fired at 2:22 pm), so these can be the previous evening's. Last night's games get settled |
 | 10:00 pm | most of the day's games are over, so this one mostly **settles** |
 
-Nothing costs API credits and no real bet is ever placed.
+None of these steps costs API credits and no real bet is ever placed. (The
+scanner's polling loop, which `poll --ensure` starts once it is switched on,
+does spend credits — within its limits; see the scanner section below.)
 
 **Before it does anything**, it throws away the changes the machine makes to
 tracked files on its own: `STATUS.md`, and `validation.json` when only its
@@ -278,6 +282,111 @@ It is +EV by construction, so a negative result over a real sample means the
 fair-line or grading code is broken — that is its main job. It never stakes
 money and never feeds a gate.
 
+### The scanner's polling loop (brief of 2026-09-25)
+
+```
+python run_daily.py poll --plan      the credit arithmetic: what each cadence costs. Free, no calls
+python run_daily.py poll --status    is the loop running, what has it spent. Free, no calls
+python run_daily.py poll --ensure    start it if it should be running (the scheduled job runs this). Free
+python run_daily.py poll --live      run the loop in this window. COSTS CREDITS
+```
+
+**It is switched off**, and stays off until Phase C of the brief turns it on
+with a commit: `POLLING_ENABLED = False` in `config.py`. While it is off,
+`--live` refuses and `--ensure` starts nothing. `--ensure` also asks a loop
+still running from before to stop, at the next scheduled run (11:30 am or
+10 pm ET), after its `git pull`. To stop a running loop at once, create the
+file `data\scanner\poll.stop`; the loop checks for it about every 30 seconds.
+
+**Turning it on takes two steps.** One is the commit that sets
+`POLLING_ENABLED = True`. The other is creating the file
+`C:\Users\BromC\sports-machine\data\scanner\ledger-of-record` by hand,
+containing that data folder's full path, so that a copy of the folder is not
+of record. In PowerShell it is this one line:
+
+```powershell
+New-Item -ItemType Directory -Force -Path 'C:\Users\BromC\sports-machine\data\scanner' | Out-Null; Set-Content -LiteralPath 'C:\Users\BromC\sports-machine\data\scanner\ledger-of-record' -Value 'C:\Users\BromC\sports-machine\data'
+```
+
+A refused `--live` or `--ensure` prints the same line for the folder it ran
+against. Use that line rather than `>` or `Out-File`, which write a format
+(UTF-16) the check refuses. Run it only for production's folder, never for a
+copy. The credit
+limits count only the ledger in the data folder the loop runs against, and
+every checkout spends the same paid key. So `--live` refuses, and `--ensure`
+will not start or restart the loop, in any data folder whose file is missing,
+empty, names another folder or is not UTF-8 text. A loop run from dev must point
+`SPORTS_MACHINE_DATA_DIR` at production's data folder. Only one loop runs at
+a time: `--live` takes `data\scanner\poll.lock` first and holds it for as
+long as it runs, and a second is refused.
+
+**Two ERRORs that are the loop's, and what to do.** `monitor.py` writes them
+to `ALERTS.md` like any other finding.
+
+- *the polling loop is running: ... holds its lock but has not beaten for N
+  min - it may be hung; end pid N ...* The loop is stuck, most likely in a
+  request that never came back, or in a console window paused by a click.
+  It has not written its heartbeat for over 15 minutes, and nothing is being
+  polled. End that process: Task Manager, Details tab, the PID the message
+  names. The next scheduled run (11:30 am or 10 pm ET) starts a new loop.
+  `poll --ensure` says the same thing.
+- *scanner credits: the brief's polling days: the loop makes no metered
+  call: the brief's 42 planned polling days are used ...; to keep polling,
+  extend config.BRIEF_POLL_DAYS by a commit.* Nothing is broken: the loop
+  has used the days the brief planned and is paused, spending nothing. To
+  keep polling, raise `BRIEF_POLL_DAYS` in `config.py` in a commit (made in
+  dev and pulled into production, like any change). The brief's 6,000 cap
+  still applies.
+
+When it is on, it asks The Odds API for every NFL, NBA and NHL game's prices
+(h2h, spreads, totals; Pinnacle plus nine NJ books) at 3 credits a call, as
+often as the budget allows — up to every 2 minutes near a start, less often
+further out, and not at all once every game of that sport has started. One
+call returns the sport's whole slate, so games already under way come back in
+the same call. Their prices are stored (they cost nothing extra) but never
+used: fair value, paper fills and grading ignore anything captured at or after
+a game's start. It spends the **paid** key.
+
+Before every call it checks three limits in code, and writes the call to its
+ledger before making it: the brief's **6,000 credits in total**, **12,000 a
+month**, and a daily pace. The pace is what is left divided by the polling
+days left, so unspent credits roll forward, and the brief's last planned
+polling day, or a month's last day, may use everything that is left. Once the
+brief's 42 planned polling days are used, it makes no more metered calls
+until `BRIEF_POLL_DAYS` in `config.py` is extended by a commit. `--plan` shows
+the arithmetic: the brief's own cadence would cost ~55,600 a month, so the
+loop slows down in fixed steps, and even at its slowest every game still gets
+a price in its last 30 minutes. The loop is built to spend up to its caps:
+`--plan` shows up to 6,000 over the brief, and up to 12,000 a month (15,000
+with the props collector's 3,000). A refused key or an exhausted account
+stops it until you run `--live` once by hand.
+
+### The scanner's strategies and their gates
+
+```
+python run_daily.py strategies          every strategy, with its gate verdict. Free
+python run_daily.py strategies --score  re-test each one's gate 2. Free
+python run_daily.py scoreboard          your bets, then the scanner: per strategy, per venue, in total
+```
+
+There are none yet: the brief adds them in Phases B and E, each only after
+its entry in `docs/experiments.md` is written. Each strategy has its own
+block in `validation.json`, held to the same three gates as a sport. Gate 1 is
+its own backtest, from its own entry; a new definition needs a new name.
+Gate 2 is its own paper record at 3 standard errors, counted per game: 50+
+games whose first position is graded and settled; entering a game again adds
+no new evidence. It needs coverage, and a placebo that covers 50+ graded games of its
+own. Editing a strategy's experiment or metric under the same name fails
+gate 2 and gate 3. Gate 3 is your own `arm("<name>")`. A strategy scored on `realized_ev`
+cannot pass gate 2 until a bar for its payoff is pre-registered. Gate 2 is
+re-tested at most twice per ET day per strategy. Every order is paper: the
+database itself refuses any other kind, and `python audit.py` checks no code
+can send one.
+
+On a database without the scanner's tables (production, until `python db.py`
+is run there), `strategies` says the tables do not exist yet and prints the
+gate records, and `--score` re-tests nothing.
+
 ### Collection (Phase 0)
 
 ```
@@ -333,6 +442,8 @@ credits; 41,742 left on 2026-09-24). It is spent by:
 - `python ingest/odds.py`
 - `python backfill_odds_history.py --execute` — 10 credits per request
 - the scripts in `research/b3/`
+- `python run_daily.py poll --live`, and the loop the scheduled job starts
+  once `POLLING_ENABLED` is on — 3 credits a call, within the limits above
 
 `python monitor.py`'s credit line reports this key, not the cloud's.
 

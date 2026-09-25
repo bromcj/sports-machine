@@ -17,7 +17,7 @@ bought and tested too, and lost by five to eleven standard errors.
   [docs/experiments.md](docs/experiments.md) — written before anything was fit
 - **Running it:** see [COMMANDS.md](COMMANDS.md)
 - **Looking at it:** `python dashboard.py`
-- **Checking it:** `python audit.py` — 86 checks against live data
+- **Checking it:** `python audit.py` — 100 checks against live data
 - **Keeping it:** `python backup.py` — verified snapshot of the database
 
 ## Setup (once)
@@ -81,7 +81,7 @@ bets/        engine.py (no-vig, Kelly, guardrails) · log.py (CLV grading)
              paper.py (places/settles/scores paper bets for gate 2)
 dashboard.py one-page visual summary → dashboard.html / .png
 backup.py    verified database snapshots; cronstatus.py checks the cloud
-audit.py     86 checks: leakage, identity, staleness, de-vig, gates,
+audit.py     100 checks: leakage, identity, staleness, de-vig, gates,
              backups, and that ingest rejects impossible values
 healthcheck.py  writes STATUS.md, fails the cloud run if something is wrong
 ```
