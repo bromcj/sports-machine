@@ -76,6 +76,22 @@ def test_the_daily_pace_spreads_the_brief_and_rolls_unspent_forward(con, monkeyp
     assert s["allowance_today"] == pytest.approx(411 / 41)
 
 
+def test_after_the_brief_the_month_is_spread_over_its_days(con, monkeypatch):
+    # After the brief the month's pace is the only daily limit. Every other
+    # pace test runs with the brief on, whose pace is the tighter one.
+    monkeypatch.setattr(config, "BRIEF_ACTIVE", False)
+    monkeypatch.setattr(config, "POLL_MONTHLY_BUDGET", 310)
+    assert budget.status(con, NOON)["allowance_today"] == pytest.approx(310 / 18)  # Oct 14-31
+    _spend(con, 15, NOON - dt.timedelta(hours=1))
+    with pytest.raises(OverBudget) as e:
+        budget.check(con, 3, NOON)               # 18 > 17.2, with 295 left in the month
+    assert e.value.limit == "pace"
+    budget.check(con, 2, NOON)                   # 17 fits
+    # Tomorrow the unspent part rolls forward: 295 over the 17 days left.
+    assert budget.status(con, NOON + dt.timedelta(days=1))["allowance_today"] == \
+        pytest.approx(295 / 17)
+
+
 def test_once_the_briefs_polling_days_are_used_its_pace_is_zero(con, monkeypatch):
     # The pace is what is left over the polling days left. Past the last
     # planned day that was "everything left, today", so a bug could spend the
