@@ -210,8 +210,13 @@ capital accounting, and per-strategy gates — on a branch, reviewed before it
 reaches production. **It is switched off** (`config.POLLING_ENABLED = False`),
 **has no strategies**, and **cannot place a real order**: there is no order
 path in the code, the database refuses a non-paper order, and `audit.py`
-checks both. How it works: [scanner.md](scanner.md). The venues and what has
-been read about them: [venues.md](venues.md).
+checks both. For the code, it reads every module (tests included) and every
+scheduled job and workflow, looking for anything that sends more than a GET,
+an order endpoint, or an order call such as `create_order`. CI runs the same
+scan on every push (`tests/test_paper_only_scan.py`). It is a tripwire for
+the ordinary ways to write an order path, not a proof against a hidden one.
+How it works: [scanner.md](scanner.md). The venues and what has been read
+about them: [venues.md](venues.md).
 
 ---
 
@@ -273,19 +278,23 @@ import check on every push, on Python 3.11. It was red for 11 pushes until
 noticed. `.github/workflows/daily.yml` is the three-times-a-day
 collection.
 
-`python -m pytest tests/` gave 385 passed, 2 skipped on 2026-09-24, and needs
-no database or network. The two skipped are the golden test, which runs only
-where `data_golden/` exists.
+`python -m pytest tests/` gave 643 passed, 2 skipped on 2026-09-25 (on the
+`phase-a-foundations` branch, in a checkout without `data_golden/`), and
+needs no database or network. The two skipped are the golden test, which
+runs only where `data_golden/` exists; in the dev folder, which has it, all
+645 pass.
 
 **Free and safe any time:** `picks`, `audit`, `dashboard`, `backup`,
 `cronstatus`, `validation`, `merge_archive`. **Free, but they rewrite tracked
-files:** `healthcheck` (`STATUS.md`) and `grade`, `paper`, `refresh`
-(`validation.json`). The scheduled job discards what `healthcheck`, `grade`
-and `paper` change; a `refresh` in production changes gate 1, so the next
-scheduled run refuses until `validation.json` is reset. **Costs credits:** `morning`, `close`,
+files:** `healthcheck` (`STATUS.md`) and `grade`, `paper`,
+`strategies --score`, `refresh` (`validation.json`). The scheduled job
+discards what `healthcheck`, `grade` and `paper` change; a `refresh` in
+production changes gate 1, so the next scheduled run refuses until
+`validation.json` is reset. **Costs credits:** `morning`, `close`,
 `collect_props.bat` / `props/collect.py --run`,
-`backfill_odds_history.py --execute`, `ingest/odds.py`, and the
-`research/b3` scripts.
+`backfill_odds_history.py --execute`, `ingest/odds.py`, the
+`research/b3` scripts, and `poll --live` (refused while polling is switched
+off).
 
 ---
 
