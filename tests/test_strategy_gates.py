@@ -580,24 +580,64 @@ def test_info_coverage_counts_positions_that_never_settled(env):
     assert gates.measured(env, "t_one", "info", NOW)["coverage"] == pytest.approx(60 / 260)
 
 
-def test_gate_2_counts_events_not_positions(env):
+def _on_game(con, name, event, entries, mode="paper"):
+    """Positions on one game, each (hours before its start it was opened,
+    info or None for ungraded). All settled and long resolved."""
+    start = NOW - dt.timedelta(days=2)
+    for hours, x in entries:
+        oid = next(ORDER_IDS)
+        mid = f"m-{oid}"
+        store.upsert_markets(con, [{"market_id": mid, "venue": "kalshi",
+                                    "venue_market_id": mid, "canonical_event_id": event,
+                                    "market_type": "binary",
+                                    "event_start": start.isoformat(),
+                                    "resolves_at": start.isoformat(),
+                                    "first_seen": start.isoformat()}])
+        con.execute("INSERT INTO paper_positions (order_id, strategy, mode, venue,"
+                    " market_id, outcome, contracts, avg_price, fee, stake, opened_at,"
+                    " resolves_at, info, result, realized_ev) VALUES"
+                    " (?,?,?,'kalshi',?,'yes',10,0.5,0.1,5.1,?,?,?,'win',0.0)",
+                    (oid, name, mode, mid,
+                     store.canon_ts(start - dt.timedelta(hours=hours)),
+                     store.canon_ts(start), x))
+
+
+def test_gate_2_counts_each_games_first_position_only(env):
     # Positions on one game share that game's move, so a second entry is not
-    # a second piece of evidence. Counted per position, a no-skill strategy
+    # a second piece of evidence: counted per position, a no-skill strategy
     # entering each game k times passed 15% (k=2) to 72% (k=10), against 1.8%
-    # at k=1 (Phase A re-verification, 2026-09-25). One value per event: the
-    # mean of its positions.
+    # at k=1. And the MEAN of a game's positions is no better when how often
+    # it re-enters depends on the price: buying again after the price fell
+    # halves every losing first entry, and a no-skill strategy did that past
+    # the 3-SE bar 11 times in 20 (re-verification, 2026-09-25). The first
+    # position was decided before the path it is judged on, so it is the one
+    # value per game.
     _strategy()
     gates.record_backtest("t_one", T1, True, "passed", {"n": 500})
-    rng = random.Random(1)
-    _positions(env, "t_one", [1.0, 2.0, 3.0] * 20, event="g1")     # 60 entries, one game
-    _positions(env, "t_one", [5.0, 7.0], event="g2")
-    _positions(env, "t_one", [rng.gauss(0, 2.9) for _ in range(60)], mode="placebo")
+    _on_game(env, "t_one", "g1", [(6, -3.07), (3, 3.56)])        # averaged down
+    _on_game(env, "t_one", "g2", [(1, 7.0), (5, 5.0)])           # the 5-hour one is first
+    _on_game(env, "t_one", "g3", [(4, None), (2, 9.0)])          # first ungraded
     m = gates.measured(env, "t_one", "info", NOW)
-    assert m["values"] == [2.0, 6.0] and len(m["slots"]) == 2
-    assert len(m["placebo"]) == 60 and m["coverage"] == 1.0      # coverage: positions
+    assert m["values"] == [-3.07, 5.0] and len(m["slots"]) == 2
+    # g3's first position could not be graded: it counts against coverage,
+    # and its later, gradable entry does not stand in for it.
+    assert m["coverage"] == pytest.approx(2 / 3)
     r = gates.score(env, "t_one", NOW)
     assert not r["passed"] and r["n_bets"] == 2
     assert v.arm("t_one").startswith("REFUSED - gate 2")
+
+
+def test_coverage_counts_games_not_positions(env):
+    # Coverage is a share of the same unit as the sample. Counted per
+    # position, re-entering the games that get graded lifted 60 graded games
+    # out of 100 to "82%" (re-verification, 2026-09-25).
+    _strategy()
+    gates.record_backtest("t_one", T1, True, "passed", {"n": 500})
+    for g in range(60):
+        _on_game(env, "t_one", f"g{g}", [(3, 1.0), (2, 1.0), (1, 1.0)])
+    for g in range(60, 100):
+        _on_game(env, "t_one", f"g{g}", [(3, None)])
+    assert gates.measured(env, "t_one", "info", NOW)["coverage"] == pytest.approx(0.6)
 
 
 def test_the_placebo_floor_is_50_events_not_50_rows(env):

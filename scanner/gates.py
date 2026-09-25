@@ -124,67 +124,73 @@ def looks_today(con, name: str, now) -> int:
                         canon_ts(start + dt.timedelta(days=1)))).fetchone()[0]
 
 
-def _slot(event) -> str:
-    """An event's slot: its earliest start, or, if none of its positions
-    knows the start, its first opening."""
-    starts = [parse_utc(p["event_start"]) for p in event if p["event_start"]]
-    when = min(starts or [parse_utc(p["opened_at"]) for p in event])
+def _slot(pos) -> str:
+    """A position's slot: its game's start, or its opening if the market
+    knows no start."""
+    when = parse_utc(pos["event_start"]) or parse_utc(pos["opened_at"])
     return validation.slot_of(when.astimezone(ET).hour)
 
 
 def measured(con, name: str, metric: str, now) -> dict:
     """The strategy's graded values, placebo values, slots and coverage.
 
-    One value per EVENT (the market's canonical_event_id), the mean of that
-    event's positions, for the strategy and its placebo alike. Positions on
-    one game share its move, so a second entry is not a second piece of
-    evidence: counted per position, a no-skill strategy entering each game
-    k times passed the 3-SE bar 15% (k=2) to 72% (k=10) of the time, against
-    1.8% at k=1 - the one-value-per-game shape the bar was simulated on
-    (Phase A re-verification, 2026-09-25). Coverage stays a share of
-    positions."""
+    One value per EVENT (the market's canonical_event_id): the strategy's
+    FIRST position on it - the order it placed first - for the strategy and
+    its placebo alike. Positions on one game share its move, so a second
+    entry is not a second piece of evidence: counted per position, a no-skill
+    strategy entering each game k times passed the 3-SE bar 15% (k=2) to 72%
+    (k=10) of the time, against 1.8% at k=1, the one-value-per-game shape
+    the bar was simulated on. Nor is the mean of a game's positions, when
+    how often it re-enters depends on the price: buying again after the
+    price fell halves every losing first entry, and a no-skill strategy did
+    that past the bar 11 times in 20. The first position was decided before
+    the path it is judged on (Phase A re-verification, 2026-09-25).
+
+    If that first position cannot be graded, the game counts against
+    coverage; a later, gradable entry does not stand in for it."""
     col = "info" if metric == "info" else "realized_ev"
-    events = {}
+    firsts = {}
     for mode in ("paper", "placebo"):
-        # Graded AND settled. The scanner grades once the market resolves and
-        # settles separately, so a graded position that has not settled would otherwise
-        # stand in for a settled one that could not be graded (review
-        # 2026-09-25: gate 2 passed at a true coverage of 17%).
         rows = con.execute(
-            f"SELECT p.*, m.event_start,"
-            f" COALESCE(m.canonical_event_id, p.market_id) AS event"
-            f" FROM paper_positions p"
-            f" LEFT JOIN markets m ON m.market_id = p.market_id"
-            f" WHERE p.strategy=? AND p.mode=? AND p.{col} IS NOT NULL"
-            f" AND p.result IS NOT NULL"
-            f" ORDER BY p.position_id", (name, mode)).fetchall()
-        by_event = {}                          # in order of each event's first entry
+            "SELECT p.*, m.event_start,"
+            " COALESCE(m.canonical_event_id, p.market_id) AS event,"
+            " COALESCE(o.placed_at, p.opened_at) AS decided"
+            " FROM paper_positions p"
+            " LEFT JOIN markets m ON m.market_id = p.market_id"
+            " LEFT JOIN paper_orders o ON o.order_id = p.order_id"
+            " WHERE p.strategy=? AND p.mode=?"
+            " ORDER BY decided, p.position_id", (name, mode)).fetchall()
+        first = {}
         for r in rows:
-            by_event.setdefault(r["event"], []).append(r)
-        events[mode] = list(by_event.values())
+            first.setdefault(r["event"], r)
+        firsts[mode] = list(first.values())
+
+    # Graded AND settled. The scanner grades once the market resolves and
+    # settles separately, so a graded position that has not settled would
+    # otherwise stand in for a settled one that could not be graded (review
+    # 2026-09-25: gate 2 passed at a true coverage of 17%).
+    def counts(p):
+        return p[col] is not None and p["result"] is not None
+    paper = [p for p in firsts["paper"] if counts(p)]
     settled = con.execute("SELECT COUNT(*) FROM paper_positions WHERE strategy=?"
                           " AND mode='paper' AND result IS NOT NULL", (name,)).fetchone()[0]
-    # Coverage: of the positions that SHOULD have settled by now, the share
-    # that counts - settled, for realized_ev (every settled position has
-    # one); graded AND settled, for info. Counted over the same positions top
-    # and bottom, or a recent settlement stands in for an old one that never
-    # settled; and over positions due, not positions settled, or one that
-    # never settles is invisible (re-verification 2026-09-25: info passed at
+    # Coverage: of the games whose first position SHOULD have settled by now,
+    # the share whose first position counts - settled, for realized_ev (every
+    # settled position has one); graded AND settled, for info. The same unit
+    # as the sample, top and bottom: counted per position, re-entering the
+    # games that get graded lifted 60 of 100 to "82%". Over positions due, not
+    # positions settled, or one that never settles is invisible (it passed at
     # "100%" with 60 of 260 resolved positions graded). A position with no
     # resolves_at cannot be shown not to be due yet, so it counts as due:
     # against coverage until it settles (fails closed).
     due_before = canon_ts(parse_utc(canon_ts(now)) - dt.timedelta(hours=SETTLE_GRACE_H))
-    due, settled_due, graded_due = con.execute(
-        "SELECT COUNT(*), COUNT(result), COUNT(CASE WHEN result IS NOT NULL THEN info END)"
-        " FROM paper_positions WHERE strategy=?"
-        " AND mode='paper' AND (resolves_at IS NULL OR resolves_at < ?)",
-        (name, due_before)).fetchone()
-    counted = graded_due if metric == "info" else settled_due
-    coverage = counted / due if due else None
-    mean = lambda event: sum(p[col] for p in event) / len(event)
-    return {"values": [mean(e) for e in events["paper"]],
-            "slots": [_slot(e) for e in events["paper"]],
-            "placebo": [mean(e) for e in events["placebo"]],
+    due = [p for p in firsts["paper"]
+           if p["resolves_at"] is None or p["resolves_at"] < due_before]
+    counted = [p for p in due if counts(p)]
+    coverage = len(counted) / len(due) if due else None
+    return {"values": [p[col] for p in paper],
+            "slots": [_slot(p) for p in paper],
+            "placebo": [p[col] for p in firsts["placebo"] if counts(p)],
             "coverage": coverage, "settled": settled}
 
 
