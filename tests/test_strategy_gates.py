@@ -627,6 +627,25 @@ def test_gate_2_counts_each_games_first_position_only(env):
     assert v.arm("t_one").startswith("REFUSED - gate 2")
 
 
+def test_a_position_with_no_resolution_time_counts_against_coverage(env):
+    # It cannot be shown not to be due yet, so it is due: unsettled, it
+    # lowers coverage until it settles (fails closed). No test pinned this
+    # branch; removing it left the suite green (re-verification 2026-09-25).
+    _strategy()
+    gates.record_backtest("t_one", T1, True, "passed", {"n": 500})
+    _positions(env, "t_one", STRONG)
+    _positions(env, "t_one", [None] * 20, settled=False)
+    _set_resolves_at(env, 20, None)
+    assert gates.measured(env, "t_one", "info", NOW)["coverage"] == pytest.approx(60 / 80)
+
+
+def test_a_strategy_no_longer_registered_is_never_the_same_definition(env):
+    # arm() asks redefined() whether the registered strategy is the one its
+    # gates were recorded for. A name no longer registered cannot be shown
+    # to be: it refuses. No test pinned this branch either.
+    assert gates.redefined("ghost", {"experiment": T1, "metric": "info"})
+
+
 def test_coverage_counts_games_not_positions(env):
     # Coverage is a share of the same unit as the sample. Counted per
     # position, re-entering the games that get graded lifted 60 graded games
