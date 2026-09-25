@@ -335,6 +335,17 @@ def test_an_order_whose_fees_cannot_be_priced_is_refused(con):
         _order(con, mid)
 
 
+def test_an_order_is_priced_on_the_fee_model_showing_when_it_is_placed(con):
+    mid, _ = _kmarket(con)
+    _book(con, mid, -1, [("0.5000", "500")])                        # quadratic
+    _book(con, mid, 60, [("0.5000", "500")], fee="kalshi:flat:1")    # an hour later
+    oid = _order(con, mid)                             # a later schedule is unseen
+    assert con.execute("SELECT exposure FROM paper_orders WHERE order_id=?",
+                       (oid,)).fetchone()[0] == pytest.approx(51.75)
+    with pytest.raises(Refused, match="fees"):
+        _order(con, mid, now=at(61))                   # by then it is flat: unread
+
+
 def test_the_kill_switch_and_price_only_venues_refuse_orders(con, monkeypatch):
     mid, _ = _kmarket(con, sport="nfl")
     _book(con, mid, -1, [("0.5000", "500")], sport="nfl")

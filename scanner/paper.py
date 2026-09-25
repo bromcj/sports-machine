@@ -83,11 +83,13 @@ def exposure_today(con, strategy: str, mode: str, now) -> float:
         (strategy, mode, canon_ts(start), canon_ts(end))).fetchone()[0])
 
 
-def _fee_model(con, market_id: str) -> str:
-    row = con.execute("SELECT fee_model FROM prices WHERE market_id=?"
-                      " ORDER BY captured_at DESC LIMIT 1", (market_id,)).fetchone()
+def _fee_model(con, market_id: str, now: str) -> str:
+    """The fee model on the market's latest price at or before `now`: a
+    schedule first seen later cannot decide an earlier order."""
+    row = con.execute("SELECT fee_model FROM prices WHERE market_id=? AND captured_at <= ?"
+                      " ORDER BY captured_at DESC LIMIT 1", (market_id, now)).fetchone()
     if row is None:
-        raise Refused("no price has ever been seen for this market")
+        raise Refused(f"no price had been seen for this market by {now}")
     return row["fee_model"]
 
 
@@ -139,7 +141,7 @@ def submit(con, *, strategy: str, mode: str, market_id: str, outcome: str,
             raise Refused(f"a maker at {limit_price} would cross the {ask['price']} ask"
                           f" showing at {ask['captured_at']}; it would take, so place"
                           " it as a taker")
-    model = _fee_model(con, market_id)
+    model = _fee_model(con, market_id, now)
     contracts = _contracts(is_book, size, limit_price)
     try:
         worst = contracts * limit_price + fees.fee(model, limit_price, contracts, role)
