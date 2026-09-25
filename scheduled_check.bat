@@ -104,8 +104,9 @@ if errorlevel 1 (
   "%PY%" run_daily.py cronstatus
   echo.
   REM The scanner's polling loop: start it if it should be running and is
-  REM not, or restart it on the code just pulled. Does nothing while
-  REM config.POLLING_ENABLED is False. Free itself; the loop spends credits.
+  REM not, or restart it on the code just pulled. While
+  REM config.POLLING_ENABLED is False it starts nothing, and asks a loop
+  REM still running from before to stop. Free itself; the loop spends credits.
   "%PY%" run_daily.py poll --ensure
   echo.
   REM Whole-system health, appended to logs\health.jsonl, and delivered to
