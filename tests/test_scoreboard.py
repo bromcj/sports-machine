@@ -47,6 +47,19 @@ def test_it_splits_by_strategy_by_venue_and_keeps_placebo_apart(con):
     assert s["verdicts"]["alpha"] == "alpha: no gate record yet"
 
 
+def test_long_names_keep_paper_and_placebo_apart_on_screen(con):
+    long = "kalshi_longshot_fade_version_two"          # 32 characters, the limit
+    _pos(con, 1, long, "sportsbook:williamhill_us")
+    _pos(con, 2, long, "sportsbook:williamhill_us", mode="placebo")
+    lines = []
+    scoreboard.report(con, out=lines.append)
+    text = "\n".join(lines)
+    for label in (f"{long} [paper]", f"{long} [placebo]",
+                  "sportsbook:williamhill_us [paper]",
+                  "sportsbook:williamhill_us [placebo]"):
+        assert f"  {label} " in text, label
+
+
 def test_it_says_so_when_the_tables_are_not_there(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "bare.db")
     c = db.connect()

@@ -68,18 +68,21 @@ def report(con, out=print) -> int:
     if not s["by_strategy"] and not s["orders"]:
         out("\n  no strategy has placed a paper order yet")
         return 0
-    head = (f"  {'':26s} {'pos':>4s} {'open':>5s} {'settled':>7s} {'EV':>7s}"
+    # Wide enough for the longest label: cut to a fixed width, a long name's
+    # paper and placebo rows printed identically.
+    w = max([26] + [len(f"{n} [{m}]") for k in ("by_strategy", "by_venue") for n, m in s[k]])
+    head = (f"  {'':{w}s} {'pos':>4s} {'open':>5s} {'settled':>7s} {'EV':>7s}"
             f" {'EV/yr':>8s} {'locked':>9s} {'P&L':>9s}")
     for title, key in (("by strategy", "by_strategy"), ("by venue", "by_venue")):
         out(f"\n{title}\n{head}")
         for (name, mode), st in s[key].items():
             label = f"{name} [{mode}]"
-            out(f"  {label[:26]:26s} {st['positions']:>4d} {st['open']:>5d}"
+            out(f"  {label:{w}s} {st['positions']:>4d} {st['open']:>5d}"
                 f" {st['settled']:>7d} {_pct(st['ev'])} {_pct(st['annualized']):>8s}"
                 f" {st['locked']:>9.2f} {st['pnl']:>+9.2f}")
     out(f"\nin total\n{head}")
     for mode, st in s["total"].items():
-        out(f"  {mode:26s} {st['positions']:>4d} {st['open']:>5d} {st['settled']:>7d}"
+        out(f"  {mode:{w}s} {st['positions']:>4d} {st['open']:>5d} {st['settled']:>7d}"
             f" {_pct(st['ev'])} {_pct(st['annualized']):>8s} {st['locked']:>9.2f}"
             f" {st['pnl']:>+9.2f}")
     lk = s["locked"]
