@@ -280,7 +280,10 @@ def grade(con, position_id: int, when) -> dict:
     """The fair close against the fair price at entry: `info`, in percent.
 
     Graded only when (pre-registered, docs/experiments.md S0):
-      - the market has a start time, so a close exists;
+      - the market has a start time, and `when` is at or after it, so the
+        close exists. Before the start the newest pull is only the latest
+        price so far (and, in a replay, a later one is already stored);
+        a graded position is never graded again, so it waits;
       - a fair close was captured within CLOSING_WINDOW_MIN of the start
         (bets/log.py's constant - the sport model's window);
       - entry and close come from the SAME fair source. The 2026-09-24
@@ -295,6 +298,8 @@ def grade(con, position_id: int, when) -> dict:
                     (p["market_id"],)).fetchone()
     if m is None or not m["event_start"]:
         return {"graded": False, "why": "no start time, so no closing price"}
+    if canon_ts(when) < canon_ts(m["event_start"]):
+        return {"graded": False, "why": "not started yet, so the close is not in"}
     close = fair_value(con, p["market_id"], p["outcome"], m["event_start"])
     entry = fair_value(con, p["market_id"], p["outcome"], p["opened_at"])
     if close is None or entry is None:
