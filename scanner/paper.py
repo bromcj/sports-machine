@@ -366,16 +366,16 @@ def _start(con, market_id: str) -> str | None:
     """When fills stop. The game's start by fair_value's own rule
     (scanner.fair.game_start): an exchange contract's own start can be later
     than the books', and a fill between the two would be at an in-play price
-    fair_value refuses. A market with no start (weather, economics) stops at
-    its resolution, as submit() does."""
+    fair_value refuses. A market stops at its resolution too, whichever comes
+    first, as submit() refuses both: one with no start (weather, economics)
+    has only that, and a game contract can resolve before the game starts."""
     row = con.execute("SELECT * FROM markets WHERE market_id=?",
                       (market_id,)).fetchone()
     if row is None:
         return None
-    start = game_start(con, row)
-    if start is None and row["resolves_at"]:
-        return canon_ts(row["resolves_at"])
-    return start
+    ends = [game_start(con, row), row["resolves_at"] and canon_ts(row["resolves_at"])]
+    ends = [x for x in ends if x]
+    return min(ends) if ends else None
 
 
 def _simulate_maker(con, o, target: float, now: str, tally: dict) -> str:

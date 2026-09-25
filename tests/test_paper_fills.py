@@ -271,6 +271,33 @@ def test_a_market_with_no_start_stops_filling_at_its_resolution(con):
     assert con.execute("SELECT COUNT(*) FROM paper_fills").fetchone()[0] == 0
 
 
+def test_a_game_contract_that_resolves_before_the_start_stops_at_its_resolution(con):
+    # The round-two re-verifier's C1: a contract on a game the books say
+    # starts at 00:10, resolving at 23:00. A game's start was the only
+    # cutoff whenever it had one, so an order placed at 22:50 filled at a
+    # 23:30 price, after the contract had resolved.
+    _game_book(con, "2026-11-03T22:00:00Z", 150)
+    row = kalshi.market_row("KXEARLY", canonical_event_id="nba-g", first_seen=at(0),
+                            sport="nba", market_type="h2h", yes_outcome="home",
+                            resolves_at="2026-11-03T23:00:00Z")
+    store.upsert_markets(con, [row])
+    mid = row["market_id"]
+    bk = {"orderbook_fp": {"yes_dollars": [["0.3000", "10"]],
+                           "no_dollars": [["0.6000", "500"]]}}           # yes ask 0.40
+    store.insert_prices(con, kalshi.price_rows(mid, bk, "2026-11-03T22:40:00Z", K,
+                                               sport="nba"))
+    taker = _order(con, mid, size=10, limit_price=0.9, now="2026-11-03T22:50:00Z")
+    maker = _order(con, mid, role="maker", size=10, limit_price=0.35,
+                   now="2026-11-03T22:50:00Z")
+    bk_after = {"orderbook_fp": {"yes_dollars": [["0.3000", "10"]],
+                                 "no_dollars": [["0.7000", "500"]]}}     # ask 0.30: through
+    store.insert_prices(con, kalshi.price_rows(mid, bk_after, "2026-11-03T23:30:00Z", K,
+                                               sport="nba"))
+    paper.simulate(con, "2026-11-03T23:31:00Z")
+    assert _status(con, taker) == _status(con, maker) == "expired"
+    assert con.execute("SELECT COUNT(*) FROM paper_fills").fetchone()[0] == 0
+
+
 @pytest.mark.parametrize("role, limit", [("taker", 0.50), ("maker", 0.40)])
 def test_a_price_captured_exactly_at_the_start_is_in_play(con, role, limit):
     # "Nothing fills at or after a game's start" - AT it too. Every other
