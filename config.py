@@ -56,6 +56,36 @@ SPORTS = {
 # in scanner.venues.allowed(). Non-sports Kalshi markets are unaffected.
 KALSHI_SPORTS_ENABLED = True
 
+# THE POLLING LOOP (scanner/poll.py). Off until Phase C4 turns it on. While
+# False, the scheduled job's `poll --ensure` does nothing and `poll --live`
+# refuses. It is the only switch; flipping it is a commit.
+POLLING_ENABLED = False
+
+# What each metered call asks The Odds API for. A named list bills as one
+# region per TEN books (v4 docs; measured), so ten books and three markets
+# cost 3 credits a call. Pinnacle is the fair line; the other nine are NJ
+# books (Bally Bet is the eleventh and would make it two regions).
+ODDS_BOOKS = ["pinnacle", "draftkings", "fanduel", "betmgm", "williamhill_us",
+              "betrivers", "espnbet", "fanatics", "hardrockbet", "betparx"]
+ODDS_MARKETS = ["h2h", "spreads", "totals"]
+# Price coverage only - none of these gets a forecasting model. MLB rejoins
+# in March.
+POLL_SPORTS = ["nfl", "nba", "nhl"]
+
+# CREDITS, enforced in scanner/budget.py BEFORE every metered call.
+#   The brief:   6,000 in total, spread over the days it expects to poll
+#                (C4's three days, E, and F's four weeks).
+#   Afterwards:  12,000 a month for the loop; with the props collector's
+#                own 3,000 cap that is 15,000 of the 20,000 plan.
+BRIEF_ACTIVE = True
+CREDIT_CAP_BRIEF = 6000
+BRIEF_POLL_DAYS = 42
+POLL_MONTHLY_BUDGET = 12000
+
+# Paper orders: the most any one strategy may put at risk in one ET day,
+# in dollars (worst-case loss, fees included). Checked before every order.
+STRATEGY_DAILY_EXPOSURE = {"default": 100.0}
+
 
 def active_sports(month: int | None = None) -> list[str]:
     """Sports switched on, optionally filtered to those in season."""
