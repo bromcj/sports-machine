@@ -321,6 +321,23 @@ def test_two_scorers_at_once_still_get_two_looks_a_day(env, monkeypatch):
     assert sum(r is None for r in results) == 1
 
 
+def test_the_strategies_command_says_so_when_the_tables_are_not_there(
+        env, tmp_path, monkeypatch, capsys):
+    # Production's database has no scanner tables until `python db.py`. A
+    # free read must say so, not crash, and must not make them.
+    _strategy()
+    gates.record_backtest("t_one", T1, False, "lost", {"n": 500})
+    before = v.PATH.read_text(encoding="utf-8")
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "bare.db")
+    assert gates.main([]) == 0 and gates.main(["--score"]) == 0
+    out = capsys.readouterr().out
+    assert "do not exist here yet" in out and "backtest FAIL (lost)" in out
+    assert v.PATH.read_text(encoding="utf-8") == before
+    bare = sqlite3.connect(tmp_path / "bare.db")
+    assert bare.execute("SELECT COUNT(*) FROM sqlite_master").fetchone()[0] == 0
+    bare.close()
+
+
 def test_realized_ev_coverage_counts_positions_that_should_have_settled(env):
     _strategy(metric="realized_ev")
     gates.record_backtest("t_one", T1, False, "lost", {"n": 500})

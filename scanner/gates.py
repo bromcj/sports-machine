@@ -194,17 +194,25 @@ def main(argv) -> int:
         return 0
     con = db.connect()
     try:
+        # Production's database has none of the scanner's tables until
+        # `python db.py`; a free read says so rather than making them.
+        have = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        ready = {"paper_positions", "gate_looks"} <= have
+        if not ready:
+            print("the scanner's tables do not exist here yet (`python db.py` makes"
+                  " them) - gate 2 is not re-tested; the gate records:")
         now = dt.datetime.now(dt.timezone.utc)
         for name, s in sorted(reg.items()):
             print(f"{name}  ({s.metric}; venues {', '.join(s.venues)};"
                   f" gate 1: {s.experiment})")
-            if "--score" in argv:
+            if ready and "--score" in argv:
                 r = score(con, name, now)
                 con.commit()
                 if r:
                     print(f"  gate 2 re-tested: {r['reason']}")
             print(f"  {validation.explain(name) if validation.status(name) else 'no gate record yet'}")
-            print(f"  looked at {looks_today(con, name, now)} time(s) today")
+            if ready:
+                print(f"  looked at {looks_today(con, name, now)} time(s) today")
     finally:
         con.close()
     return 0
