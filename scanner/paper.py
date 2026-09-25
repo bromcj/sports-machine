@@ -178,7 +178,9 @@ def submit(con, *, strategy: str, mode: str, market_id: str, outcome: str,
         " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'open',?)",
         (strategy, mode, mkt["venue"], market_id, outcome, role, float(size),
          float(limit_price), now, None if expires_at is None else canon_ts(expires_at),
-         round(worst, 6), None if fv is None else fv["p"],
+         # Not rounded: a fill may not take the stake past this, and a stake
+         # with more than 6 decimals rounded down never filled.
+         worst, None if fv is None else fv["p"],
          None if fv is None else fv["source"], None if fv is None else fv["as_of"],
          ev, note))
     return cur.lastrowid

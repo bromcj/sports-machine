@@ -332,6 +332,25 @@ def test_a_book_order_fills_its_stake_at_the_next_price_shown(con):
     assert pos["contracts"] == pytest.approx(245.0)          # pays $245 if it wins
 
 
+@pytest.mark.parametrize("stake", [25 / 3, 49.08717201994769, 10.0000004])
+def test_a_book_stake_with_more_than_six_decimals_still_fills(con, stake):
+    # The exposure the daily cap counts was stored rounded to 6 decimals, and
+    # a fill may not take a stake past it: a $25 bonus split three ways
+    # ($8.333...) rounded down, and the order expired silently every time
+    # (re-verification, 2026-09-25: about half of random computed stakes).
+    ev = [{"id": "g", "commence_time": START, "home_team": "H", "away_team": "A",
+           "bookmakers": [{"key": "draftkings", "markets": [{"key": "h2h", "outcomes": [
+               {"name": "A", "price": 150}, {"name": "H", "price": -170}]}]}]}]
+    sportsbook.write(con, "nba", ev, at(-1))
+    mid = store.market_key("sportsbook:draftkings", "g", "h2h")
+    oid = _order(con, mid, outcome="away", size=stake, limit_price=0.41)
+    sportsbook.write(con, "nba", ev, at(1))
+    paper.simulate(con, at(2))
+    assert _status(con, oid) == "filled"
+    pos = con.execute("SELECT * FROM paper_positions WHERE order_id=?", (oid,)).fetchone()
+    assert pos["stake"] == pytest.approx(stake)
+
+
 # ------------------------------------------------- a size is filled once ---
 # Our fills never leave the recorded book, so the same offer keeps showing.
 # Per strategy and mode it is used once: paper and placebo are separate
