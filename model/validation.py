@@ -200,6 +200,10 @@ def record(sport: str, baseline_kind: str, seasons: list[dict]) -> dict:
 
     seasons: one dict per test season with keys
              season, logloss_model, logloss_market.
+
+    It never writes onto a scanner strategy's block: a strategy's gate 1
+    is its pre-registered backtest, record_backtest(), and a walk-forward
+    written over it would turn a failed backtest into a pass.
     """
     if baseline_kind not in (REAL_MARKET, PLACEHOLDER):
         raise ValueError(f"baseline_kind must be {REAL_MARKET!r} or {PLACEHOLDER!r}")
@@ -266,6 +270,9 @@ def record(sport: str, baseline_kind: str, seasons: list[dict]) -> dict:
                                  f"{loso['worst_season']} dropped"))
 
     data = _load()
+    if (data.get(sport) or {}).get("kind") == "strategy":
+        raise ValueError(f"{sport!r} is a scanner strategy's block: its gate 1 is"
+                         f" its backtest, record_backtest(), never a walk-forward")
     entry = data.setdefault(sport, {})
     new_entry = dict(entry)
     new_entry.update({"recorded_at": _now(), "baseline_kind": baseline_kind,

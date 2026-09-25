@@ -130,6 +130,21 @@ def test_a_backtest_can_never_be_written_onto_a_sports_block(env):
     assert v.record_backtest("t_one", T1, True, "won", {"n": 2})["cleared"] is True
 
 
+def test_a_walk_forward_can_never_be_written_onto_a_strategys_block(env):
+    # The mirror of the rule above: record() on a strategy's block turned a
+    # failed backtest into gate 1 PASS (re-verification 2026-09-25).
+    _strategy()
+    gates.record_backtest("t_one", T1, False, "lost backtest", {"n": 500})
+    before = v.PATH.read_text(encoding="utf-8")
+    win = [{"season": 2025, "logloss_model": 0.60, "logloss_market": 0.68,
+            "n_games": 2000, "ll_diff_sd": 0.1}]
+    with pytest.raises(ValueError, match="strategy"):
+        v.record("t_one", v.REAL_MARKET, win)
+    assert v.PATH.read_text(encoding="utf-8") == before
+    assert v.gates("t_one")["walk_forward"] is False
+    assert v.record("_audit_probe", v.REAL_MARKET, win)["cleared"] is True   # not a strategy
+
+
 # ------------------------------------------------------------------ gate 2 ---
 
 ORDER_IDS = itertools.count(1)
