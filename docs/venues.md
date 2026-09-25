@@ -58,10 +58,17 @@ taking a book's price = fair probability × decimal odds − 1.
   (maker multiplier 0.5 instead of 0.25), or `flat` (a separate table) — and a
   `fee_multiplier`. The scanner's fee key is `kalshi:<fee_type>:<multiplier>`,
   taken from the series, so a series with its own schedule carries it.
+  *Added 2026-09-25 by the Phase A review:* a multiplier that is NaN,
+  infinite or negative makes the key malformed. The store refuses a price
+  carrying it, and no fee is computed from it. Zero is allowed. The same
+  rule applies to a Polymarket rate, where zero is real (geopolitics).
 - **Rounding** ([Fee Rounding](https://docs.kalshi.com/getting_started/fee_rounding)):
   the trade fee is the model fee ceiled to $0.000001; the balance change is then
   floored to the member's precision ($0.01 for a non-direct member), and the
-  overpayment is rebated later from a per-order accumulator.
+  overpayment is rebated later from a per-order accumulator. Paper fills
+  (`scanner/paper.py`) apply this per order. Once a fill is in, the order has
+  paid its whole cash so far rounded up to the cent once. The final sub-cent
+  rebate is ignored, so a paper order is never costed low.
 - **The order book** ([Get Market Orderbook](https://docs.kalshi.com/api-reference/market/get-market-orderbook)):
   `GET /markets/{ticker}/orderbook` returns `orderbook_fp` with `yes_dollars`
   and `no_dollars`, each a list of `[price, quantity]` strings — **bids only**,
@@ -87,7 +94,9 @@ terms of use for automated access, and whether the sports markets are open to
 this account. The legal kill switch (`config.KALSHI_SPORTS_ENABLED`, read only
 in `scanner.venues.allowed`) exists and is tested; **the monitor check that
 alerts if Kalshi starts refusing sports markets for this account needs the
-API, and is C2's.**
+API, and is C2's.** `kalshi.market_row` and `kalshi.price_rows` take `sport`
+with no default. A weather or economics market passes `sport=None` on
+purpose, so the kill switch cannot be skipped by leaving the argument out.
 
 ## Polymarket
 
@@ -99,6 +108,12 @@ API, and is C2's.**
   tech 0.04; sports, economics, culture, weather, other 0.05; crypto 0.07. The
   page gives no date and does not say which API field carries a market's rate.
   Fee key: `polymarket:<rate>`.
+- **Rounding** (*added 2026-09-25 by the Phase A review*, from the same
+  page): fees are "rounded to 5 decimal places". The smallest fee charged is
+  0.00001 USDC, and anything smaller rounds to zero. The page does not say
+  which way it rounds. `scanner/fees.py` rounds up to 0.00001, so a fee is
+  never understated and is at most 0.00001 over. The cost of that choice: a
+  fee under 0.00001 is charged as 0.00001, not the zero the page describes.
 - **The book**: `GET https://clob.polymarket.com/book?token_id=…` returns
   `bids` and `asks` as lists of `{price, size}` strings, per outcome token,
   with a `timestamp` and a `hash`. The adapter sorts levels itself.
