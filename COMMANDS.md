@@ -305,6 +305,22 @@ month, so the loop slows down in fixed steps, and even at its slowest every game
 still gets a price in its last 30 minutes. A refused key or an exhausted
 account stops it until you run `--live` once by hand.
 
+### The scanner's strategies and their gates
+
+```
+python run_daily.py strategies          every strategy, with its gate verdict. Free
+python run_daily.py strategies --score  re-test each one's gate 2. Free
+python run_daily.py scoreboard          your bets, then the scanner: per strategy, per venue, in total
+```
+
+There are none yet: the brief adds them in Phases B and E, each only after
+its entry in `docs/experiments.md` is written. Each strategy has its own
+block in `validation.json`, held to the same three gates as a sport — its own
+backtest, its own 50+ graded paper positions at 3 standard errors with
+coverage and a placebo, and your own `arm("<name>")`. Gate 2 is re-tested at
+most twice a day per strategy. Every order is paper: the database itself
+refuses any other kind, and `python audit.py` checks no code can send one.
+
 ### Collection (Phase 0)
 
 ```

@@ -102,3 +102,35 @@ def score(con, name: str, now) -> dict | None:
                 (name, canon_ts(now), s.metric, r["n_bets"], r["avg_clv"], r["se_clv"],
                  r["t_stat"], r["coverage"], 1 if r["passed"] else 0, r["reason"]))
     return r
+
+
+def main(argv) -> int:
+    """python run_daily.py strategies [--score]
+
+    Every registered strategy, with its gate verdict. --score re-tests each
+    one's gate 2 (at most twice an ET day) - free, and like `paper` it
+    rewrites only the gate-2 part of validation.json.
+    """
+    import db
+    reg = strategies.load()
+    if not reg:
+        print("No strategies registered. They arrive in Phases B and E of"
+              " docs/briefs/2026-09-25-next-task.md, each with its own entry in"
+              " docs/experiments.md first.")
+        return 0
+    con = db.connect()
+    try:
+        now = dt.datetime.now(dt.timezone.utc)
+        for name, s in sorted(reg.items()):
+            print(f"{name}  ({s.metric}; venues {', '.join(s.venues)};"
+                  f" gate 1: {s.experiment})")
+            if "--score" in argv:
+                r = score(con, name, now)
+                con.commit()
+                if r:
+                    print(f"  gate 2 re-tested: {r['reason']}")
+            print(f"  {validation.explain(name) if validation.status(name) else 'no gate record yet'}")
+            print(f"  looked at {looks_today(con, name, now)} time(s) today")
+    finally:
+        con.close()
+    return 0
