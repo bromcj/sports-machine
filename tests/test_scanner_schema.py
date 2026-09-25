@@ -90,10 +90,13 @@ def test_good_rows_pass_the_checks(con):
               source_last_update="2026-09-27T14:59:00Z")
     game = dict(MKT, market_id="k2", event_start="2026-10-01T23:05:00Z",
                 resolves_at="2026-10-02T02:20:00Z")
+    dk = dict(MKT, market_id="b1", venue="sportsbook:draftkings", venue_market_id="e1",
+              canonical_event_id="nfl-e1", market_type="h2h")
+    poly = dict(MKT, market_id="p1", venue="polymarket", venue_market_id="0xp1")
     for row in (KAL, BOOK, pm):
         assert store.check_price(row) is None
     assert store.check_market(MKT) is None and store.check_market(game) is None
-    assert store.upsert_markets(con, [MKT, game]) == 2
+    assert store.upsert_markets(con, [MKT, game, dk, poly]) == 4
     assert store.insert_prices(con, [KAL, BOOK, pm]) == 3
 
 
@@ -118,12 +121,13 @@ def test_a_price_under_another_venues_market_is_a_reason(con):
     # Each row passes check_price on its own. Filed under another venue's
     # market, a Kalshi row made fair_value crash ('0.9000' is no moneyline)
     # and could fill a book order at the exchange's price; a Pinnacle row
-    # under DraftKings' market would be counted as Pinnacle.
+    # under DraftKings' market would be counted as Pinnacle. A price under no
+    # stored market at all has no venue, start or game to be judged by.
     dk = dict(MKT, market_id="b1", venue="sportsbook:draftkings", venue_market_id="e1",
               canonical_event_id="nfl-e1", market_type="h2h")
     store.upsert_markets(con, [MKT, dk])
     bad = [dict(KAL, market_id="b1"), dict(BOOK, market_id="k1"),
-           dict(BOOK, venue="sportsbook:pinnacle")]
+           dict(BOOK, venue="sportsbook:pinnacle"), dict(KAL, market_id="nope")]
     for row in bad:
         assert store.check_price(row) is None
     r = Rejects()

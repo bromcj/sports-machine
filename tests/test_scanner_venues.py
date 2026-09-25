@@ -143,6 +143,9 @@ def test_kalshi_asks_are_the_other_sides_bids_flipped():
 
 
 def test_kalshi_rows_store_cleanly(con):
+    store.upsert_markets(con, [{"market_id": "k1", "venue": "kalshi",
+                                "venue_market_id": "K1", "canonical_event_id": "nfl-x",
+                                "market_type": "binary", "first_seen": T0}])
     store.insert_prices(con, kalshi.price_rows("k1", BOOK, T0, KM, sport="nfl"))
     assert con.execute("SELECT COUNT(*) FROM prices").fetchone()[0] == 10
 
