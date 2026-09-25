@@ -4,13 +4,17 @@ has been checked."""
 import datetime as dt
 import json
 import sqlite3
+import subprocess
+import sys
 import threading
+import time
 
 import pytest
 import requests
 
 import config
 import db
+from ingest import http
 from scanner import budget, poll
 
 UTC = dt.timezone.utc
@@ -61,6 +65,7 @@ def env(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(poll, "STATE_DIR", tmp_path / "scanner")
     monkeypatch.setattr(poll, "HEARTBEAT", tmp_path / "scanner" / "poll.json")
     monkeypatch.setattr(poll, "STOP", tmp_path / "scanner" / "poll.stop")
+    monkeypatch.setattr(poll, "LOCK", tmp_path / "scanner" / "poll.lock")
     monkeypatch.setattr(config, "CREDIT_CAP_BRIEF", 6000)
     monkeypatch.setattr(config, "BRIEF_POLL_DAYS", 42)
     db.init()
@@ -288,6 +293,86 @@ def test_the_heartbeat_names_the_code_the_loop_started_on(env, monkeypatch):
     monkeypatch.setattr(db, "code_sha", lambda: "bbbbbbb")     # the pull
     p.run(max_ticks=1)
     assert poll.heartbeat()["code_sha"] == "aaaaaaa"
+
+
+def test_the_heartbeat_is_stamped_when_it_is_written(env, monkeypatch):
+    # A server that hangs makes the hourly tick last 378 s: 3 events lists x
+    # (3 x 30 s + 2 + 4 s backoff) + 3 odds calls x 30 s. A beat stamped with
+    # the tick's start is already 378 s old when written - past ALIVE_WITHIN.
+    T = {"now": dt.datetime(2026, 11, 3, 23, 0, tzinfo=UTC)}
+
+    def hanging_get(url, params=None, timeout=30):
+        T["now"] += dt.timedelta(seconds=timeout)
+        raise requests.Timeout("read timed out")
+
+    monkeypatch.setattr(http.requests, "get", hanging_get)
+    monkeypatch.setattr(http.time, "sleep",
+                        lambda s: T.__setitem__("now", T["now"] + dt.timedelta(seconds=s)))
+    clock = lambda: T["now"]                                   # noqa: E731
+    p = poll.Poller(poll.OddsSource(get=http.get, key="test-key", clock=clock),
+                    sports=["nfl", "nba", "nhl"], clock=clock, sleep=lambda s: None,
+                    out=lambda *a: None)
+    p.schedule = {sp: [T["now"] + dt.timedelta(minutes=60)] for sp in p.sports}
+    p.schedule_at = T["now"] - poll.SCHEDULE_EVERY            # the hourly refresh is due
+    p.level, p.level_at = 0, T["now"]
+    p.last_poll = {sp: T["now"] - dt.timedelta(hours=1) for sp in p.sports}
+    start = T["now"]
+    p.run(max_ticks=1)
+    assert (T["now"] - start).total_seconds() == 378
+    assert poll.alive(poll.heartbeat(), T["now"])
+
+
+# Stands in for a running `poll --live`: the OS lock on data/scanner/poll.lock,
+# held until stdin closes.
+HOLD = """
+import sys
+f = open(sys.argv[1], "a+b")
+f.seek(0)
+if sys.platform == "win32":
+    import msvcrt
+    msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+else:
+    import fcntl
+    fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+print("held", flush=True)
+sys.stdin.read()
+"""
+
+
+def test_a_loop_that_holds_the_lock_is_running_however_old_its_beat(env, monkeypatch):
+    # A slow tick, a sleeping PC, or a first tick not finished yet: the
+    # heartbeat can be minutes old, or missing, while the loop is there.
+    monkeypatch.setattr(config, "POLLING_ENABLED", True)
+    for name in ("Poller", "OddsSource"):
+        monkeypatch.setattr(poll, name, lambda *a, **k: pytest.fail("a second loop"))
+
+    class P:
+        pid = 4242
+    started = []
+    spawn = lambda: (started.append(1), P())[1]               # noqa: E731
+    lock = env / "scanner" / "poll.lock"
+    lock.parent.mkdir(exist_ok=True)
+    poll.HEARTBEAT.write_text(json.dumps({
+        "state": "running", "pid": 7, "code_sha": db.code_sha(),
+        "beat_at": (T0 - dt.timedelta(hours=8)).isoformat()}))
+    holder = subprocess.Popen([sys.executable, "-c", HOLD, str(lock)], text=True,
+                              stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+    try:
+        assert holder.stdout.readline().strip() == "held"
+        assert poll.ensure(spawn=spawn, now=T0).startswith("running")
+        assert poll.live() == 2
+        assert not started
+    finally:
+        holder.stdin.close()
+        holder.wait(10)
+    # The OS let go when the holder ended: no stale lock.
+    deadline = time.monotonic() + 10
+    while poll.locked() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert poll.ensure(spawn=spawn, now=T0).startswith("started") and started == [1]
+    mine = poll.take_lock()
+    assert mine is not None and poll.take_lock() is None       # one loop, even here
+    mine.close()
 
 
 # ------------------------------------------------------------ supervisor ---

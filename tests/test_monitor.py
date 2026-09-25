@@ -41,6 +41,7 @@ NOW = dt.datetime(2026, 11, 3, 16, 0, tzinfo=dt.timezone.utc)
 def con(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "t.db")
     monkeypatch.setattr(poll, "HEARTBEAT", tmp_path / "poll.json")
+    monkeypatch.setattr(poll, "LOCK", tmp_path / "poll.lock")
     monkeypatch.setattr(config, "CREDIT_CAP_BRIEF", 1000)
     monkeypatch.setattr(config, "POLL_MONTHLY_BUDGET", 100000)
     db.init()
@@ -68,8 +69,10 @@ def test_the_brief_cap_alerts_at_25_and_10_percent_left(con):
     assert _level(con, 160) == "CRITICAL"      # 8% left
 
 
-def test_scanner_checks_are_silent_until_the_scanner_exists(monkeypatch):
+def test_scanner_checks_are_silent_until_the_scanner_exists(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "POLLING_ENABLED", False)
+    monkeypatch.setattr(poll, "HEARTBEAT", tmp_path / "poll.json")
+    monkeypatch.setattr(poll, "LOCK", tmp_path / "poll.lock")
     assert monitor.scanner_checks(None, NOW, {"games", "bets"}) == []
 
 
@@ -85,6 +88,20 @@ def test_a_live_loop_while_polling_is_off_is_an_error(con, monkeypatch, tmp_path
             if "loop" in x["check"]]
     assert [x["level"] for x in loop] == ["ERROR"]
     assert "running while polling is switched off" in loop[0]["detail"]
+
+
+@pytest.mark.parametrize("on, level", [(True, "INFO"), (False, "ERROR")])
+def test_a_loop_on_its_first_tick_holds_the_lock_before_any_beat(con, monkeypatch,
+                                                                 tmp_path, on, level):
+    monkeypatch.setattr(config, "POLLING_ENABLED", on)
+    monkeypatch.setattr(poll, "STATE_DIR", tmp_path)
+    held = poll.take_lock()                      # as `poll --live` does; no heartbeat yet
+    try:
+        loop = [x for x in monitor.scanner_checks(con, NOW, _tables(con))
+                if "loop" in x["check"]]
+    finally:
+        held.close()
+    assert [x["level"] for x in loop] == [level]
 
 
 def test_a_dead_polling_loop_is_an_error_once_polling_is_on(con, monkeypatch):

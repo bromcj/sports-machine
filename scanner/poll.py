@@ -30,8 +30,11 @@ Safety, in the order it applies:
   - a 401 (bad key) or 429 (out of credits / rate limit) stops the loop:
     retrying either spends nothing useful.
 
-"Is it running" is judged by the heartbeat file's age, never by probing a
-process id: on Windows, os.kill(pid, 0) does not test a process, it ends it.
+"Is it running" is judged by the heartbeat file's age and by an OS lock on
+data/scanner/poll.lock that `--live` holds for its whole life - never by
+probing a process id: on Windows, os.kill(pid, 0) does not test a process, it
+ends it. The OS drops the lock when the process ends, however it ends, so a
+second loop is refused even while the first one's heartbeat is old.
 """
 import datetime as dt
 import json
@@ -55,6 +58,7 @@ ROOT = Path(__file__).parent.parent
 STATE_DIR = paths.DATA_DIR / "scanner"
 HEARTBEAT = STATE_DIR / "poll.json"
 STOP = STATE_DIR / "poll.stop"
+LOCK = STATE_DIR / "poll.lock"
 LOG = ROOT / "logs" / "poll.log"
 
 API = "https://api.the-odds-api.com/v4"
@@ -285,16 +289,18 @@ class Poller:
                 self.beat(now, stop_kind="asked")
                 STOP.unlink(missing_ok=True)
                 return 0
+            # Beats are stamped when written, not with the tick's start: a
+            # tick on a hanging server lasts minutes.
             try:
                 self.tick(now)
             except Fatal as e:
                 self.state = f"stopped: {e}"
-                self.beat(now, stop_kind=e.kind)
+                self.beat(self.clock(), stop_kind=e.kind)
                 self.out(f"STOPPED: {e}")
                 return 1
             except Exception as e:                 # a bug must not end the loop
                 self.out(f"  tick failed: {type(e).__name__}: {http.redact(e)[:160]}")
-            self.beat(now)
+            self.beat(self.clock())
             n += 1
             if max_ticks is None or n < max_ticks:
                 self.sleep(TICK_S)
@@ -310,12 +316,54 @@ def heartbeat() -> dict | None:
         return None
 
 
-def alive(hb=None, now=None) -> bool:
-    hb = heartbeat() if hb is None else hb
-    if not hb or not str(hb.get("state", "")).startswith(("running", "waiting", "paused", "starting")):
+def _flock(f, take: bool) -> bool:
+    """Take (without waiting) or let go of an exclusive OS lock on f's first
+    byte. False if another open of the file - another loop - holds it."""
+    try:
+        if sys.platform == "win32":
+            import msvcrt
+            f.seek(0)
+            msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK if take else msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(f.fileno(), (fcntl.LOCK_EX | fcntl.LOCK_NB) if take else fcntl.LOCK_UN)
+        return True
+    except OSError:
         return False
-    beat = parse_utc(hb.get("beat_at"))
-    return beat is not None and (now or utcnow()) - beat <= ALIVE_WITHIN
+
+
+def take_lock():
+    """The one-loop lock, held for the life of `poll --live`: the open file,
+    or None if another loop holds it. The OS lets go when the process ends,
+    however it ends - so no stale lock, and no process id to probe."""
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    f = open(LOCK, "a+b")
+    if _flock(f, True):
+        return f
+    f.close()
+    return None
+
+
+def locked() -> bool:
+    """Does a running loop hold the lock? Creates nothing."""
+    try:
+        f = open(LOCK, "rb")
+    except OSError:
+        return False
+    with f:
+        return not (_flock(f, True) and _flock(f, False))
+
+
+def alive(hb=None, now=None) -> bool:
+    """A fresh heartbeat, or failing that the lock a live loop holds - which
+    covers a tick slower than ALIVE_WITHIN and the first tick before any
+    beat."""
+    hb = heartbeat() if hb is None else hb
+    if hb and str(hb.get("state", "")).startswith(("running", "waiting", "paused", "starting")):
+        beat = parse_utc(hb.get("beat_at"))
+        if beat is not None and (now or utcnow()) - beat <= ALIVE_WITHIN:
+            return True
+    return locked()
 
 
 def _spawn():
@@ -346,7 +394,7 @@ def ensure(spawn=_spawn, now=None, wait=time.sleep) -> str:
     Switched off, it starts nothing, and asks a loop still running (started
     while polling was on - it never rereads the flag) to stop.
     """
-    hb = heartbeat()
+    hb = heartbeat() or {}             # none yet while a loop's first tick runs
     if not config.POLLING_ENABLED:
         if alive(hb, now):
             STOP.parent.mkdir(parents=True, exist_ok=True)
@@ -387,8 +435,10 @@ def live() -> int:
         print("REFUSED: polling is switched off (config.POLLING_ENABLED = False)."
               " Turning it on is a deliberate commit - see COMMANDS.md.")
         return 2
-    if alive():
-        print("REFUSED: a polling loop is already running (heartbeat is fresh).")
+    lock = None if alive() else take_lock()        # held until this process ends
+    if lock is None:
+        print("REFUSED: a polling loop is already running (a fresh heartbeat,"
+              f" or it holds {LOCK}).")
         return 2
     db.init()
     from ingest.raw import save_raw

@@ -225,7 +225,7 @@ def scanner_checks(con, now, tables) -> list[dict]:
                          f" ({frac:.0%} left)", spent=s["month_spent"]))
     if config.POLLING_ENABLED:
         from scanner import poll
-        hb = poll.heartbeat()
+        hb = poll.heartbeat() or {}      # none yet while a loop's first tick runs
         if poll.alive(hb, now):
             out.append(_find("INFO", "the polling loop is running",
                              f"{hb.get('state')} (level {hb.get('level')})"))
@@ -243,7 +243,7 @@ def scanner_checks(con, now, tables) -> list[dict]:
         # A loop started while polling was on never rereads the flag. Silent
         # when there is no fresh heartbeat, as there is none today.
         from scanner import poll
-        hb = poll.heartbeat()
+        hb = poll.heartbeat() or {}
         if poll.alive(hb, now):
             out.append(_find("ERROR", "no polling loop while polling is switched off",
                              f"a polling loop is running while polling is switched"
