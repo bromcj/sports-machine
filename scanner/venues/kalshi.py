@@ -29,11 +29,14 @@ def market_id(ticker: str, market_type: str = "binary", line=None) -> str:
 
 
 def market_row(ticker: str, *, canonical_event_id: str, first_seen,
-               sport: str | None = None, market_type: str = "binary",
+               sport: str | None, market_type: str = "binary",
                yes_outcome: str | None = None, line=None, event_start=None,
                resolves_at=None, resolution_source: str | None = None) -> dict:
     """One markets row. The mapping to a canonical event is the caller's job,
-    done through feeds (start time plus names), never a date string."""
+    done through feeds (start time plus names), never a date string.
+
+    `sport` has no default, here or in price_rows: None means "not a sports
+    market" and the kill switch lets it through, so a caller must say so."""
     ok, why = allowed(VENUE, sport)
     if not ok:
         raise PermissionError(why)
@@ -59,8 +62,8 @@ def _levels(side: list) -> list[tuple[Decimal, Decimal, str]]:
     return out
 
 
-def price_rows(mkt_id: str, payload: dict, captured_at, fee_model_key: str,
-               sport: str | None = None, raw_ref: str | None = None) -> list[dict]:
+def price_rows(mkt_id: str, payload: dict, captured_at, fee_model_key: str, *,
+               sport: str | None, raw_ref: str | None = None) -> list[dict]:
     """Bids and asks, both outcomes, top three levels each."""
     ok, why = allowed(VENUE, sport)
     if not ok:

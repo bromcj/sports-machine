@@ -142,9 +142,21 @@ def test_kalshi_kill_switch_stops_sports_and_only_sports(monkeypatch):
     assert venues.allowed("kalshi", None) == (True, None)
 
 
+def test_the_kill_switch_cannot_be_skipped_by_leaving_sport_out(monkeypatch):
+    # sport=None means "not a sports market", which the switch lets through,
+    # so a caller has to say it: an NFL contract built without it was stored,
+    # priced and paper-filled with the switch off.
+    monkeypatch.setattr(config, "KALSHI_SPORTS_ENABLED", False)
+    with pytest.raises(TypeError):
+        kalshi.market_row("KXNFL-X", canonical_event_id="nfl-e5fb", first_seen=T0,
+                          market_type="h2h", yes_outcome="home")
+    with pytest.raises(TypeError):
+        kalshi.price_rows("k1", BOOK, T0, KM)
+
+
 def test_kalshi_needs_its_documented_shape():
     with pytest.raises(ValueError):
-        kalshi.price_rows("k1", {"orderbook": {"yes": [[45, 10]]}}, T0, KM)
+        kalshi.price_rows("k1", {"orderbook": {"yes": [[45, 10]]}}, T0, KM, sport=None)
 
 
 # -------------------------------------------------------------- Polymarket ---
