@@ -268,6 +268,38 @@ def test_the_archive_conversion_ignores_a_start_reported_after_it():
         assert markets[0]["event_start"] == "2024-04-27T22:05:00.000000+00:00"
 
 
+def test_a_later_start_reported_at_its_own_moment_has_already_passed(con):
+    # "Only if reported BEFORE it passed": reported at the very instant it
+    # names, it is refused, like any report after it. Taken, the 19:10 pull
+    # (in play, and still saying 19:00) became a pregame price.
+    ts = "2026-09-20T19:30:00.000000+00:00"
+    assert sportsbook.next_start("2026-09-20T19:00:00.000000+00:00", ts, ts) == (
+        "2026-09-20T19:00:00.000000+00:00")
+    _pull(con, "2026-09-20T18:00:00+00:00", "2026-09-20T19:00:00Z",
+          {"pinnacle": (205, -230)})
+    _pull(con, "2026-09-20T19:10:00+00:00", "2026-09-20T19:00:00Z",
+          {"pinnacle": (900, -2000)})
+    _pull(con, ts, "2026-09-20T19:30:00Z", {"pinnacle": (1500, -10000)})
+    assert game_start(con, store.market(con, _h2h("pinnacle"))) == (
+        "2026-09-20T19:00:00.000000+00:00")
+    fv = fair_value(con, _h2h("pinnacle"), "home", "2026-09-20T19:20:00+00:00")
+    assert fv["as_of"] == "2026-09-20T18:00:00.000000+00:00"
+
+
+def test_the_archive_conversion_judges_pulls_in_capture_order():
+    # A delay to 22:30 announced at 22:25, before it passed, after a 20:00
+    # pull that said 22:05. In capture order the start is 22:30. Taken in the
+    # order given, the 22:05 report came second and, being earlier, won.
+    early = {"id": 1, "game_id": "mlb-abc", "book": "pinnacle", "away_ml": 110,
+             "home_ml": -120, "commence_time": "2026-09-20T22:05:00Z",
+             "ts": "2026-09-20T20:00:00+00:00"}
+    delay = dict(early, id=2, commence_time="2026-09-20T22:30:00Z",
+                 ts="2026-09-20T22:25:00+00:00")
+    for order in ([early, delay], [delay, early]):
+        markets, _ = sportsbook.from_snapshots(order)
+        assert markets[0]["event_start"] == "2026-09-20T22:30:00.000000+00:00"
+
+
 def test_a_stale_price_is_refused_when_the_caller_says_so(con):
     sportsbook.write(con, "nfl", _event({"pinnacle": (205, -230)}), PULL1)
     at = "2026-09-27T20:30:00+00:00"

@@ -201,7 +201,15 @@ def from_snapshots(snaps) -> tuple[list, list]:
 def write(con, sport: str, events: list, captured_at, raw_ref: str | None = None,
           rejects=None) -> dict:
     """Store one /odds response: games (the same rows ingest/odds.py writes),
-    markets and prices. The caller commits. Returns counts."""
+    markets and prices. The caller commits. Returns counts.
+
+    Responses must be written in capture order. Each game's start is judged
+    against the one already stored (next_start), so a pull written after a
+    later one is judged against the future: its old report of a later start
+    (22:30, since corrected to 22:05) moves the start back, and a 22:25 pull
+    that every report puts in play counts as pregame. poll.py writes as it
+    captures; a re-ingest of saved payloads must sort them by capture time
+    first, as from_snapshots does."""
     from ingest import quality
     from ingest.odds import upsert_game
     from scanner import store
