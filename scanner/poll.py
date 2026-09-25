@@ -39,12 +39,14 @@ Safety, in the order it applies:
   - a 401 (bad key) or 429 (out of credits / rate limit) stops the loop:
     retrying either spends nothing useful.
 
-"Is it running" is judged by the heartbeat file's age and by an OS lock on
-data/scanner/poll.lock that `--live` holds for its whole life - never by
-probing a process id: on Windows, os.kill(pid, 0) does not test a process, it
-ends it. The OS drops the lock when the process ends, however it ends, so a
-second loop is refused even while the first one's heartbeat is old. A loop
-that holds the lock but has not beaten for HUNG_AFTER is not called running:
+"Is it running" is judged by an OS lock on data/scanner/poll.lock that
+`--live` takes first and holds for its whole life - never by probing a
+process id: on Windows, os.kill(pid, 0) does not test a process, it ends it.
+The OS drops the lock when the process ends, however it ends, so a second
+loop is refused even while the first one's heartbeat is old, and a loop
+killed just after a beat does not block its restart. (The heartbeat's age
+counts only where no loop has made the lock file yet.) A loop that holds
+the lock but has not beaten for HUNG_AFTER is not called running:
 monitor.py and --ensure say it may be hung, and which process to end.
 """
 import datetime as dt
@@ -392,15 +394,20 @@ def locked() -> bool:
 
 
 def alive(hb=None, now=None) -> bool:
-    """A fresh heartbeat, or failing that the lock a live loop holds - which
-    covers a tick slower than ALIVE_WITHIN and the first tick before any
-    beat."""
+    """Is a loop running here? Every loop holds the lock for its whole life
+    and the OS lets go the moment it ends, so once the lock file exists the
+    lock alone decides. That covers a tick slower than ALIVE_WITHIN and the
+    first tick before any beat; and a fresh beat under a free lock is a loop
+    killed hard just after it beat, which must not block its own restart.
+    Only where no loop has made the lock file yet does a fresh beat count."""
+    if LOCK.exists():
+        return locked()
     hb = heartbeat() if hb is None else hb
     if hb and str(hb.get("state", "")).startswith(("running", "waiting", "paused", "starting")):
         beat = parse_utc(hb.get("beat_at"))
         if beat is not None and (now or utcnow()) - beat <= ALIVE_WITHIN:
             return True
-    return locked()
+    return False
 
 
 def hung(hb=None, now=None) -> str | None:
@@ -536,10 +543,11 @@ def live() -> int:
     if why:
         print(f"REFUSED: {why}")
         return 2
-    lock = None if alive() else take_lock()        # held until this process ends
+    # The lock first, and only the lock: a fresh heartbeat under a free lock
+    # is a loop that has already ended (alive()).
+    lock = take_lock()                             # held until this process ends
     if lock is None:
-        print("REFUSED: a polling loop is already running (a fresh heartbeat,"
-              f" or it holds {LOCK}).")
+        print(f"REFUSED: a polling loop is already running (it holds {LOCK}).")
         return 2
     db.init()
     from ingest.raw import save_raw

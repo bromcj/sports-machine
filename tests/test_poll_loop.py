@@ -91,6 +91,28 @@ def _of_record():
     poll.RECORD.write_text(str(paths.DATA_DIR.resolve()))
 
 
+def _fake_loop(monkeypatch):
+    """live() with no real loop in it: no source is built, so nothing can
+    reach the network, and the loop's run() records what it sees from
+    inside the running `poll --live`."""
+    seen = {}
+
+    class FakePoller:
+        def __init__(self, source, *a, **k):
+            pass
+
+        def run(self):
+            other = poll.take_lock()                 # a second loop, right now
+            seen["second loop took the lock"] = other is not None
+            if other is not None:
+                other.close()
+            seen["locked"] = poll.locked()
+            return 0
+    monkeypatch.setattr(poll, "Poller", FakePoller)
+    monkeypatch.setattr(poll, "OddsSource", lambda *a, **k: None)
+    return seen
+
+
 def test_a_due_sport_is_polled_and_its_prices_stored(env):
     start = T0 + dt.timedelta(minutes=45)                # closing tier
     get = FakeGet([start])
@@ -469,6 +491,37 @@ def test_a_loop_that_holds_the_lock_is_never_doubled_however_old_its_beat(env, m
     mine = poll.take_lock()
     assert mine is not None and poll.take_lock() is None       # one loop, even here
     mine.close()
+
+
+def test_a_loop_killed_hard_just_after_a_beat_does_not_block_its_restart(env, monkeypatch):
+    # Every loop holds the lock for its whole life, and the OS lets go the
+    # moment it ends. A fresh beat under a free lock is a loop killed hard
+    # (taskkill /F, a crash) inside 5 min of its last beat - and it blocked
+    # its own restart: ensure() said "running (pid <the dead one>)" and a new
+    # `poll --live` was refused, until a scheduled run found the beat old.
+    monkeypatch.setattr(config, "POLLING_ENABLED", True)
+    seen = _fake_loop(monkeypatch)
+
+    class P:
+        pid = 4242
+    started = []
+    spawn = lambda: (started.append(1), P())[1]               # noqa: E731
+    _of_record()
+    poll.HEARTBEAT.write_text(json.dumps({
+        "state": "running", "pid": 7, "code_sha": db.code_sha(),
+        "beat_at": (T0 - dt.timedelta(minutes=1)).isoformat()}))
+    assert poll.alive(now=T0)                 # no lock file yet: the beat is all there is
+    poll.take_lock().close()                  # a loop held it, and is gone
+    assert not poll.alive(now=T0)
+    assert poll.ensure(spawn=spawn, now=T0).startswith("started") and started == [1]
+    assert poll.live() == 0 and seen["locked"]
+    held = poll.take_lock()                   # held, it still keeps a second loop out
+    try:
+        assert poll.alive(now=T0)
+        assert poll.ensure(spawn=spawn, now=T0).startswith("running") and started == [1]
+        assert poll.live() == 2
+    finally:
+        held.close()
 
 
 # ------------------------------------------------------------ supervisor ---
