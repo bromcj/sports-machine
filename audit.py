@@ -1155,10 +1155,127 @@ def main() -> int:
     return _finish()
 
 
+# Top-level folders that hold data, history or tooling, never code. The
+# paper-only scans read everything else, tests/ and the job files included.
+NOT_CODE = {"archive", "data", "data_golden", "data_phase1", "logs",
+            ".git", ".venv", ".pytest_cache", "__pycache__"}
+
+
+def paper_only_scan(root=ROOT):
+    """What the three static paper-only checks find under `root`: (senders,
+    order endpoints or calls, arm() calls), each a list of "file:line" hits.
+    It reads code, not data, so tests/test_paper_only_scan.py runs it on every
+    push as well."""
+    import ast
+    import re
+    # Nothing may SEND anything to anyone, except the owner's opt-in phone
+    # alert. Found by parsing every module and reading every job file, not
+    # from a list of known files. A sending name counts wherever it appears -
+    # called, passed along (functools.partial, `send_it = requests.post`) or
+    # imported under another name - not only where it is called.
+    SEND = {"post", "put", "patch", "delete", "request", "urlopen", "send",
+            "stream", "putrequest", "build_opener", "sendall", "sendto"}
+    NET = {"requests", "httpx", "aiohttp", "urllib", "urllib3", "http", "socket"}
+    ALLOWED = {("notify.py", "_ntfy")}
+    # Matched against strings and against names: an SDK's create_order() is
+    # an order path with no URL in sight.
+    ORDER = re.compile(r"(?i)/portfolio/|/orders?\b|(?<![a-z0-9])"
+                       r"(?:place|create|submit|cancel|amend|post)_?orders?(?![a-z0-9])")
+    # A shell doing the sending, in a job file or handed to subprocess / os.
+    SHELL = re.compile(r"(?i:\bcurl\b.*\s(?:-X\s*|--request\s+)(?:POST|PUT|PATCH|DELETE)\b)"
+                       r"|\bcurl\b.*\s(?:-d|--data[\w-]*|--json)\b"
+                       r"|(?i:\bwget\b.*\s--(?:post-data|post-file|method)\b)"
+                       r"|(?i:\b(?:Invoke-WebRequest|Invoke-RestMethod|iwr|irm)\b"
+                       r".*\s-Method\s+(?:Post|Put|Patch|Delete)\b)")
+    RUN = {"run", "call", "check_call", "check_output", "Popen", "system", "popen",
+           "getoutput", "getstatusoutput", "startfile"}
+    senders, order_strings, arm_calls = [], [], []
+    tops = [t for t in sorted(root.iterdir()) if t.name not in NOT_CODE]
+
+    def found(pattern):
+        return sorted(f for t in tops for f in ([t] if t.is_file() else t.rglob(pattern))
+                      if f.match(pattern))
+
+    def base(node):                      # requests in requests.api.post
+        while isinstance(node, ast.Attribute):
+            node = node.value
+        return node.id if isinstance(node, ast.Name) else None
+
+    for p in found("*.py"):
+        rel = p.relative_to(root).as_posix()
+        tree = ast.parse(p.read_text(encoding="utf-8"))
+        owner = {}
+        for fn in ast.walk(tree):
+            if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                for n in ast.walk(fn):
+                    owner.setdefault(id(n), fn.name)
+        # This file is exempt from the order-string and arm() scans only: it
+        # holds the ORDER pattern itself, and BETTING GUARD calls arm() on a
+        # throwaway probe inside a validation.json it restores exactly. The
+        # tests call arm() on throwaway files too, so they are read for
+        # senders and orders but not for arm().
+        itself = rel == "audit.py"
+        in_tests = rel.split("/")[0] == "tests"
+        # The names this file gave a network module: getattr(requests, ...)
+        # sends whatever it spells.
+        net = set()
+        for n in ast.walk(tree):
+            if isinstance(n, ast.Import):
+                net |= {a.asname or a.name.split(".")[0] for a in n.names
+                        if a.name.split(".")[0] in NET}
+            if isinstance(n, ast.ImportFrom) and (n.module or "").split(".")[0] in NET:
+                net |= {a.asname or a.name for a in n.names}
+        for n in ast.walk(tree):
+            allowed = (rel, owner.get(id(n))) in ALLOWED
+            if isinstance(n, ast.Attribute) and n.attr in SEND and not allowed:
+                senders.append(f"{rel}:{n.lineno} .{n.attr}")
+            if isinstance(n, (ast.Import, ast.ImportFrom)):
+                for a in n.names:
+                    if (isinstance(n, ast.ImportFrom) and a.name in SEND and not allowed
+                            and (n.module or "").split(".")[0] in NET):
+                        senders.append(f"{rel}:{n.lineno} from {n.module} import {a.name}")
+                    for name in (a.name, a.asname):
+                        if name and ORDER.search(name):
+                            order_strings.append(f"{rel}:{n.lineno} {name}")
+            if isinstance(n, ast.Call):
+                f = n.func
+                name = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", None)
+                if isinstance(f, ast.Name) and name in SEND and not allowed:
+                    senders.append(f"{rel}:{n.lineno} {name}()")
+                if name == "getattr" and n.args and base(n.args[0]) in net:
+                    senders.append(f"{rel}:{n.lineno} getattr({base(n.args[0])}, ...)")
+                if name in RUN or re.fullmatch(r"(?:exec|spawn)[lv]p?e?", str(name)):
+                    words = " ".join(c.value for c in ast.walk(n)
+                                     if isinstance(c, ast.Constant) and isinstance(c.value, str))
+                    if SHELL.search(words):
+                        senders.append(f"{rel}:{n.lineno} {name}() runs a sending shell command")
+                if name == "arm" and rel != "model/validation.py" and not itself and not in_tests:
+                    arm_calls.append(f"{rel}:{n.lineno}")
+            ident = (n.id if isinstance(n, ast.Name) else n.attr if isinstance(n, ast.Attribute)
+                     else n.name if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef,
+                                                   ast.ClassDef)) else None)
+            if ident and ORDER.search(ident):
+                order_strings.append(f"{rel}:{n.lineno} {ident}")
+            if (isinstance(n, ast.Constant) and isinstance(n.value, str)
+                    and not itself and ORDER.search(n.value)):
+                order_strings.append(f"{rel}:{n.lineno}")
+    # The scheduled jobs and the cloud's workflows run code too.
+    jobs = [f for pattern in ("*.bat", "*.cmd", "*.ps1", "*.sh") for f in found(pattern)]
+    jobs += [f for pattern in ("*.yml", "*.yaml")
+             for f in sorted((root / ".github" / "workflows").glob(pattern))]
+    for p in jobs:
+        rel = p.relative_to(root).as_posix()
+        for i, line in enumerate(p.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+            if SHELL.search(line):
+                senders.append(f"{rel}:{i} {line.strip()[:60]}")
+            if ORDER.search(line):
+                order_strings.append(f"{rel}:{i}")
+    return senders, order_strings, arm_calls
+
+
 def scanner_checks(_false_pass):
     """The scanner (docs/briefs/2026-09-25-next-task.md): paper only, one
     fair price, fees that match the venue's rule, gates as strict as a sport's."""
-    import ast
     import contextlib
     import io
     import re
@@ -1166,37 +1283,7 @@ def scanner_checks(_false_pass):
     import config as cfg
 
     section("SCANNER: PAPER ONLY")
-    # Nothing may SEND anything to anyone, except the owner's opt-in phone
-    # alert. Found by parsing every module, not from a list of known files.
-    SEND = {"post", "put", "patch", "delete", "request", "urlopen", "send"}
-    ALLOWED = {("notify.py", "_ntfy")}
-    ORDER = re.compile(r"(?i)/portfolio/|/orders?\b|\b(?:place|create|submit|cancel|amend)_?orders?\b")
-    senders, order_strings, arm_calls = [], [], []
-    for p in sorted(ROOT.rglob("*.py")):
-        rel = p.relative_to(ROOT).as_posix()
-        if rel.split("/")[0] in ("tests", "archive") or rel.startswith("data"):
-            continue
-        tree = ast.parse(p.read_text(encoding="utf-8"))
-        owner = {}
-        for fn in ast.walk(tree):
-            if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                for n in ast.walk(fn):
-                    owner.setdefault(id(n), fn.name)
-        # This file is exempt from the last two scans only: it holds the
-        # ORDER pattern itself, and BETTING GUARD calls arm() on a throwaway
-        # probe inside a validation.json it restores exactly.
-        itself = rel == "audit.py"
-        for n in ast.walk(tree):
-            if isinstance(n, ast.Call):
-                f = n.func
-                name = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", None)
-                if name in SEND and (rel, owner.get(id(n))) not in ALLOWED:
-                    senders.append(f"{rel}:{n.lineno} .{name}()")
-                if name == "arm" and rel != "model/validation.py" and not itself:
-                    arm_calls.append(f"{rel}:{n.lineno}")
-            if (isinstance(n, ast.Constant) and isinstance(n.value, str)
-                    and not itself and ORDER.search(n.value)):
-                order_strings.append(f"{rel}:{n.lineno}")
+    senders, order_strings, arm_calls = paper_only_scan()
     check("no module sends anything but GETs (only the opt-in phone alert posts)",
           not senders, ", ".join(senders[:5]) or "0 non-GET calls outside notify._ntfy")
     check("no order endpoint appears anywhere in the code", not order_strings,
