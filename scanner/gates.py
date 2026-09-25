@@ -133,22 +133,23 @@ def measured(con, name: str, metric: str, now) -> dict:
         events[mode] = list(by_event.values())
     settled = con.execute("SELECT COUNT(*) FROM paper_positions WHERE strategy=?"
                           " AND mode='paper' AND result IS NOT NULL", (name,)).fetchone()[0]
-    if metric == "info":
-        graded = sum(len(e) for e in events["paper"])
-        coverage = graded / settled if settled else None
-    else:
-        # Every settled position has a realized EV, so the honest question is
-        # how many of the positions that SHOULD have settled did - counted
-        # over the same positions top and bottom, or a recent settlement
-        # stands in for an old one that never settled. A position with no
-        # resolves_at cannot be shown not to be due yet, so it counts as due:
-        # against coverage until it settles (fails closed).
-        due_before = canon_ts(parse_utc(canon_ts(now)) - dt.timedelta(hours=SETTLE_GRACE_H))
-        due, settled_due = con.execute(
-            "SELECT COUNT(*), COUNT(result) FROM paper_positions WHERE strategy=?"
-            " AND mode='paper' AND (resolves_at IS NULL OR resolves_at < ?)",
-            (name, due_before)).fetchone()
-        coverage = settled_due / due if due else None
+    # Coverage: of the positions that SHOULD have settled by now, the share
+    # that counts - settled, for realized_ev (every settled position has
+    # one); graded AND settled, for info. Counted over the same positions top
+    # and bottom, or a recent settlement stands in for an old one that never
+    # settled; and over positions due, not positions settled, or one that
+    # never settles is invisible (re-verification 2026-09-25: info passed at
+    # "100%" with 60 of 260 resolved positions graded). A position with no
+    # resolves_at cannot be shown not to be due yet, so it counts as due:
+    # against coverage until it settles (fails closed).
+    due_before = canon_ts(parse_utc(canon_ts(now)) - dt.timedelta(hours=SETTLE_GRACE_H))
+    due, settled_due, graded_due = con.execute(
+        "SELECT COUNT(*), COUNT(result), COUNT(CASE WHEN result IS NOT NULL THEN info END)"
+        " FROM paper_positions WHERE strategy=?"
+        " AND mode='paper' AND (resolves_at IS NULL OR resolves_at < ?)",
+        (name, due_before)).fetchone()
+    counted = graded_due if metric == "info" else settled_due
+    coverage = counted / due if due else None
     mean = lambda event: sum(p[col] for p in event) / len(event)
     return {"values": [mean(e) for e in events["paper"]],
             "slots": [_slot(e) for e in events["paper"]],

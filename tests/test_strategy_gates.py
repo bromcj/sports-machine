@@ -427,11 +427,34 @@ def test_info_coverage_counts_only_graded_positions_that_settled(env):
     _positions(env, "t_one", [rng.gauss(0, 2.9) for _ in range(60)], mode="placebo")
     _positions(env, "t_one", [5.0] * 60, mode="placebo", settled=False)
     m = gates.measured(env, "t_one", "info", NOW)
-    assert m["coverage"] == pytest.approx(60 / 150) and len(m["values"]) == 60
+    # All 240 are due: only the 60 graded AND settled count.
+    assert m["coverage"] == pytest.approx(60 / 240) and len(m["values"]) == 60
     assert len(m["placebo"]) == 60
     r = gates.score(env, "t_one", NOW)
     assert not r["passed"] and "COVERAGE" in r["reason"]
     assert v.arm("t_one").startswith("REFUSED")
+
+
+def test_info_coverage_counts_positions_that_never_settled(env):
+    # A settlement hook that settles a position only once it is graded never
+    # settles an ungradable one. Divided by 'settled', those were invisible:
+    # gate 2 passed, and arm() opened, at "100%" coverage with 60 of 260
+    # resolved positions graded (re-verification 2026-09-25). The same 'due'
+    # denominator realized_ev uses.
+    _strategy()
+    gates.record_backtest("t_one", T1, True, "passed", {"n": 500})
+    rng = random.Random(1)
+    _positions(env, "t_one", STRONG)                               # due, graded, settled
+    _positions(env, "t_one", [None] * 200, settled=False)          # due, never settled
+    _positions(env, "t_one", [rng.gauss(0, 2.9) for _ in range(60)], mode="placebo")
+    assert gates.measured(env, "t_one", "info", NOW)["coverage"] == pytest.approx(60 / 260)
+    r = gates.score(env, "t_one", NOW)
+    assert not r["passed"] and "COVERAGE" in r["reason"]
+    assert v.arm("t_one").startswith("REFUSED - gate 2")
+    # Not due yet (resolved 2 hours ago): on neither side of the fraction.
+    _positions(env, "t_one", [None] * 20, settled=False)
+    _set_resolves_at(env, 20, (NOW - dt.timedelta(hours=2)).isoformat())
+    assert gates.measured(env, "t_one", "info", NOW)["coverage"] == pytest.approx(60 / 260)
 
 
 def test_gate_2_counts_events_not_positions(env):
