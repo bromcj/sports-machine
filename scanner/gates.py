@@ -1,9 +1,10 @@
 """Each strategy's own gates, in validation.json, under its own name.
 
   gate 1   record_backtest(): its pre-registered backtest. Refused unless the
-           strategy is registered and its experiment is a heading in
-           docs/experiments.md. This is the deliberate act that CREATES the
-           strategy's block, by hand, in a committed change.
+           strategy is registered, the experiment is the one it is
+           registered against, and that is a heading in docs/experiments.md
+           above the Results log. This is the deliberate act that CREATES
+           the strategy's block, by hand, in a committed change.
   gate 2   score(): model.validation.record_paper - unchanged, the sport
            models' rules - on the strategy's own graded paper positions,
            its own coverage, its own placebo. It only ever updates the
@@ -23,6 +24,7 @@ near-normal values - the info metric - and says nothing about realized_ev.
 More looks, looser gate; the cap keeps it where it was measured.
 """
 import datetime as dt
+import re
 from pathlib import Path
 
 from feeds import ET, parse_utc
@@ -46,18 +48,35 @@ UNCALIBRATED = ("realized_ev cannot pass gate 2 yet: the 3-SE bar was calibrated
                 " payoff has to be pre-registered first")
 
 
+def _preregistered() -> set:
+    """Every markdown heading in docs/experiments.md above its Results log,
+    outside ``` fences: the pre-registrations, not the results."""
+    out, fenced = set(), False
+    for ln in EXPERIMENTS.read_text(encoding="utf-8").splitlines():
+        if ln.startswith(("```", "~~~")):
+            fenced = not fenced
+            continue
+        m = None if fenced else re.match(r"#{1,6}\s+(.+?)(?:\s+#+)?\s*$", ln)
+        if m and m.group(1) == "Results log":
+            break
+        if m:
+            out.add(m.group(1))
+    return out
+
+
 def record_backtest(name: str, experiment: str, passed: bool, reason: str,
                     evidence: dict) -> dict:
-    strategies.get(name)                             # must be registered
+    s = strategies.get(name)                         # must be registered
+    if experiment.strip() != s.experiment.strip():
+        raise ValueError(f"{name} is registered against {s.experiment!r}, not"
+                         f" {experiment!r}: gate 1 is the test its own entry"
+                         f" pre-registers")
     # The WHOLE heading, not a prefix: "E1" alone would match the unrelated
     # 2026-09-23 "E1. The market's recipe vs reality's recipe".
-    headings = {ln.lstrip("#").strip() for ln in
-                EXPERIMENTS.read_text(encoding="utf-8").splitlines()
-                if ln.startswith("#")}
-    if experiment.strip() not in headings:
-        raise ValueError(f"{experiment!r} is not a heading in docs/experiments.md"
-                         f" (the whole heading): pre-register it before recording"
-                         f" a result")
+    if experiment.strip() not in _preregistered():
+        raise ValueError(f"{experiment!r} is not a heading above the Results log"
+                         f" in docs/experiments.md (the whole heading): pre-register"
+                         f" it before recording a result")
     return validation.record_backtest(name, experiment, passed, reason, evidence)
 
 

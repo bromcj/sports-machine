@@ -18,6 +18,7 @@ from scanner.venues import kalshi, sportsbook
 UTC = dt.timezone.utc
 NOW = dt.datetime(2026, 11, 3, 16, 0, tzinfo=UTC)
 T1 = "T1. A test strategy's backtest"
+T2 = "T2. Another test strategy's backtest"
 
 
 @pytest.fixture
@@ -25,7 +26,9 @@ def env(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "t.db")
     monkeypatch.setattr(v, "PATH", tmp_path / "validation.json")
     exp = tmp_path / "experiments.md"
-    exp.write_text("# x\n\n### T1. A test strategy's backtest\n", encoding="utf-8")
+    exp.write_text(f"# x\n\n### {T1}\n\n### {T2}\n\n```\n# T3. Inside a code fence\n```\n\n"
+                   f"## Results log\n\n### T4. A result, not a pre-registration\n",
+                   encoding="utf-8")
     monkeypatch.setattr(gates, "EXPERIMENTS", exp)
     monkeypatch.setattr(strategies, "REGISTRY", {})
     db.init()
@@ -91,6 +94,21 @@ def test_gate_1_needs_a_registered_strategy_and_a_preregistered_experiment(env):
     assert "backtest FAIL (lost)" in v.explain("t_one")
 
 
+def test_gate_1_is_the_strategys_own_entry_and_a_real_pre_registration(env):
+    _strategy()                                                  # on T1
+    with pytest.raises(ValueError, match="pre-register"):       # a real, other entry
+        gates.record_backtest("t_one", T2, True, "r", {"n": 1})
+    with pytest.raises(ValueError, match="own entry"):          # one entry, two strategies
+        _strategy("t_two")
+    for name, entry in (("t_fence", "T3. Inside a code fence"),
+                        ("t_log", "Results log"),
+                        ("t_result", "T4. A result, not a pre-registration")):
+        _strategy(name, experiment=entry)
+        with pytest.raises(ValueError, match="pre-register"):
+            gates.record_backtest(name, entry, True, "r", {"n": 1})
+    assert all(v.status(n) is None for n in ("t_one", "t_fence", "t_log", "t_result"))
+
+
 def test_a_backtest_can_never_be_written_onto_a_sports_block(env):
     # A sport's gate 1 is its walk-forward. The low-level recorder must not
     # turn one into a backtest PASS, whatever name it is handed.
@@ -144,9 +162,9 @@ def test_score_writes_nothing_without_a_gate_1_record(env):
 
 def test_a_strategy_passes_gate_2_on_its_own_positions_only(env):
     _strategy("t_one")
-    _strategy("t_two")
-    for name in ("t_one", "t_two"):
-        gates.record_backtest(name, T1, True, "passed", {"n": 500})
+    _strategy("t_two", experiment=T2)
+    for name, entry in (("t_one", T1), ("t_two", T2)):
+        gates.record_backtest(name, entry, True, "passed", {"n": 500})
     rng = random.Random(1)
     _positions(env, "t_one", STRONG)
     _positions(env, "t_one", [rng.gauss(0, 2.9) for _ in range(60)], mode="placebo")
@@ -356,6 +374,7 @@ def test_one_pass_of_a_strategy_places_its_order_and_its_placebo(env):
     modes = [r[0] for r in env.execute("SELECT mode FROM paper_orders ORDER BY order_id")]
     assert modes == ["paper", "placebo"]
     # A venue the strategy does not trade is refused before any order.
-    s2 = _strategy("t_two", venues=("sportsbook",), signal=lambda con, now: [buy])
+    s2 = _strategy("t_two", venues=("sportsbook",), signal=lambda con, now: [buy],
+                   experiment=T2)
     out2 = strategies.run(env, s2, NOW)
     assert out2["orders"] == 0 and "not a venue" in out2["refused"][0]

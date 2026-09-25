@@ -17,7 +17,8 @@ A Strategy is:
               than 50 graded positions, so a strategy whose placebo places
               nothing can never pass.
   metric      'info' or 'realized_ev' - what its gate 2 measures (S0)
-  experiment  the whole heading of its entry in docs/experiments.md
+  experiment  the whole heading of its entry in docs/experiments.md - its
+              own: no two strategies may share one
   execute     execute(con, intent, now, mode) -> order_id. Default: a paper
               order through scanner.paper.submit
   grade       grade(con, position, now) -> None. Default: scanner.paper.grade
@@ -92,6 +93,10 @@ def register(s: Strategy) -> Strategy:
         raise ValueError(f"{s.name}: a signal and a placebo are both required")
     if not s.experiment:
         raise ValueError(f"{s.name}: name its entry in docs/experiments.md")
+    for other in REGISTRY.values():
+        if other.name != s.name and other.experiment.strip() == s.experiment.strip():
+            raise ValueError(f"{s.name}: {other.name} is already registered against"
+                             f" {s.experiment!r} - each strategy needs its own entry")
     if not s.venues:
         raise ValueError(f"{s.name}: which venues may it trade?")
     for v in s.venues:
