@@ -1,12 +1,13 @@
 """audit.py's paper-only scans, run on every push.
 
 The first checks under SCANNER: PAPER ONLY read the code, not data: nothing
-may send anything but a GET (the owner's opt-in phone alert aside), and no
-order endpoint or order call may appear anywhere. CI has no data, so it cannot
-run audit.py; it runs the same scan here, on this checkout, and on files
-planted in a temporary folder. Each plant is a way code could place an order.
-The scan reads one file at a time, so a plant alone in a folder is caught
-exactly as it would be among the real modules.
+may send anything but a GET (the owner's opt-in phone alert aside), no order
+endpoint or order call may appear anywhere, and nothing may call arm(). CI has
+no data, so it cannot run audit.py; it runs the same scan here, on this
+checkout, and on files planted in a temporary folder. Each plant is a way code
+could place an order or arm a strategy. The scan reads one file at a time, so
+a plant alone in a folder is caught exactly as it would be among the real
+modules.
 
 The plants spell the order path and the SDK call in pieces: the scan reads
 tests/ too, and either written whole in this file would be a hit on it.
@@ -89,6 +90,32 @@ SCRIPTS = {
 }
 
 
+# Ways code could arm a strategy, which must stay a person's act (gate 3).
+# tests/ is not read for these: the gate tests arm throwaway files on purpose.
+V = "from model import validation\n\n\ndef go():\n"
+ARMS = {
+    "validation.arm('x')": ("scanner/zz_arm.py", V + "    validation.arm('x')\n"),
+    "from ... import arm; arm('x')":
+        ("scanner/zz_arm.py", "from model.validation import arm\n\n\ndef go():\n    arm('x')\n"),
+    "from ... import arm as switch_on":
+        ("scanner/zz_arm.py",
+         "from model.validation import arm as switch_on\n\n\ndef go():\n    switch_on('x')\n"),
+    "getattr(validation, 'arm')": ("scanner/zz_arm.py", V + "    getattr(validation, 'arm')('x')\n"),
+    "a bound name: f = validation.arm":("scanner/zz_arm.py", V + "    f = validation.arm\n    f('x')\n"),
+    "functools.partial(validation.arm)":
+        ("scanner/zz_arm.py", "import functools\n" + V + "    functools.partial(validation.arm, 'x')()\n"),
+    "python -c from subprocess":
+        ("scanner/zz_arm.py", 'import subprocess\nsubprocess.run(["python", "-c",'
+                              ' "from model.validation import arm; arm(\'x\')"])\n'),
+    "a top-level module named data*": ("data_tools.py", V + "    validation.arm('x')\n"),
+    "a scheduled .bat job":
+        ("zz_job.bat", '@echo off\npython -c "from model import validation; validation.arm(\'x\')"\n'),
+    "a workflow step":
+        (".github/workflows/zz.yml",
+         "jobs:\n  go:\n    steps:\n      - run: python -c \"import model.validation as v; v.arm('x')\"\n"),
+}
+
+
 def _plant(root, rel, body):
     p = root / rel
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -101,9 +128,10 @@ def _caught(root):
 
 
 def test_this_checkout_is_paper_only():
-    senders, orders, _ = audit.paper_only_scan()
+    senders, orders, arms = audit.paper_only_scan()
     assert senders == [], senders
     assert orders == [], orders
+    assert arms == [], arms
 
 
 @pytest.mark.parametrize("shape", sorted(SHAPES))
@@ -133,3 +161,18 @@ def test_the_phone_alert_is_the_only_post_allowed(tmp_path):
     _plant(tmp_path, "notify.py", body.format("deliver"))
     senders = audit.paper_only_scan(tmp_path)[0]
     assert len(senders) == 1 and senders[0].startswith("notify.py:5 "), senders
+
+
+@pytest.mark.parametrize("shape", sorted(ARMS))
+def test_every_way_of_calling_arm_is_caught(tmp_path, shape):
+    rel, body = ARMS[shape]
+    _plant(tmp_path, rel, body)
+    assert audit.paper_only_scan(tmp_path)[2], shape
+
+
+def test_only_the_audits_own_probe_may_call_arm(tmp_path):
+    guard = "def betting_guard(v, probe):\n    v.arm(probe)\n"
+    _plant(tmp_path, "audit.py", guard)
+    assert audit.paper_only_scan(tmp_path)[2] == []
+    _plant(tmp_path, "audit.py", guard + "\n\ndef later(v):\n    v.arm('kalshi_mlb_ml')\n")
+    assert audit.paper_only_scan(tmp_path)[2], "an arm() anywhere else in audit.py"

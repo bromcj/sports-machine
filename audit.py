@@ -1189,6 +1189,10 @@ def paper_only_scan(root=ROOT):
                        r".*\s-Method\s+(?:Post|Put|Patch|Delete)\b)")
     RUN = {"run", "call", "check_call", "check_output", "Popen", "system", "popen",
            "getoutput", "getstatusoutput", "startfile"}
+    # arm() is gate 3, a person's act. Any reference to it counts, not only a
+    # call spelled arm(...): an alias, a bound name, getattr(v, "arm"),
+    # functools.partial, or a `python -c` in a string or a job file.
+    ARM = re.compile(r"\barm\s*\(\s*[^\s)]|\bimport\b.*\barm\b")
     senders, order_strings, arm_calls = [], [], []
     tops = [t for t in sorted(root.iterdir()) if t.name not in NOT_CODE]
 
@@ -1209,13 +1213,17 @@ def paper_only_scan(root=ROOT):
             if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 for n in ast.walk(fn):
                     owner.setdefault(id(n), fn.name)
-        # This file is exempt from the order-string and arm() scans only: it
-        # holds the ORDER pattern itself, and BETTING GUARD calls arm() on a
-        # throwaway probe inside a validation.json it restores exactly. The
-        # tests call arm() on throwaway files too, so they are read for
-        # senders and orders but not for arm().
+        # This file's strings are exempt from the order and arm() scans: they
+        # hold the patterns themselves. Its one allowed arm() is BETTING
+        # GUARD's, on a throwaway probe inside a validation.json it restores
+        # exactly. The tests call arm() on throwaway files too, so they are
+        # read for senders and orders but not for arm().
         itself = rel == "audit.py"
-        in_tests = rel.split("/")[0] == "tests"
+        gate = rel != "model/validation.py" and rel.split("/")[0] != "tests"
+        probe = {id(n.func) for n in ast.walk(tree) if itself and isinstance(n, ast.Call)
+                 and ast.unparse(n).endswith(".arm(probe)")}
+        docs = {id(n.value) for n in ast.walk(tree)     # docstrings describe arm(),
+                if isinstance(n, ast.Expr)}                # they do not call it
         # The names this file gave a network module: getattr(requests, ...)
         # sends whatever it spells.
         net = set()
@@ -1249,8 +1257,13 @@ def paper_only_scan(root=ROOT):
                                      if isinstance(c, ast.Constant) and isinstance(c.value, str))
                     if SHELL.search(words):
                         senders.append(f"{rel}:{n.lineno} {name}() runs a sending shell command")
-                if name == "arm" and rel != "model/validation.py" and not itself and not in_tests:
-                    arm_calls.append(f"{rel}:{n.lineno}")
+            if gate and id(n) not in probe and (
+                    isinstance(n, ast.Attribute) and n.attr == "arm"
+                    or isinstance(n, ast.Name) and n.id == "arm"
+                    or isinstance(n, ast.ImportFrom) and any(a.name == "arm" for a in n.names)
+                    or (isinstance(n, ast.Constant) and isinstance(n.value, str) and not itself
+                        and id(n) not in docs and (n.value == "arm" or ARM.search(n.value)))):
+                arm_calls.append(f"{rel}:{n.lineno}")
             ident = (n.id if isinstance(n, ast.Name) else n.attr if isinstance(n, ast.Attribute)
                      else n.name if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef,
                                                    ast.ClassDef)) else None)
@@ -1270,6 +1283,8 @@ def paper_only_scan(root=ROOT):
                 senders.append(f"{rel}:{i} {line.strip()[:60]}")
             if ORDER.search(line):
                 order_strings.append(f"{rel}:{i}")
+            if ARM.search(line):
+                arm_calls.append(f"{rel}:{i}")
     return senders, order_strings, arm_calls
 
 
