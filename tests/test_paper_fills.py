@@ -142,6 +142,20 @@ def test_a_maker_that_would_cross_the_ask_is_refused(con):
     _order(con, mid, role="taker", size=10, limit_price=0.41, now=at(1))
 
 
+def test_a_maker_is_judged_against_the_ask_showing_now_not_an_old_one(con):
+    # An hour ago the yes ask was 0.40; the latest book shows no yes ask at
+    # all (nobody bids NO). A maker at 0.45 crosses nothing now. The check
+    # read the newest ask row of any age and refused it.
+    mid, _ = _kmarket(con)
+    _book(con, mid, -60, [("0.6000", "500")])                   # yes ask 0.40
+    _book(con, mid, -1, [], yes_bids=(("0.3000", "10"),))        # no yes ask
+    _order(con, mid, role="maker", size=10, limit_price=0.45, expires_at=at(60))
+    _book(con, mid, 1, [("0.5000", "500")])                      # yes ask 0.50
+    with pytest.raises(Refused, match="as a taker"):
+        _order(con, mid, role="maker", size=10, limit_price=0.50, now=at(2),
+               expires_at=at(60))
+
+
 def test_a_maker_expires(con):
     mid, _ = _kmarket(con)
     _book(con, mid, -1, [("0.5000", "500")])

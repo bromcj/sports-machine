@@ -142,11 +142,14 @@ def submit(con, *, strategy: str, mode: str, market_id: str, outcome: str,
     if role == "maker":
         # A limit at or through the ask showing now would not rest: the venue
         # matches it at once, at the ask, with the taker fee (or cancels it,
-        # if post-only). Only what was captured by `now` is read.
+        # if post-only). Only what was captured by `now` is read, and only
+        # the latest observation of this outcome's book: an older ask is
+        # gone if that one shows none, and there is nothing to cross.
         ask = con.execute(
             "SELECT price, captured_at FROM prices WHERE market_id=? AND outcome=?"
-            " AND quote='ask' AND level=1 AND captured_at <= ?"
-            " ORDER BY captured_at DESC LIMIT 1", (market_id, outcome, now)).fetchone()
+            " AND quote='ask' AND level=1 AND captured_at=(SELECT MAX(captured_at)"
+            " FROM prices WHERE market_id=? AND outcome=? AND captured_at <= ?)",
+            (market_id, outcome, market_id, outcome, now)).fetchone()
         if ask is not None and limit_price >= ask["price"] - 1e-12:
             raise Refused(f"a maker at {limit_price} would cross the {ask['price']} ask"
                           f" showing at {ask['captured_at']}; it would take, so place"
