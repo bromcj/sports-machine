@@ -22,7 +22,8 @@ Three rules that are not optional:
     -10000 because they were already winning). The start is game_start():
     the latest word the feed has given, which may have arrived after `at`.
     That only ever refuses more, except for a delay, which counts only if
-    it was announced before the delayed start (store.upsert_markets).
+    it was announced before the delayed start (sportsbook.next_start for
+    the books, store.upsert_markets for other venues).
     feeds.pregame_books differs: it judges each pull by the start that pull
     itself reported.
   - The de-vig is bets.engine.novig_probs, on the prices as the book quoted
@@ -73,17 +74,18 @@ def game_start(con, mkt) -> str | None:
     `mkt` is a markets row as stored (store.market), so its times compare as
     text.
 
-    Every book market on the game (any type or line) carries the latest
-    start it was given, by store.upsert_markets' rule, so the one to believe
-    is the book priced most recently - the earliest of them if several were
-    priced at that moment. Not the earliest over every book: one that
-    stopped quoting before a rain delay was announced keeps the old start,
-    and every pregame price after it would be refused (Royals @ Twins
-    2026-06-05: Pinnacle, last priced at 23:55, still says 00:16; the others
-    moved to 01:31). Not each book's own either: a book last priced before
-    the feed said the game had started earlier would let its in-play price
-    through (Orioles @ Reds 2024-05-03). An exchange contract's own start
-    caps it too; a book market's is only one of the books'.
+    Every book market on the game (any type or line) carries the game's one
+    start: sportsbook.write and from_snapshots judge each pull's report for
+    the game (sportsbook.next_start) and write it onto all of them. It is
+    read from the book priced most recently - the earliest of them if
+    several were priced at that moment - not the earliest over every book,
+    so a book row left with an older start (one that stopped quoting before
+    a rain delay was announced: Royals @ Twins 2026-06-05, Pinnacle last
+    priced at 23:55 saying 00:16, the others 01:31) cannot refuse every
+    pregame price after it. Not each book's own either: a book last priced
+    before the feed said the game had started earlier would let its in-play
+    price through (Orioles @ Reds 2024-05-03). An exchange contract's own
+    start caps it too; a book market's is only one of the books'.
     """
     rows = con.execute(
         "SELECT m.event_start, (SELECT MAX(p.captured_at) FROM prices p"
