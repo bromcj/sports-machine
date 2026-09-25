@@ -13,7 +13,7 @@ bar, type `powershell`, press Enter.
 |---|---|
 | `python dashboard.py` | Builds the visual page and opens it. Add `--png` for a shareable image. |
 | `python run_daily.py picks` | Tonight's games in the terminal — model vs bookmakers. |
-| `python audit.py` | 86 checks. All green = everything is sound. |
+| `python audit.py` | 100 checks. All green = everything is sound. |
 | **`machine_daily.bat`** | **Double-click.** Pulls what the cloud collected into your local database, then backs it up. |
 
 ---
@@ -55,7 +55,7 @@ python backup.py --restore <file>   put one back (asks first)
 They go to `OneDrive\sports-machine-backups` — off this disk, which is the
 point. Set `SPORTS_MACHINE_BACKUP_DIR` to put them elsewhere.
 
-Every backup is reopened, integrity-checked and row-counted (all twelve
+Every backup is reopened, integrity-checked and row-counted (all nineteen
 tables) before it is kept, and one that fails is deleted rather than left
 looking like protection. `python audit.py` also fails if the newest backup is
 over 7 days old.

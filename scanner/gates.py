@@ -12,9 +12,11 @@
   gate 3   model.validation.arm(name): a person. Nothing here calls it.
 
 LOOKS. score() re-tests gate 2 at most MAX_LOOKS_PER_DAY times per ET day and
-logs every look in gate_looks. The 3-SE bar holds a no-skill strategy to ~2%
-only at that cadence (docs/gates.md, audit.py SEQUENTIAL TESTING); testing
-after every poll would loosen it without a number changing.
+logs every look in gate_looks, so the cadence is the one the simulation
+covers. Measured (docs/gates.md): at 3 SE a no-skill strategy grading 50 a
+day passes by luck 2.3% of the time over 120 days at two looks a day, and
+2.9% if it were re-tested after every graded position. More looks, looser
+gate; the cap keeps it where it was measured.
 """
 import datetime as dt
 from pathlib import Path

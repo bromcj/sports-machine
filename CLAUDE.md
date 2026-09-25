@@ -21,10 +21,16 @@ familiarity with jargon.
   environment — and `props/collect.py` plus two `research/b3` scripts read
   that one straight from the registry, so unsetting `ODDS_API_KEY` in your
   shell does **not** stop them. Never run any of these just to test a change.
+  The scanner's `run_daily.py poll --live` spends the paid key too (3 credits
+  a call), and so does the loop the scheduled job starts once
+  `config.POLLING_ENABLED` is True — it is False, and turning it on is a
+  deliberate commit (brief Phase C4). Its limits (6,000 for the brief,
+  12,000 a month, a daily pace) are in code, checked before every call.
   Free and safe any time: `picks`, `audit`, `dashboard`, `backup`,
-  `cronstatus`, `validation`, `merge_archive`. Free, but they rewrite tracked
-  files: `healthcheck` rewrites `STATUS.md`; `grade`, `paper` and `refresh`
-  rewrite `validation.json`. The production scheduled job discards only the
+  `cronstatus`, `validation`, `merge_archive`, `poll --plan`, `poll --status`,
+  `strategies` (without `--score`). Free, but they rewrite tracked
+  files: `healthcheck` rewrites `STATUS.md`; `grade`, `paper`,
+  `strategies --score` and `refresh` rewrite `validation.json`. The production scheduled job discards only the
   machine's own changes (`STATUS.md`, and `validation.json` when only its
   gate-2 block moved) and refuses on anything else — a `refresh` changes
   gate 1, so it stops the next run. Don't run those four in production.
@@ -54,7 +60,7 @@ familiarity with jargon.
 
 ## Before you claim anything is fixed
 
-`python audit.py` must come back **86 passed, 0 failed**. It re-derives its
+`python audit.py` must come back **100 passed, 0 failed**. It re-derives its
 answers from live data rather than trusting comments, and it is the fastest
 way to know whether a change broke something.
 
@@ -91,7 +97,14 @@ If you were wrong, say so plainly in one sentence and move on.
   14:00 cron fired at 17:58. Any schedule aimed close to first pitch will
   capture in-play prices, which are worthless as a CLV anchor.
 - **Timestamps go in as aware UTC**, via `db.utc_now()`. Mixing naive and
-  aware datetimes raises `TypeError`, not a wrong answer.
+  aware datetimes raises `TypeError`, not a wrong answer. The scanner's
+  tables go further: every time through `scanner.store.canon_ts`, one shape,
+  because they are compared as strings.
+- **A rain delay moves the start time pull by pull.** A game reported at
+  18:11, then 19:11, then 19:41 UTC was still pregame at 18:25. Anything that
+  decides "in play" must use the latest reported start, never the first
+  (found by A-V1; `scanner/venues/sportsbook.from_snapshots`). And no paper
+  fill may use a price captured at or after the start (found by A-V4).
 - **Finished is final.** In every upsert, `status='final'` is terminal and a
   NULL never overwrites a real value. Both ingest paths once wiped completed
   scores when a feed re-reported a game as not started.

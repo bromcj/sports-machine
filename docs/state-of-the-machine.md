@@ -204,7 +204,7 @@ worthwhile price appearing about once in a hundred games.
 
 Three things, in order of how much they tell you.
 
-**1. `python audit.py`** — must come back **86 passed, 0 failed**. It
+**1. `python audit.py`** — must come back **100 passed, 0 failed**. It
 re-derives every answer from live data rather than trusting a comment, and it
 is the fastest way to know whether a change broke something. It is free and
 safe to run any time: it rewrites `validation.json` during its gate checks and

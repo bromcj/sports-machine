@@ -15,7 +15,7 @@
   point it elsewhere.
 - `python -m pytest tests/ -q` passes: 385 passed, 2 skipped on a checkout
   without `data_golden/` (the two skipped are the golden test).
-- `python audit.py` reports **86 passed, 0 failed** against a copy of
+- `python audit.py` reports **100 passed, 0 failed** against a copy of
   production's data.
 
 **What is left for you:** edit in the dev folder, never in production. That
@@ -233,7 +233,7 @@ Expect: a `data` path **inside the dev folder**, and every test passing.
 ```powershell
 cd C:\Users\BromC\sports-machine ; python paths.py ; python audit.py
 ```
-Expect: your real data path, and **86 passed, 0 failed**.
+Expect: your real data path, and **100 passed, 0 failed**.
 
 **3. The scheduled job is not refusing.** After the next 11:30am or 10pm run:
 
