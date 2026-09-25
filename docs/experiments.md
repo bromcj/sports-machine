@@ -426,6 +426,86 @@ The four-week lookback and the `Out` status are fixed here and now.
 
 ---
 
+## Scanner brief (2026-09-25) — pre-registered before any strategy exists
+
+**Written 2026-09-25, during Phase A of `docs/briefs/2026-09-25-next-task.md`,
+before a single scanner price was collected and before any strategy was
+written.** The brief changes the machine's job from predicting games to finding
+prices that are wrong. Every strategy it adds (B, E1–E5) gets its own entry
+here before its first result is looked at. This section fixes what they all
+share, so no later entry can loosen it quietly.
+
+### S0. Rules every strategy inherits
+
+**Its own record, nobody else's.** Each strategy has a block in
+`validation.json` under its own name, the same shape as a sport's. No strategy
+counts another's positions, and a pass by one opens nothing for another.
+
+**Gate 1 — its own backtest.** The strategy's entry here names one historical
+test, its pass rule, and what will not be tuned. `scanner.gates.record_backtest`
+refuses a strategy whose experiment id is not a heading in this file.
+
+**Gate 2 — its own paper record.** Exactly the rules sport models are held to
+(`model.validation.record_paper`, unchanged): 50+ graded positions; the metric's
+mean clears zero by `PAPER_CLV_SIGMA` = 3 standard errors; coverage (graded ÷
+settled) at least 0.75; no ET slot over 60% of graded positions unless coverage
+is at least 0.90 (a position's slot is its event's start time, or its first
+fill's time when the market has no start time); and a placebo, run through the
+same pipeline under the same strategy name, that must **not** clear the same bar.
+
+**The metric is one of two, chosen in the strategy's own entry:**
+
+- `info` = fair close ÷ fair at entry − 1, both from `scanner.fair.fair_value`.
+  **Both ends must come from the same source** (Pinnacle and Pinnacle, or
+  consensus and consensus). A position whose ends disagree is settled but not
+  graded, so it counts against coverage. (The 2026-09-24 review found the MLB
+  gate mixing the two on every graded bet; strategies start without that flaw.)
+- `realized_ev` = profit ÷ capital staked, after fees, per position, where
+  `info` has no meaning (no fair close exists).
+
+**Looks.** Gate 2 is re-tested at most **twice per ET day** per strategy, and
+every look is written to the `gate_looks` table. That is the cadence the
+SEQUENTIAL TESTING simulation in `audit.py` covers; a faster cadence would turn
+the 3-SE bar into a looser one without anyone changing a number.
+
+**Gate 3.** A person calls `arm("<strategy>")`. It refuses unless gates 1 and 2
+pass. Nothing automated calls it.
+
+**Shared machinery, not tunable after a result.** Fair value comes only from
+`fair_value`: Pinnacle de-vigged at the latest pull at or before the moment →
+else the mean de-vigged price across books at that pull → else the venue's own
+mid; the source is recorded. Every EV is after fees, and the fee model is
+recorded on the price row. A paper fill uses the **next** observed price strictly
+after the order, never the current one, and never more than the size shown.
+None of these, the gate thresholds, the coverage rule or a strategy's placebo is
+changed after seeing any strategy's result. A fee model changes only to match a
+venue's published schedule, with the date.
+
+### A-V. Phase A verification checks, pass rules fixed before running
+
+These check code, not the market. None of them computes a strategy's profit or
+EV on real data; the first such number belongs to Phase B or E and needs its own
+entry above.
+
+- **A-V1. One fair price, two code paths.** Copy every archived moneyline pull
+  (`odds_snapshots`) from the last seven days of the 2026-09-25 00:45 ET copy of
+  production into the new `prices` table, then ask `fair_value` for both sides of
+  every pull. **Pass:** every value equals `bets/log.fair_prob` on the same pull
+  within 1e-12, with the same source label. Any disagreement is a defect in one of
+  them, fixed before Phase A is reported.
+- **A-V2. Kalshi's fee arithmetic.** **Pass:** a 50¢ taker contract carries a
+  model fee of $0.0175; 100 of them $1.75; a maker on a plain `quadratic` series
+  pays nothing; an unread fee type (`flat`) refuses rather than guessing.
+- **A-V3. The polling budget.** **Pass:** the planner's own projection keeps the
+  whole brief at or under 6,000 credits, and normal operation at or under 15,000 a
+  month including the props collector's 3,000 cap.
+- **A-V4. No look-ahead.** Orders placed at real capture times against real
+  archived price sequences. **Pass:** every simulated fill uses a price captured
+  strictly after the order; zero exceptions. Timestamps only — no P&L is
+  computed.
+
+---
+
 ## Results log
 
 Part E is written up in full in [part-e-results.md](part-e-results.md);
