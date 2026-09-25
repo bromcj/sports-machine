@@ -1475,8 +1475,11 @@ def scanner_checks(_false_pass):
             bad_ts = 0
             for table, cols in (("prices", ("captured_at", "source_last_update")),
                                 ("markets", ("event_start", "resolves_at", "first_seen")),
-                                ("paper_orders", ("placed_at", "expires_at")),
+                                ("paper_orders", ("placed_at", "expires_at", "fair_as_of")),
                                 ("paper_fills", ("filled_at",)),
+                                # resolves_at is compared as text (gates.measured)
+                                ("paper_positions", ("opened_at", "resolves_at",
+                                                     "settled_at", "graded_at")),
                                 ("credit_ledger", ("ts",)), ("gate_looks", ("looked_at",))):
                 for c in cols:
                     for (v,) in src.execute(f"SELECT DISTINCT {c} FROM {table}"
