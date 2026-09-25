@@ -19,6 +19,12 @@ THE FILL RULES (pre-registered in docs/experiments.md, section S0):
           the bid - at the order's own price, never more than the size shown.
           Touching the price is not enough: others may be ahead in the queue.
 
+A size shown is filled once per strategy and mode. Our fills never leave the
+recorded book, so an offer still showing at the same price in a later
+observation is the same offer, and what this strategy already took from it
+is gone (_unused). Paper and placebo are separate counterfactuals, and one
+strategy does not compete with another.
+
 A sportsbook shows no size, so a book order fills in full or not at all.
 
 Nothing fills at or after a game's start. The Odds API keeps quoting in-play
@@ -176,6 +182,33 @@ def _filled_so_far(con, order_id: int) -> float:
                              " WHERE order_id=?", (order_id,)).fetchone()[0])
 
 
+def _unused(con, o, q) -> float:
+    """What level `q` still shows for this order. Our fills never leave the
+    recorded book, so an offer still showing at the same price in later
+    observations is the same offer: take off what this strategy's orders in
+    this mode already took at that price, here and back to the last
+    observation that did not show it. A size is filled once per strategy and
+    mode - paper and placebo are separate counterfactuals, and one strategy
+    does not compete with another."""
+    gap = con.execute(
+        "SELECT a.captured_at FROM prices a WHERE a.market_id=? AND a.outcome=?"
+        " AND a.quote='ask' AND a.captured_at < ? AND NOT EXISTS (SELECT 1 FROM"
+        " prices b WHERE b.market_id=a.market_id AND b.outcome=a.outcome AND"
+        " b.quote='ask' AND b.captured_at=a.captured_at AND ABS(b.price - ?) < 1e-9)"
+        " ORDER BY a.captured_at DESC LIMIT 1",
+        (q["market_id"], q["outcome"], q["captured_at"], q["price"])).fetchone()
+    used = con.execute(
+        "SELECT COALESCE(SUM(f.contracts), 0) FROM paper_fills f"
+        " JOIN paper_orders o ON o.order_id=f.order_id"
+        " JOIN prices p ON p.price_id=f.price_id"
+        " WHERE o.strategy=? AND o.mode=? AND p.market_id=? AND p.outcome=?"
+        " AND p.quote='ask' AND ABS(p.price - ?) < 1e-9"
+        " AND p.captured_at > ? AND p.captured_at <= ?",
+        (o["strategy"], o["mode"], q["market_id"], q["outcome"], q["price"],
+         gap[0] if gap else "", q["captured_at"])).fetchone()[0]
+    return max(0.0, (q["size_available"] or 0.0) - float(used))
+
+
 def _last_seen(con, order_id: int):
     return con.execute("SELECT MAX(filled_at) FROM paper_fills WHERE order_id=?",
                        (order_id,)).fetchone()[0]
@@ -209,7 +242,7 @@ def simulate(con, now) -> dict:
                     take = o["size"] / q["price"]   # the stake, at the price shown
                     left = 0
                 else:
-                    take = min(left, q["size_available"] or 0.0)
+                    take = min(left, _unused(con, o, q))
                     left -= take
                 if take > 0:
                     _fill(con, o, q, take, q["price"], "taker")
@@ -258,7 +291,7 @@ def _simulate_maker(con, o, target: float, now: str, tally: dict) -> str:
         after = quotes[0]["captured_at"]
         through = [q for q in quotes if q["price"] < o["limit_price"] - 1e-12]
         for q in through:
-            take = min(target - got, q["size_available"] or 0.0)
+            take = min(target - got, _unused(con, o, q))
             if take > 0:
                 _fill(con, o, q, take, o["limit_price"], "maker")
                 tally["fills"] += 1

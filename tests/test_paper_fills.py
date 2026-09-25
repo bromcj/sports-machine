@@ -194,6 +194,74 @@ def test_a_book_order_fills_its_stake_at_the_next_price_shown(con):
     assert pos["contracts"] == pytest.approx(245.0)          # pays $245 if it wins
 
 
+# ------------------------------------------------- a size is filled once ---
+# Our fills never leave the recorded book, so the same offer keeps showing.
+# Per strategy and mode it is used once: paper and placebo are separate
+# counterfactuals, and one strategy does not compete with another.
+
+def _fills(con):
+    return [tuple(r) for r in con.execute(
+        "SELECT order_id, price, contracts FROM paper_fills ORDER BY fill_id")]
+
+
+def test_one_displayed_size_is_filled_once_across_orders(con):
+    mid, _ = _kmarket(con)
+    _book(con, mid, -1, [("0.5000", "500")])
+    first, second, third = (_order(con, mid, size=30) for _ in range(3))
+    placebo = _order(con, mid, size=30, mode="placebo")
+    other = _order(con, mid, size=30, strategy="u")
+    _book(con, mid, 1, [("0.6000", "30"), ("0.5500", "30")])   # 0.40 x30, 0.45 x30
+    paper.simulate(con, at(2))
+    assert _fills(con) == [(first, 0.40, 30.0), (second, 0.45, 30.0),
+                           (placebo, 0.40, 30.0), (other, 0.40, 30.0)]
+    assert _status(con, third) == "expired"
+
+
+def test_two_makers_share_one_traded_through_offer(con):
+    mid, _ = _kmarket(con)
+    _book(con, mid, -1, [("0.5000", "500")])
+    for _ in range(2):
+        _order(con, mid, role="maker", size=20, limit_price=0.45, expires_at=at(60))
+    _book(con, mid, 1, [("0.6000", "20")])                     # 0.40 x20: through
+    paper.simulate(con, at(2))
+    assert con.execute("SELECT SUM(contracts) FROM paper_fills").fetchone()[0] == 20.0
+
+
+def test_a_maker_is_not_refilled_by_the_same_unchanged_offer(con):
+    mid, _ = _kmarket(con)
+    _book(con, mid, -1, [("0.5000", "500")])
+    oid = _order(con, mid, role="maker", size=80, limit_price=0.45, expires_at=at(60))
+    for m in (1, 2, 3, 4):
+        _book(con, mid, m, [("0.6000", "20")])                 # the same 0.40 x20
+        paper.simulate(con, at(m))
+    assert con.execute("SELECT SUM(contracts) FROM paper_fills").fetchone()[0] == 20.0
+    assert _status(con, oid) == "partial_open"
+    _book(con, mid, 5, [("0.6000", "50")])                     # 30 more arrive
+    paper.simulate(con, at(5))
+    assert con.execute("SELECT SUM(contracts) FROM paper_fills").fetchone()[0] == 50.0
+
+
+def test_a_taker_does_not_retake_an_offer_its_strategy_already_took(con):
+    mid, _ = _kmarket(con)
+    _book(con, mid, -1, [("0.5000", "500")])
+    first = _order(con, mid, size=30)
+    _book(con, mid, 1, [("0.6000", "30")])                     # 0.40 x30
+    paper.simulate(con, at(1))
+    second = _order(con, mid, size=30, now=at(1.5))
+    _book(con, mid, 2, [("0.6000", "30")])                     # still the same offer
+    paper.simulate(con, at(2))
+    assert _status(con, second) == "expired"
+    third = _order(con, mid, size=30, now=at(2.5))
+    _book(con, mid, 3, [("0.6000", "60")])                     # 30 more arrive
+    paper.simulate(con, at(3))
+    assert _fills(con) == [(first, 0.40, 30.0), (third, 0.40, 30.0)]
+    _book(con, mid, 4, [("0.5800", "30")])                     # 0.40 gone
+    fourth = _order(con, mid, size=30, now=at(4.5))
+    _book(con, mid, 5, [("0.6000", "30")])                     # a new 0.40 offer
+    paper.simulate(con, at(5))
+    assert _fills(con)[-1] == (fourth, 0.40, 30.0)
+
+
 # ---------------------------------------------------------------- refusals ---
 
 def test_only_paper_and_placebo_orders_exist(con):
