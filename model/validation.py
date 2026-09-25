@@ -299,7 +299,8 @@ def record_backtest(name: str, experiment: str, passed: bool, reason: str,
     (scanner.gates.record_backtest checks the entry exists). The block has
     the same shape as a sport's - cleared, reason, recorded_at, armed,
     paper_trading - so gates(), arm() and only_paper_changed() treat it the
-    same way. Like record(), a new result disarms.
+    same way. Like record(), a new result disarms; a result for a different
+    experiment also drops the old gate-2 record.
 
     It never writes onto a sport's block, or onto any block that is not
     already a strategy's: a sport's gate 1 is record()'s walk-forward against
@@ -318,6 +319,12 @@ def record_backtest(name: str, experiment: str, passed: bool, reason: str,
                          f" never a backtest")
     entry = data.setdefault(name, {})
     new_entry = dict(entry)
+    old = entry.get("experiment")
+    if old is not None and old.strip() != experiment.strip():
+        # A different experiment is a different definition, and the gate-2
+        # record was earned by the old one: kept, arm() would open at once
+        # on a definition gate 2 has never looked at.
+        new_entry.pop("paper_trading", None)
     new_entry.update({"kind": "strategy", "baseline_kind": "backtest",
                       "experiment": experiment, "cleared": passed,
                       "reason": reason, "backtest": evidence,
