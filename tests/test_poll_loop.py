@@ -493,6 +493,20 @@ def test_a_loop_that_holds_the_lock_is_never_doubled_however_old_its_beat(env, m
     mine.close()
 
 
+def test_a_running_loop_holds_the_lock(env, monkeypatch):
+    # The one-loop rule rests on `poll --live` holding the OS lock while it
+    # runs. The other lock tests hold it from a separate process, so a live()
+    # that stopped taking it left them all green, with two loops possible.
+    monkeypatch.setattr(config, "POLLING_ENABLED", True)
+    seen = _fake_loop(monkeypatch)
+    _of_record()
+    assert poll.live() == 0
+    assert seen == {"second loop took the lock": False, "locked": True}
+    mine = poll.take_lock()                   # and it lets go when live() returns
+    assert mine is not None
+    mine.close()
+
+
 def test_a_loop_killed_hard_just_after_a_beat_does_not_block_its_restart(env, monkeypatch):
     # Every loop holds the lock for its whole life, and the OS lets go the
     # moment it ends. A fresh beat under a free lock is a loop killed hard
