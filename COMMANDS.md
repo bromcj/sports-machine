@@ -309,11 +309,13 @@ New-Item -ItemType Directory -Force -Path 'C:\Users\BromC\sports-machine\data\sc
 ```
 
 A refused `--live` or `--ensure` prints the same line for the folder it ran
-against. Run it only for production's folder, never for a copy. The credit
+against. Use that line rather than `>` or `Out-File`, which write a format
+(UTF-16) the check refuses. Run it only for production's folder, never for a
+copy. The credit
 limits count only the ledger in the data folder the loop runs against, and
 every checkout spends the same paid key. So `--live` refuses, and `--ensure`
 will not start or restart the loop, in any data folder whose file is missing,
-empty or names another folder. A loop run from dev must point
+empty, names another folder or is not UTF-8 text. A loop run from dev must point
 `SPORTS_MACHINE_DATA_DIR` at production's data folder. Only one loop runs at
 a time: `--live` takes `data\scanner\poll.lock` first and holds it for as
 long as it runs, and a second is refused.

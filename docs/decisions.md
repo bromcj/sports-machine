@@ -175,6 +175,19 @@ lock outranks the heartbeat, so a loop killed just after it wrote one no
 longer blocks its own restart, which had meant up to 13.5 hours of no
 polling.
 
+**The last round of re-checks.** Four more, each fixed with a test that
+failed first. A sportsbook stake with more than six decimals never filled:
+the exposure a fill is checked against was stored rounded to six, so $25
+split three ways was a hair over it (about 30% of random fractional stakes
+expired this way). A restarted loop wrote its first heartbeat only after
+opening the database, so the monitor could read the dead loop's hours-old
+heartbeat under the new loop's lock and tell the owner to end a process
+that no longer existed (6 of 10 real-process trials on a fresh copy of
+production's data; 0 of 20 now). A marker written as UTF-16, which is what
+PowerShell's `>` writes, crashed `poll` instead of being refused. And an
+exchange contract that resolves before its game's start could fill after it
+had resolved.
+
 ---
 
 ## 2026-09-25 — Scanner Phase A: the judgment calls

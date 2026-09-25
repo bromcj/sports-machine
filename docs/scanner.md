@@ -172,8 +172,10 @@ the polling days left, today included; unspent credits roll forward).
   New-Item -ItemType Directory -Force -Path 'C:\Users\BromC\sports-machine\data\scanner' | Out-Null; Set-Content -LiteralPath 'C:\Users\BromC\sports-machine\data\scanner\ledger-of-record' -Value 'C:\Users\BromC\sports-machine\data'
   ```
 
-  Anywhere the file is missing, empty or names another folder, `poll --live`
-  refuses and `--ensure` starts nothing.
+  Anywhere the file is missing, empty, names another folder or is not UTF-8
+  text, `poll --live` refuses and `--ensure` starts nothing. (Windows
+  PowerShell's `>` and `Out-File` write UTF-16; the `Set-Content` line above
+  writes what the check reads.)
 
 A call with no response counts at its estimate. A metered call is never
 retried automatically. Every call is logged to `credit_ledger` and to
@@ -199,8 +201,10 @@ heartbeat does not block its own restart: a fresh heartbeat under a free
 lock is a loop that has ended. (The heartbeat's age counts only where no
 loop has made the lock file yet.)
 
-The loop writes its heartbeat (`data/scanner/poll.json`) before its first
-request and after every tick. A loop that holds the lock but has not written
+The loop writes its heartbeat (`data/scanner/poll.json`) the moment it holds
+the lock, before it opens the database, and after every tick. Until then the
+heartbeat is the last loop's, and a dead loop's hours-old one under the new
+loop's lock read as a hung loop, naming a process that no longer exists. A loop that holds the lock but has not written
 it for 15 minutes (`HUNG_AFTER`, three times the 5-minute window) is not
 called running: with polling switched on, `monitor.py` reports an ERROR, and
 `--ensure` says the same, that it may be hung and which process id to end
@@ -250,10 +254,14 @@ moment, not on one first seen later.
   apart). An unchanged offer in a later poll is the same offer, even when
   better offers push it below the three levels stored;
 - Kalshi fees are rounded once per order, as Kalshi rebates them, and a fill
-  that would take the stake past the order's recorded exposure is not made;
-- **nothing fills at or after the game's start** (`game_start` again); an
-  order still open then expires. A market with no start (weather,
-  economics) stops filling at its `resolves_at`;
+  that would take the stake past the order's recorded exposure is not made.
+  The exposure is stored exactly, not rounded: rounded to 6 decimals, a book
+  stake like $25 split three ways was a hair over it and never filled;
+- **nothing fills at or after the game's start** (`game_start` again), nor
+  at or after the market's `resolves_at`, whichever comes first; an order
+  still open then expires. A market with no start (weather, economics) has
+  only its `resolves_at`, and an exchange contract can resolve before its
+  game starts;
 - orders are walked in the order they were placed (`placed_at`), not the
   order they were recorded, so a replay that records a later order first
   cannot fill one offer twice;
