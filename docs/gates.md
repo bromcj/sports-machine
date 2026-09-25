@@ -131,26 +131,45 @@ or inherits another's pass.
 
 | gate | for a strategy | recorded by |
 |---|---|---|
-| 1 | its own **backtest**, named in `docs/experiments.md` before it is run, with that entry's pass rule | `scanner.gates.record_backtest` → `model.validation.record_backtest` |
-| 2 | `record_paper`, **unchanged**: 50+ graded positions, the metric's mean clear of zero by 3 SE, coverage ≥ 0.75, the slot rule, and its own placebo must not pass | `scanner.gates.score` |
+| 1 | its own **backtest**, written in `docs/experiments.md` before it is run as the strategy's **own** entry (a whole heading above the Results log, which no other strategy may register against), with that entry's pass rule. A name whose record already holds a different experiment is refused: a new definition is a new name | `scanner.gates.record_backtest` → `model.validation.record_backtest` |
+| 2 | `record_paper`, sport rules **unchanged**: 50+ positions graded **and settled**, the metric's mean clear of zero by 3 SE, coverage ≥ 0.75, the slot rule, and its own placebo must not pass **and must have 50+ graded, settled positions** of its own. A `realized_ev` strategy cannot pass yet (below) | `scanner.gates.score` |
 | 3 | a person calls `arm("<strategy>")` | `model.validation.arm` — nothing else calls it; `audit.py` checks |
 
 **The metric** is chosen in the strategy's own pre-registration: `info` (fair
 close ÷ fair at entry − 1, **both from the same fair source** — a position
 whose ends disagree is left ungraded and counts against coverage) or
-`realized_ev` (profit ÷ capital staked, after fees). For `realized_ev`,
-coverage is positions settled ÷ positions whose market resolved more than 36
-hours ago, since every settled position has a value.
+`realized_ev` (profit ÷ capital staked, after fees). *Changed 2026-09-25 by
+the Phase A review:* gate 2 counts only positions that are graded **and**
+settled. A scanner position is graded at its game's start and settles later,
+so for `info` a position graded but not yet settled counts in neither the
+sample nor the coverage. For `realized_ev`, coverage counts the same positions
+top and bottom. It is the share that has settled, out of the positions whose
+market resolved more than 36 hours ago or that have no `resolves_at` at all.
+
+**`realized_ev` fails closed.** The 3-SE bar was calibrated, and the table
+below was simulated, on near-normal values, the kind `info` produces
+(`audit.py` draws them with the MLB info spread). `realized_ev` is win-or-lose.
+On it, a strategy with no skill that buys favourites at their fair price
+passes 5.5% of the time at 80¢, 14.7% at 95¢ and 40.6% at 98¢ (120 days,
+50 graded a day, two looks a day, 4,000 trials). A run of wins has almost no
+spread, so it looks far more certain than it is. So `scanner.gates.score`
+records a `realized_ev` strategy's evidence with `passed: false`. That lasts
+until a bar simulated for that payoff is pre-registered in
+[experiments.md](experiments.md).
 
 **A placebo is required** to register at all: gate 2 refuses a strategy
-whose placebo also passes, so a strategy without one could never be tested.
+whose placebo also passes. It also refuses one whose placebo has fewer than
+50 graded, settled positions, so a placebo that places nothing, or too
+little, blocks the strategy rather than waving it through.
 
 **Two things keep automated scoring from loosening anything.** `score()`
 writes nothing until a gate-1 record exists — creating a strategy's block is a
 deliberate, committed act — and then only the `paper_trading` part, which the
 scheduled job's guard (`only_paper_changed`) may discard; a test checks that.
 And it re-tests gate 2 **at most twice per ET day**, logging every look in
-`gate_looks`.
+`gate_looks`. Each look is claimed and committed there, under a write lock,
+before gate 2 is evaluated. A crash, a busy database or a second scorer
+afterwards can cost that look, never add one.
 
 **Is 3 SE still enough at a strategy's volume?** A strategy may grade far more
 than 10 positions a day. Simulated with an exact block method (each look's
@@ -162,7 +181,7 @@ no-skill strategy, 120 days, sigma 3.0:
 | 10 | 2 | 2.0% (the brute-force simulation above: 1.6%) |
 | 50 | 2 | 2.3% |
 | 200 | 2 | 2.3% |
-| 50 | 50 — after every position | 2.9% |
+| 50 | 50 — after every position | about 3% (2.97% at the audit's seed, 97; 2.97–3.33% at seeds 1–5) |
 | 50, at **2** SE | 2 | **20.8%** |
 
 The 3-SE bar does the work; the look cap keeps the cadence where it was
