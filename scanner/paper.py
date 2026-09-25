@@ -29,6 +29,11 @@ strategy does not compete with another.
 
 A sportsbook shows no size, so a book order fills in full or not at all.
 
+FEES, as Kalshi charges them: each fill's cash is rounded up to the cent and
+the overpayment rebated across the order's fills, so an order has always paid
+its whole cash so far rounded up once. A fill that would still take its stake
+past the exposure the daily cap counted is not made.
+
 Nothing fills at or after a game's start. The Odds API keeps quoting in-play
 prices, and a pregame order must not be filled at one: fair_value refuses
 them, so the position would be graded against a different market state. An
@@ -42,6 +47,7 @@ There is no code path here, or anywhere, that sends an order to a venue.
 paper_orders.mode is CHECKed to paper/placebo by the database itself.
 """
 import datetime as dt
+from decimal import ROUND_CEILING, Decimal
 
 import config
 from feeds import ET, parse_utc
@@ -53,6 +59,7 @@ from scanner.venues import family, paper_allowed
 MODES = ("paper", "placebo")
 ROLES = ("taker", "maker")
 OPEN = ("open", "partial_open")
+_CENT = Decimal("0.01")
 
 
 class Refused(ValueError):
@@ -150,12 +157,40 @@ def submit(con, *, strategy: str, mode: str, market_id: str, outcome: str,
 
 # ------------------------------------------------------------------ fills ---
 
-def _fill(con, order, price_row, contracts: float, price: float, role: str):
-    fee = fees.fee(price_row["fee_model"], price, contracts, role)
+def _dec(x) -> Decimal:
+    return Decimal(str(x))
+
+
+def _fill(con, order, price_row, contracts: float, price: float, role: str) -> bool:
+    """Record one fill. Returns False, and records nothing, when it would take
+    the order's stake past the exposure its daily cap counted: that is hard.
+
+    Kalshi rounds each fill's cash up to the cent, then rebates the
+    overpayment across the order's fills (docs/venues.md). So once this fill
+    is in, the order has paid its whole cash so far rounded up to the cent
+    once, and this fill's fee is that less what the earlier fills paid - it
+    can be a small rebate. Rounded per fill with no rebate, 100 one-contract
+    fills at 0.405 staked 41.00 against an exposure of 40.50."""
+    model = price_row["fee_model"]
+    prior = con.execute("SELECT f.contracts, f.price, f.fee, p.fee_model FROM paper_fills f"
+                        " JOIN prices p ON p.price_id=f.price_id WHERE f.order_id=?",
+                        (order["order_id"],)).fetchall()
+    paid = sum(_dec(f["contracts"]) * _dec(f["price"]) + _dec(f["fee"]) for f in prior)
+    cost = _dec(contracts) * _dec(price)
+    if model.startswith("kalshi:"):
+        cash = sum(_dec(c) * _dec(p) + _dec(fees.fee(m, p, c, role, conservative=False))
+                   for c, p, m in [*((f["contracts"], f["price"], f["fee_model"])
+                                     for f in prior), (contracts, price, model)])
+        fee = float(cash.quantize(_CENT, rounding=ROUND_CEILING) - paid - cost)
+    else:
+        fee = fees.fee(model, price, contracts, role)
+    if float(paid + cost) + fee > order["exposure"] + 1e-9:
+        return False
     con.execute("INSERT INTO paper_fills (order_id, price_id, filled_at, contracts,"
                 " price, fee) VALUES (?,?,?,?,?,?)",
                 (order["order_id"], price_row["price_id"], price_row["captured_at"],
                  contracts, price, fee))
+    return True
 
 
 def _refresh_position(con, order_id: int):
@@ -254,13 +289,13 @@ def simulate(con, now) -> dict:
                     break
                 if is_book:
                     take = o["size"] / q["price"]   # the stake, at the price shown
-                    left = 0
                 else:
                     take = min(left, _unused(con, o, q))
-                    left -= take
                 if take > 0:
-                    _fill(con, o, q, take, q["price"], "taker")
+                    if not _fill(con, o, q, take, q["price"], "taker"):
+                        break                       # past its exposure: see _fill
                     tally["fills"] += 1
+                left = 0 if is_book else left - take
             got = _filled_so_far(con, o["order_id"])
             status = ("expired" if got == 0 else
                       "filled" if left <= 1e-9 else "partial")
@@ -306,8 +341,7 @@ def _simulate_maker(con, o, target: float, now: str, tally: dict) -> str:
         through = [q for q in quotes if q["price"] < o["limit_price"] - 1e-12]
         for q in through:
             take = min(target - got, _unused(con, o, q))
-            if take > 0:
-                _fill(con, o, q, take, o["limit_price"], "maker")
+            if take > 0 and _fill(con, o, q, take, o["limit_price"], "maker"):
                 tally["fills"] += 1
                 got += take
     if got >= target - 1e-9:

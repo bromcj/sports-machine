@@ -346,6 +346,43 @@ def test_a_position_carries_its_stake_fee_days_and_annualized_ev(con):
     assert p["annualized_ev"] == pytest.approx(p["ev"] / p["days_to_resolution"] * 365)
 
 
+@pytest.mark.parametrize("fee, limit, shown", [
+    (K, 0.405, [str(m) for m in range(1, 101)]),                     # 100 fills of 1
+    ("kalshi:quadratic_with_maker_fees:1", 0.40, ["3", "6", "10"]),  # 3 + 3 + 4
+    (K, 0.40, ["3.33", "6.66", "10"]),                               # 3.33 + 3.33 + 3.34
+])
+def test_a_position_never_stakes_more_than_the_exposure_the_cap_counted(con, fee,
+                                                                        limit, shown):
+    # Kalshi rounds each fill's cash up to the cent, then rebates that across
+    # the order's fills. Charged per fill with no rebate, the first case
+    # staked 41.00 against the 40.50 the daily cap had counted.
+    mid, _ = _kmarket(con)
+    _book(con, mid, -1, [("0.5000", "500")], fee=fee)
+    oid = _order(con, mid, role="maker", size=float(shown[-1]), limit_price=limit,
+                 expires_at=at(200))
+    for m, n in enumerate(shown, start=1):
+        _book(con, mid, m, [("0.6100", n)], fee=fee)   # 0.39: a little more each poll
+        paper.simulate(con, at(m))
+    o = con.execute("SELECT * FROM paper_orders WHERE order_id=?", (oid,)).fetchone()
+    p = con.execute("SELECT * FROM paper_positions WHERE order_id=?", (oid,)).fetchone()
+    n_fills = con.execute("SELECT COUNT(*) FROM paper_fills").fetchone()[0]
+    assert o["status"] == "filled" and n_fills == len(shown)
+    assert p["stake"] == pytest.approx(o["exposure"])     # the fee, rounded once
+    assert paper.settle(con, p["position_id"], "loss", at(300)) >= -o["exposure"] - 1e-9
+
+
+def test_a_fill_that_would_cost_more_than_the_exposure_is_not_made(con):
+    # The series started charging makers after the order was priced: the
+    # fill would cost 4.05 where the cap counted 4.00. The cap is hard.
+    mid, _ = _kmarket(con)
+    _book(con, mid, -1, [("0.5000", "500")])
+    oid = _order(con, mid, role="maker", size=10, limit_price=0.40, expires_at=at(60))
+    _book(con, mid, 1, [("0.6100", "10")], fee="kalshi:quadratic_with_maker_fees:1")
+    paper.simulate(con, at(2))
+    assert _status(con, oid) == "open"
+    assert con.execute("SELECT COUNT(*) FROM paper_fills").fetchone()[0] == 0
+
+
 def test_capital_locked_by_strategy_and_by_the_month_it_comes_back(con):
     mid, _ = _kmarket(con)
     _book(con, mid, -1, [("0.5000", "500")])
