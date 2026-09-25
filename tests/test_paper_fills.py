@@ -206,6 +206,14 @@ def test_an_order_after_the_start_or_the_resolution_is_refused(con):
     _order(con, mid, now="2026-11-04T03:59:00Z")
 
 
+def test_a_taker_cannot_carry_an_expiry_it_would_not_honour(con):
+    mid, _ = _kmarket(con)
+    _book(con, mid, -1, [("0.5000", "500")])
+    with pytest.raises(Refused, match="taker"):
+        _order(con, mid, expires_at=at(5))
+    assert con.execute("SELECT COUNT(*) FROM paper_orders").fetchone()[0] == 0
+
+
 def test_an_order_on_a_market_with_no_price_yet_is_refused(con):
     mid, _ = _kmarket(con)
     with pytest.raises(Refused, match="no price"):

@@ -103,6 +103,9 @@ def submit(con, *, strategy: str, mode: str, market_id: str, outcome: str,
         raise Refused(f"mode must be paper or placebo, not {mode!r}")
     if role not in ROLES:
         raise Refused(f"role must be taker or maker, not {role!r}")
+    if role == "taker" and expires_at is not None:
+        raise Refused("a taker order does not rest - it takes the next observation"
+                      " or is cancelled - so it cannot carry an expires_at")
     if not (size > 0):
         raise Refused(f"size must be positive, got {size}")
     if not (0 < limit_price < 1):
