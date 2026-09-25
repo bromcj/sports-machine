@@ -191,6 +191,25 @@ def test_realized_ev_coverage_counts_positions_that_should_have_settled(env):
     assert len(m["values"]) == 40 and m["coverage"] == pytest.approx(0.5)
 
 
+def test_info_coverage_counts_only_graded_positions_that_settled(env):
+    # The scanner grades at the start and settles later, so a graded position
+    # may not have settled. It must not stand in for a settled, ungraded one.
+    _strategy()
+    gates.record_backtest("t_one", T1, True, "passed", {"n": 500})
+    rng = random.Random(1)
+    _positions(env, "t_one", STRONG)                                # graded, settled
+    _positions(env, "t_one", [None] * 90)                           # settled, ungraded
+    _positions(env, "t_one", STRONG + STRONG[:30], settled=False)   # graded, unsettled
+    _positions(env, "t_one", [rng.gauss(0, 2.9) for _ in range(60)], mode="placebo")
+    _positions(env, "t_one", [5.0] * 60, mode="placebo", settled=False)
+    m = gates.measured(env, "t_one", "info", NOW)
+    assert m["coverage"] == pytest.approx(60 / 150) and len(m["values"]) == 60
+    assert len(m["placebo"]) == 60
+    r = gates.score(env, "t_one", NOW)
+    assert not r["passed"] and "COVERAGE" in r["reason"]
+    assert v.arm("t_one").startswith("REFUSED")
+
+
 # ---------------------------------------------------------------- grading ---
 
 START = "2026-11-04T00:10:00Z"

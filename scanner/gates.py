@@ -66,10 +66,15 @@ def measured(con, name: str, metric: str, now) -> dict:
     col = "info" if metric == "info" else "realized_ev"
     rows = {}
     for mode in ("paper", "placebo"):
+        # Graded AND settled. The scanner grades at the start and settles
+        # later, so a graded position that has not settled would otherwise
+        # stand in for a settled one that could not be graded (review
+        # 2026-09-25: gate 2 passed at a true coverage of 17%).
         rows[mode] = con.execute(
             f"SELECT p.*, m.event_start FROM paper_positions p"
             f" LEFT JOIN markets m ON m.market_id = p.market_id"
             f" WHERE p.strategy=? AND p.mode=? AND p.{col} IS NOT NULL"
+            f" AND p.result IS NOT NULL"
             f" ORDER BY p.position_id", (name, mode)).fetchall()
     settled = con.execute("SELECT COUNT(*) FROM paper_positions WHERE strategy=?"
                           " AND mode='paper' AND result IS NOT NULL", (name,)).fetchone()[0]
