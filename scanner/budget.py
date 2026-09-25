@@ -15,9 +15,13 @@ which also writes the call's ledger row before the request), from the ledger:
            config.CREDIT_CAP_BRIEF while config.BRIEF_ACTIVE
   month    this ET calendar month within config.POLL_MONTHLY_BUDGET
   today    a daily pace: what is left of the brief (or the month, whichever
-           is tighter) divided by the polling days left. Without it, a bug or
-           a busy weekend could spend the whole brief in one day. Unspent
-           credits roll forward.
+           is tighter) divided by the polling days left, today included.
+           Without it, a bug or a busy weekend could spend the whole brief in
+           one day. Unspent credits roll forward, so the brief's last planned
+           polling day, and a month's last day, may use whatever is left.
+           Once the brief's BRIEF_POLL_DAYS are all used its pace is 0 - a
+           'brief' refusal until the owner extends BRIEF_POLL_DAYS by a
+           commit.
 
 The ledger is the one in the data folder the loop runs against, which is why
 the loop runs only against the ledger of record (scanner/poll.py, RECORD).
@@ -187,8 +191,12 @@ def status(con, now=None) -> dict:
     pace = month_pace
     if config.BRIEF_ACTIVE:
         brief_before_today = spent(con, None, day0)
-        days_left = max(1, config.BRIEF_POLL_DAYS - days_polled(con, day0))
-        brief_pace = (config.CREDIT_CAP_BRIEF - brief_before_today) / days_left
+        # Today counts as one of the days left. Once the planned days are
+        # all used the pace is 0, not "everything left, today": check()
+        # refuses until the owner extends BRIEF_POLL_DAYS by a commit.
+        days_left = max(0, config.BRIEF_POLL_DAYS - days_polled(con, day0))
+        brief_pace = ((config.CREDIT_CAP_BRIEF - brief_before_today) / days_left
+                      if days_left else 0.0)
         out.update({"brief_spent": brief_before_today + today,
                     "brief_cap": config.CREDIT_CAP_BRIEF,
                     "brief_left": config.CREDIT_CAP_BRIEF - brief_before_today - today,
@@ -207,6 +215,11 @@ def check(con, estimated: int, now=None) -> dict:
         raise OverBudget(f"the brief's cap: {s['brief_spent']:,} of "
                          f"{config.CREDIT_CAP_BRIEF:,} spent, this call needs {estimated}",
                          "brief")
+    if s["brief_active"] and s["brief_days_left"] == 0:
+        raise OverBudget(f"the brief's {config.BRIEF_POLL_DAYS} planned polling days"
+                         f" are used ({s['brief_spent']:,} of {config.CREDIT_CAP_BRIEF:,}"
+                         " spent); to keep polling, extend config.BRIEF_POLL_DAYS by a"
+                         " commit", "brief")
     if s["month_spent"] + estimated > config.POLL_MONTHLY_BUDGET:
         raise OverBudget(f"this month's budget: {s['month_spent']:,} of "
                          f"{config.POLL_MONTHLY_BUDGET:,} spent, this call needs {estimated}",

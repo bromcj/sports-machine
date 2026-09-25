@@ -23,8 +23,14 @@ Safety, in the order it applies:
     --ensure asks a loop still running from before to stop (a running loop
     never rereads the flag). data/scanner/poll.stop stops it at once.
   - budget.check() before every metered call; OverBudget means no request.
-    A daily-pace refusal waits for tomorrow; the brief's cap or the month's
-    budget stops the loop.
+    A daily-pace refusal waits for tomorrow. When the brief or the month
+    has less left than one call, or the brief's planned polling days are
+    used, no ladder level fits today's allowance and the loop stays paused,
+    making no metered request - it does not stop. A spent month clears at
+    the ET month turn; a spent brief waits for the owner to change config
+    by a commit, and monitor.py's credit findings are the alert. A call
+    that the brief's cap or the month's budget refuses outright stops the
+    loop.
   - no ledger row, no request: every call, free or not, is written to
     credit_ledger at its estimate BEFORE it is made (budget.reserve(), in
     the same transaction as the check), then filled in with what it cost,

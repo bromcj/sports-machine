@@ -76,6 +76,26 @@ def test_the_daily_pace_spreads_the_brief_and_rolls_unspent_forward(con, monkeyp
     assert s["allowance_today"] == pytest.approx(411 / 41)
 
 
+def test_once_the_briefs_polling_days_are_used_its_pace_is_zero(con, monkeypatch):
+    # The pace is what is left over the polling days left. Past the last
+    # planned day that was "everything left, today", so a bug could spend the
+    # rest of the brief in one day. Now it refuses until the owner extends
+    # BRIEF_POLL_DAYS by a commit.
+    monkeypatch.setattr(config, "CREDIT_CAP_BRIEF", 6000)
+    monkeypatch.setattr(config, "BRIEF_POLL_DAYS", 42)
+    day = dt.datetime(2026, 11, 30, 16, tzinfo=UTC)          # also a month's last day
+    for d in range(1, 42):
+        _spend(con, 3, day - dt.timedelta(days=d))
+    # The 42nd planned day may still use what is left, as before.
+    assert budget.status(con, day)["allowance_today"] == pytest.approx(6000 - 41 * 3)
+    _spend(con, 3, day - dt.timedelta(days=42))              # a 43rd day
+    s = budget.status(con, day)
+    assert (s["brief_days_left"], s["allowance_today"]) == (0, 0)
+    with pytest.raises(OverBudget, match="BRIEF_POLL_DAYS") as e:
+        budget.check(con, 3, day)
+    assert e.value.limit == "brief"
+
+
 def test_a_call_that_failed_counts_at_its_estimate(con, monkeypatch):
     monkeypatch.setattr(config, "CREDIT_CAP_BRIEF", 10)
     monkeypatch.setattr(config, "BRIEF_POLL_DAYS", 1)
