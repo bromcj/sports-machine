@@ -7,7 +7,7 @@ import config
 import db
 from bets.engine import novig_probs
 from scanner import store
-from scanner.fair import fair_value
+from scanner.fair import fair_value, game_start
 from scanner.venues import kalshi, sportsbook
 
 START = "2026-09-28T00:20:00Z"
@@ -185,6 +185,38 @@ def test_books_priced_together_that_disagree_on_the_start_take_the_earliest(con)
     for via in ("draftkings", "pinnacle"):
         fv = fair_value(con, _h2h(via), "home", "2026-09-20T18:40:00+00:00")
         assert fv["as_of"] == "2026-09-20T18:20:00.000000+00:00", (via, fv)
+
+
+def test_game_start_is_the_start_fair_value_cuts_off_at(con):
+    # The one public rule, so paper's fills and grading can judge "pregame"
+    # by the same start. Royals @ Twins, reduced: the books' latest word is
+    # 01:06, whichever book's market is asked, not Pinnacle's stale 00:16.
+    _pull(con, "2026-06-05T23:55:00+00:00", "2026-06-06T00:16:00Z",
+          {"pinnacle": (102, -110), "draftkings": (100, -121)})
+    _pull(con, "2026-06-06T00:55:00+00:00", "2026-06-06T01:06:00Z",
+          {"draftkings": (100, -121)})
+    start = "2026-06-06T01:06:00.000000+00:00"
+    for via in ("pinnacle", "draftkings"):
+        assert game_start(con, store.market(con, _h2h(via))) == start
+    # A price captured at that start is not read; the one before it is.
+    _pull(con, start, "2026-06-06T01:06:00Z", {"draftkings": (900, -2000)})
+    assert game_start(con, store.market(con, _h2h("draftkings"))) == start
+    for at in (start, "2026-06-06T01:30:00+00:00"):
+        assert fair_value(con, _h2h("draftkings"), "home", at)["as_of"] == (
+            "2026-06-06T00:55:00.000000+00:00")
+    # An exchange contract on the game: its own start caps the books' only
+    # when earlier. Unmapped with no start of its own: nothing says.
+    for own, want in (("2026-06-06T00:50:00Z", "2026-06-06T00:50:00.000000+00:00"),
+                      ("2026-06-06T02:00:00Z", start)):
+        row = kalshi.market_row(f"KX-{own}", canonical_event_id="mlb-g1",
+                                first_seen="2026-06-05T20:00:00Z", sport="mlb",
+                                market_type="h2h", yes_outcome="home", event_start=own)
+        store.upsert_markets(con, [row])
+        assert game_start(con, store.market(con, row["market_id"])) == want
+    weather = kalshi.market_row("KXHIGHNY", canonical_event_id="weather:KNYC",
+                                first_seen="2026-06-05T20:00:00Z", sport=None)
+    store.upsert_markets(con, [weather])
+    assert game_start(con, store.market(con, weather["market_id"])) is None
 
 
 def test_the_archive_conversion_ignores_a_start_reported_after_it():

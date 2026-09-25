@@ -68,7 +68,10 @@ def canonical_outcome(mkt, outcome: str) -> str | None:
 def game_start(con, mkt) -> str | None:
     """When fair_value takes this market's game to start, or None if nothing
     says. Nothing captured at or after it is a market opinion. One rule for
-    every market on the game, so anything else judging "pregame" can use it.
+    every market on the game, so anything else judging "pregame" (paper's
+    fills and closes) can use it rather than the market's own event_start.
+    `mkt` is a markets row as stored (store.market), so its times compare as
+    text.
 
     Every book market on the game (any type or line) carries the latest
     start it was given, by store.upsert_markets' rule, so the one to believe
