@@ -32,9 +32,9 @@ def con(tmp_path, monkeypatch, capsys):
     c.close()
 
 
-def _kmarket(con, sport=None, fee=K):
+def _kmarket(con, sport=None, fee=K, resolves_at="2026-11-04T04:00:00Z"):
     row = kalshi.market_row("KXTEST", canonical_event_id="test:1", first_seen=at(0),
-                            sport=sport, resolves_at="2026-11-04T04:00:00Z")
+                            sport=sport, resolves_at=resolves_at)
     store.upsert_markets(con, [row])
     return row["market_id"], fee
 
@@ -191,6 +191,21 @@ def test_a_resting_order_stops_at_the_start(con):
     assert _status(con, oid) == "expired"
 
 
+def test_an_order_after_the_start_or_the_resolution_is_refused(con):
+    # It could never fill at a pregame price; and a market with no start
+    # (weather, economics) has no other cutoff than its resolution.
+    gid = _game_book(con, "2026-11-04T00:00:00Z", 150)            # starts 00:10
+    with pytest.raises(Refused, match="started"):
+        _order(con, gid, outcome="away", limit_price=0.9, now="2026-11-04T00:10:00Z")
+    mid, _ = _kmarket(con)                                        # resolves 04:00
+    _book(con, mid, -1, [("0.5000", "500")])
+    with pytest.raises(Refused, match="resolved"):
+        _order(con, mid, now="2026-11-04T04:00:00Z")
+    assert con.execute("SELECT COUNT(*) FROM paper_orders").fetchone()[0] == 0
+    _order(con, gid, outcome="away", limit_price=0.9, now="2026-11-04T00:09:00Z")
+    _order(con, mid, now="2026-11-04T03:59:00Z")
+
+
 def test_an_order_on_a_market_with_no_price_yet_is_refused(con):
     mid, _ = _kmarket(con)
     with pytest.raises(Refused, match="no price"):
@@ -294,7 +309,7 @@ def test_only_paper_and_placebo_orders_exist(con):
 
 def test_the_daily_exposure_cap_is_enforced_before_an_order_exists(con, monkeypatch):
     monkeypatch.setattr(config, "STRATEGY_DAILY_EXPOSURE", {"default": 60.0})
-    mid, _ = _kmarket(con)
+    mid, _ = _kmarket(con, resolves_at="2026-11-06T04:00:00Z")   # open tomorrow too
     _book(con, mid, -1, [("0.5000", "500")])
     _order(con, mid, size=100, limit_price=0.50)       # 50.00 + 0.0175 x 100 = 51.75
     with pytest.raises(Refused, match="daily exposure cap"):

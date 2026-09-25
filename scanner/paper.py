@@ -3,7 +3,8 @@ have happened - never better than the market actually showed.
 
   submit()    an intended order: venue, market, outcome, size, limit price,
               time. Refused unless it is paper or placebo, the venue may be
-              used, and the strategy's daily exposure cap has room.
+              used, the market has neither started nor resolved, and the
+              strategy's daily exposure cap has room.
   simulate()  fills open orders against prices observed AFTER they were
               placed. Never the price showing when the order went in.
   settle()    a result for a position, and its profit.
@@ -116,6 +117,13 @@ def submit(con, *, strategy: str, mode: str, market_id: str, outcome: str,
     if is_book and role != "taker":
         raise Refused("a sportsbook order can only take the posted price")
     now = canon_ts(now)
+    # Too late: nothing fills at or after a game's start, and a market with
+    # no start (weather, economics) settles at resolves_at.
+    if mkt["event_start"] and now >= canon_ts(mkt["event_start"]):
+        raise Refused(f"the market started at {mkt['event_start']}: nothing fills"
+                      " at or after the start")
+    if mkt["resolves_at"] and now >= canon_ts(mkt["resolves_at"]):
+        raise Refused(f"the market resolved at {mkt['resolves_at']}")
     if role == "maker":
         # A limit at or through the ask showing now would not rest: the venue
         # matches it at once, at the ask, with the taker fee (or cancels it,
