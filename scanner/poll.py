@@ -228,7 +228,7 @@ class Poller:
                 try:
                     got = self.source.poll(con, sp, now)
                 except budget.OverBudget as e:
-                    if "pace" in str(e):
+                    if e.limit == "pace":
                         self.state = f"waiting: {e}"
                         self.level = None
                         return polled

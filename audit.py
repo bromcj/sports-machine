@@ -1168,7 +1168,7 @@ def scanner_checks(_false_pass):
     section("SCANNER: PAPER ONLY")
     # Nothing may SEND anything to anyone, except the owner's opt-in phone
     # alert. Found by parsing every module, not from a list of known files.
-    SEND = {"post", "put", "patch", "delete", "request", "urlopen"}
+    SEND = {"post", "put", "patch", "delete", "request", "urlopen", "send"}
     ALLOWED = {("notify.py", "_ntfy")}
     ORDER = re.compile(r"(?i)/portfolio/|/orders?\b|\b(?:place|create|submit|cancel|amend)_?orders?\b")
     senders, order_strings, arm_calls = [], [], []

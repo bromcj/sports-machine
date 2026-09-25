@@ -62,7 +62,12 @@ LADDER = [
 
 
 class OverBudget(RuntimeError):
-    """A metered call would break a limit. Nothing was requested."""
+    """A metered call would break a limit. Nothing was requested.
+    `limit` is 'brief', 'month' or 'pace' - only 'pace' clears by tomorrow."""
+
+    def __init__(self, message, limit):
+        super().__init__(message)
+        self.limit = limit
 
 
 def call_cost(n_markets: int | None = None, n_books: int | None = None) -> int:
@@ -159,13 +164,16 @@ def check(con, estimated: int, now=None) -> dict:
     s = status(con, now)
     if s["brief_active"] and s["brief_spent"] + estimated > config.CREDIT_CAP_BRIEF:
         raise OverBudget(f"the brief's cap: {s['brief_spent']:,} of "
-                         f"{config.CREDIT_CAP_BRIEF:,} spent, this call needs {estimated}")
+                         f"{config.CREDIT_CAP_BRIEF:,} spent, this call needs {estimated}",
+                         "brief")
     if s["month_spent"] + estimated > config.POLL_MONTHLY_BUDGET:
         raise OverBudget(f"this month's budget: {s['month_spent']:,} of "
-                         f"{config.POLL_MONTHLY_BUDGET:,} spent, this call needs {estimated}")
+                         f"{config.POLL_MONTHLY_BUDGET:,} spent, this call needs {estimated}",
+                         "month")
     if s["today_spent"] + estimated > s["allowance_today"]:
         raise OverBudget(f"today's pace: {s['today_spent']} of "
-                         f"{s['allowance_today']:.0f} spent, this call needs {estimated}")
+                         f"{s['allowance_today']:.0f} spent, this call needs {estimated}",
+                         "pace")
     return s
 
 

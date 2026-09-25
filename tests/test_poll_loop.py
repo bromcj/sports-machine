@@ -121,6 +121,31 @@ def test_no_request_is_made_when_the_brief_cap_would_be_passed(env, monkeypatch)
     assert not [c for c in get.calls if c[0] == "odds"]      # nothing was requested
 
 
+def test_the_daily_pace_makes_the_loop_wait_not_stop(env, monkeypatch):
+    monkeypatch.setattr(config, "CREDIT_CAP_BRIEF", 84)       # 84 / 42 = 2 a day
+    get = FakeGet([T0 + dt.timedelta(minutes=45)])
+    p = _poller(get, lambda: T0)
+    p.level, p.level_at, p.schedule_at = 6, T0, T0
+    p.schedule = {"nba": [T0 + dt.timedelta(minutes=45)]}
+    assert p.tick(T0) == []                                   # a 3-credit call > 2
+    assert p.state.startswith("waiting") and p.level is None
+    assert not [c for c in get.calls if c[0] == "odds"]
+
+
+def test_each_limit_says_which_it_is(env, monkeypatch):
+    con = db.connect()
+    monkeypatch.setattr(config, "CREDIT_CAP_BRIEF", 2)
+    with pytest.raises(budget.OverBudget) as e:
+        budget.check(con, 3, T0)
+    assert e.value.limit == "brief"
+    monkeypatch.setattr(config, "BRIEF_ACTIVE", False)
+    monkeypatch.setattr(config, "POLL_MONTHLY_BUDGET", 2)
+    with pytest.raises(budget.OverBudget) as e:
+        budget.check(con, 3, T0)
+    assert e.value.limit == "month"
+    con.close()
+
+
 def test_a_refused_key_stops_the_loop_and_is_ledgered(env):
     get = FakeGet([T0 + dt.timedelta(minutes=45)], fail=401)
     p = _poller(get, lambda: T0)
