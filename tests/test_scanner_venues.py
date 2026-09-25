@@ -83,6 +83,23 @@ def test_book_rows_that_cannot_be_true_are_counted_not_guessed():
     assert not any(m["venue"] == "sportsbook:draftkings" for m in markets)
 
 
+@pytest.mark.parametrize("point", [None, "N/A", "", "nan", "absent"])
+def test_a_line_without_a_numeric_point_is_counted_not_raised(con, point):
+    # One bad market used to raise out of rows() and lose the whole pull,
+    # every clean game in it included, after its credits were spent.
+    bad = _event()
+    for o in bad["bookmakers"][0]["markets"][2]["outcomes"]:          # totals
+        if point == "absent":
+            del o["point"]
+        else:
+            o["point"] = point
+    bad["bookmakers"][0]["markets"][1]["outcomes"][0]["point"] = "x"  # spreads
+    r = Rejects()
+    got = sportsbook.write(con, "nfl", [bad, _event(id="c1ea")], T0, rejects=r)
+    assert len(r) == 2
+    assert got["games"] == 2 and got["markets"] == 2 + 4 and got["prices"] == 12
+
+
 def test_write_stores_games_markets_prices_and_dedupes(con):
     got = sportsbook.write(con, "nfl", [_event()], T0)
     assert got == {"games": 1, "markets": 4, "prices": 8, "rejected": 0}

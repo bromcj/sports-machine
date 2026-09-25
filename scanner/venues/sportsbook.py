@@ -15,6 +15,7 @@ ingest/odds.py already mints for the same event, so the scanner and the
 cloud's pulls agree on it.
 """
 import datetime as dt
+import math
 
 from bets.engine import american_to_decimal
 from feeds import parse_utc
@@ -59,9 +60,19 @@ def _sides(mkt: str, outcomes: list, away: str, home: str):
     want = ("over", "under") if mkt == "totals" else ("home", "away")
     if set(got) != set(want):
         return None, f"{mkt} needs both of {want}, got {sorted(got)}"
+    if mkt in ("spreads", "totals"):
+        # A line with no number is one reject, not an exception that loses
+        # the whole pull after its credits were spent.
+        try:
+            ok = all(math.isfinite(float(got[s][1])) for s in want)
+        except (TypeError, ValueError):
+            ok = False
+        if not ok:
+            return None, (f"{mkt} point is missing or not a number"
+                          f" ({got[want[0]][1]!r} / {got[want[1]][1]!r})")
     if mkt == "spreads":
         h, a = got["home"][1], got["away"][1]
-        if h is None or a is None or float(h) != -float(a):
+        if float(h) != -float(a):
             return None, f"spread points do not mirror ({h} / {a})"
     if mkt == "totals" and got["over"][1] != got["under"][1]:
         return None, "over and under are at different totals"
