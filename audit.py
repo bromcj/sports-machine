@@ -1376,11 +1376,25 @@ def scanner_checks(_false_pass):
               all(closed) and open_weather,
               "adapter, market, fair value, paper order closed; weather still open"
               if all(closed) and open_weather else f"{closed} weather open={open_weather}")
-        from scanner.venues import paper_allowed
+        # Through paper.submit itself, on a Polymarket market with a price, not
+        # by asking the venue table: a submit that stopped consulting the
+        # table would record the order while the table still said no.
+        pm = spm.market_id("0xaudit")
+        ss.upsert_markets(cS, [{"market_id": pm, "venue": "polymarket",
+                                "venue_market_id": "0xaudit", "canonical_event_id": "pm-audit",
+                                "market_type": "binary", "first_seen": t0}])
+        pm_rows = spm.price_rows(pm, "yes", {"bids": [{"price": "0.4", "size": "1"}],
+                                             "asks": [{"price": "0.45", "size": "1"}]},
+                                 t0, "polymarket:0.05")
+        ss.insert_prices(cS, pm_rows)
+        try:
+            sp.submit(cS, strategy="audit", mode="paper", market_id=pm, outcome="yes",
+                      role="taker", size=1, limit_price=0.5, now=t0)
+            pm_why = "a paper order was accepted"
+        except sp.Refused as e:
+            pm_why = str(e)
         check("Polymarket is a price source: no paper order can be placed there",
-              paper_allowed("polymarket", None)[0] is False
-              and len(spm.price_rows("pm", "yes", {"bids": [{"price": "0.4", "size": "1"}],
-                                                   "asks": []}, t0, "polymarket:0.05")) == 1)
+              "price source" in pm_why and len(pm_rows) == 2, pm_why)
         cS.close()
     finally:
         dbS.DB_PATH = real
