@@ -14,6 +14,7 @@ import requests
 
 import config
 import db
+from feeds import ET
 from ingest import http
 from scanner import budget, poll
 
@@ -274,6 +275,38 @@ def test_two_loops_cannot_both_spend_the_last_credits(env):
     brief = budget.status(con, T0)["brief_spent"]
     con.close()
     assert (len(calls), sorted(results.values()), brief) == (1, ["brief", "polled"], 6000)
+
+
+def test_the_plan_says_what_the_loop_spends(env):
+    # `poll --plan` priced each day at a flat allowance with one level held
+    # all day: ~4,410 for the brief, ~10,319 a month. The loop re-picks its
+    # level every 5 minutes and rolls unspent credits forward, so it spends
+    # each day's allowance - and so the whole cap.
+    r = budget.plan(out=lambda *_: None)
+    assert (r["brief_projection"], r["normal_month"]) == (
+        config.CREDIT_CAP_BRIEF, config.POLL_MONTHLY_BUDGET)
+    # The premise, through the real Poller, on the plan's own TYPICAL Monday
+    # (the plan's flat pace says 93 credits that day).
+    sched = budget.typical_schedule(config.POLL_SPORTS, dt.date(2026, 11, 2), weeks=1)
+    sport_of = {config.SPORTS[sp]["odds_key"]: sp for sp in sched}
+
+    def get(url, params=None, label="", attempts=3, **_):
+        sp = sport_of[url.split("/sports/")[1].split("/")[0]]
+        if url.endswith("/events"):
+            return Resp(_events(sched[sp]), 0)
+        return Resp([], budget.call_cost())
+
+    t = {"now": dt.datetime(2026, 11, 2, 12, tzinfo=ET).astimezone(UTC)}     # noon ET
+    end = dt.datetime(2026, 11, 3, tzinfo=ET).astimezone(UTC)
+    clock = lambda: t["now"]                                   # noqa: E731
+    p = poll.Poller(poll.OddsSource(get=get, key="test-key", clock=clock), clock=clock,
+                    sleep=lambda s: t.update(now=t["now"] + dt.timedelta(seconds=s)),
+                    out=lambda *a: None)
+    p.run(max_ticks=int((end - t["now"]).total_seconds() // poll.TICK_S))
+    con = db.connect()
+    s = budget.status(con, end - dt.timedelta(seconds=1))
+    con.close()
+    assert s["today_spent"] >= s["allowance_today"] - budget.call_cost()    # 141 of 142.9
 
 
 def test_a_stop_file_ends_the_loop(env):

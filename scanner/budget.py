@@ -394,28 +394,37 @@ def plan(out=print) -> dict:
 
     brief_day = config.CREDIT_CAP_BRIEF / config.BRIEF_POLL_DAYS
     normal_day = config.POLL_MONTHLY_BUDGET / 30.4
-    result = {"cost_per_call": cost, "ideal_month": sum(week[0]) * 30 / 7}
+    ideal_day = sum(week[0]) / 7
+    result = {"cost_per_call": cost, "ideal_month": ideal_day * 30}
+    out("\nThe loop does not hold one level all day at a flat pace. It re-picks"
+        "\nits level every 5 minutes against what is left of the day, stepping up"
+        "\nas the day's expensive part passes, and a day's allowance is what is"
+        "\nleft over the days left, so unspent credits roll forward. So it spends"
+        "\nevery allowance it gets, up to the limit: the brief's own cadence"
+        "\n(level 0) would need far more.")
     for label, per_day in (("THE BRIEF", brief_day), ("NORMAL OPERATION", normal_day)):
         levels, spend = _governed_week(sched, monday, per_day)
-        out(f"\n{label}: {per_day:,.0f} credits a day allowed")
+        out(f"\n{label}: {per_day:,.0f} credits a day allowed at first")
+        out("  the level each day starts at, and its credits if held all day")
+        out("  (the loop runs this level or faster, and spends more):")
         for name, lv, sp in zip(("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"),
                                 levels, spend):
-            out(f"  {name}  {sp:4d} credits  {_describe(lv)}")
+            out(f"  {name}  {sp:4d}  {_describe(lv)}")
         per_week = sum(spend)
         result[label] = {"levels": levels, "per_week": per_week}
         if label == "THE BRIEF":
-            total = per_week / 7 * config.BRIEF_POLL_DAYS
+            total = min(config.CREDIT_CAP_BRIEF, ideal_day * config.BRIEF_POLL_DAYS)
             result["brief_projection"] = total
-            out(f"  over {config.BRIEF_POLL_DAYS} polling days: ~{total:,.0f} of "
-                f"{config.CREDIT_CAP_BRIEF:,}  "
-                f"{'UNDER' if total <= config.CREDIT_CAP_BRIEF else 'OVER'} the cap")
+            out(f"  over {config.BRIEF_POLL_DAYS} polling days: up to {total:,.0f} of "
+                f"{config.CREDIT_CAP_BRIEF:,}"
+                f"{' - the whole cap, reached on the last polling day' if total >= config.CREDIT_CAP_BRIEF else ''}")
         else:
-            month = per_week * 30.4 / 7
+            month = min(config.POLL_MONTHLY_BUDGET, result["ideal_month"])
             result["normal_month"] = month
             with_props = month + 3000
-            out(f"  per month: ~{month:,.0f}, plus the props collector's 3,000 cap"
-                f" = ~{with_props:,.0f} of 15,000  "
-                f"{'UNDER' if with_props <= 15000 else 'OVER'}")
+            out(f"  per month: up to {month:,.0f}, plus the props collector's 3,000 cap"
+                f" = {with_props:,.0f} of 15,000"
+                f"{' - all of it' if with_props >= 15000 else ''}")
     out(f"\nThe brief's own cadence (level 0) would need ~{result['ideal_month']:,.0f}"
         f" a month. Every level that polls keeps the closing tier at 30 min or"
         f" faster, so each game still gets a price inside 60 min of its start.")
