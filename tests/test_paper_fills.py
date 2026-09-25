@@ -198,6 +198,27 @@ def test_an_exchange_contract_stops_at_the_games_start_not_its_own(con):
         _order(con, mid, now="2026-11-04T00:15:00Z")
 
 
+def test_a_game_contract_with_no_known_start_is_refused(con):
+    # The game is known (a games row, book markets saying 00:10), but every
+    # book price was rejected, and the contract has no start of its own: an
+    # order 35 minutes after the books' start was accepted. In play cannot be
+    # ruled out, so no order.
+    ev = [{"id": "g", "commence_time": START, "home_team": "H", "away_team": "A",
+           "bookmakers": [{"key": "pinnacle", "markets": [{"key": "h2h", "outcomes": [
+               {"name": "A", "price": -50}, {"name": "H", "price": -50}]}]}]}]
+    sportsbook.write(con, "nba", ev, "2026-11-04T00:00:00Z")
+    row = kalshi.market_row("KXGAME", canonical_event_id="nba-g", first_seen=at(0),
+                            sport="nba", market_type="h2h", yes_outcome="home")
+    store.upsert_markets(con, [row])
+    store.insert_prices(con, kalshi.price_rows(
+        row["market_id"], {"orderbook_fp": {"yes_dollars": [["0.3000", "10"]],
+                                            "no_dollars": [["0.6000", "500"]]}},
+        "2026-11-04T00:40:00Z", K, sport="nba"))
+    with pytest.raises(Refused, match="in play cannot be ruled out"):
+        _order(con, row["market_id"], now="2026-11-04T00:45:00Z")
+    assert con.execute("SELECT COUNT(*) FROM paper_orders").fetchone()[0] == 0
+
+
 def test_an_order_still_waiting_at_the_start_expires(con):
     mid = _game_book(con, "2026-11-04T00:00:00Z", 150)
     oid = _order(con, mid, outcome="away", size=100, limit_price=0.9,

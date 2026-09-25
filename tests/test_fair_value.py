@@ -378,6 +378,32 @@ def test_an_exchange_mid_in_play_is_never_a_fair_price(con):
     assert fair_value(con, k, "yes", INPLAY, max_age_s=600) is None
 
 
+def test_a_game_contract_with_no_known_start_is_not_priced(con):
+    # A contract on a game (its canonical id is a games row) with no start of
+    # its own, on a game with no PRICED book market: the books' markets and
+    # the games row say 00:20, but every book price was rejected, so
+    # game_start has nothing. Its 01:00 in-play mid was the fair value 45
+    # minutes after the start. Nothing can tell pregame from in play: refuse.
+    sportsbook.write(con, "nfl", _event({"pinnacle": (-50, -50)}), PULL1)
+    assert con.execute("SELECT COUNT(*) FROM prices").fetchone()[0] == 0
+    k = {}
+    for cev in ("nfl-g1", "weather:KNYC"):
+        row = kalshi.market_row(f"KX-{cev}", canonical_event_id=cev, first_seen=PULL1,
+                                sport="nfl", market_type="h2h", yes_outcome="home")
+        store.upsert_markets(con, [row])
+        k[cev] = row["market_id"]
+        for when, book in ((PULL2, {"orderbook_fp": {"yes_dollars": [["0.6800", "10"]],
+                                                     "no_dollars": [["0.3000", "10"]]}}),
+                           ("2026-09-28T01:00:00+00:00", LATE_BOOK)):
+            store.insert_prices(con, kalshi.price_rows(row["market_id"], book, when,
+                                                       "kalshi:quadratic:1", sport="nfl"))
+    assert game_start(con, store.market(con, k["nfl-g1"])) is None
+    for at in (PULL2, "2026-09-28T01:05:00+00:00"):
+        assert fair_value(con, k["nfl-g1"], "yes", at) is None
+    # Not a game: no start is expected, and its own mid is its value.
+    assert fair_value(con, k["weather:KNYC"], "yes", PULL2)["source"] == "kalshi-mid"
+
+
 def test_stale_books_do_not_fall_through_to_an_in_play_mid(con):
     sportsbook.write(con, "nfl", _event({"pinnacle": (205, -230)}), PULL1)
     k = _kalshi(con, yes_outcome="home")

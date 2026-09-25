@@ -25,7 +25,8 @@ Three rules that are not optional:
     it was announced before the delayed start (sportsbook.next_start for
     the books, store.upsert_markets for other venues).
     feeds.pregame_books differs: it judges each pull by the start that pull
-    itself reported.
+    itself reported. A market on a game (a games row) with no start at all
+    gets None: in play cannot be ruled out.
   - The de-vig is bets.engine.novig_probs, on the prices as the book quoted
     them - the same arithmetic bets/log.fair_prob does, so the sport model's
     gate and the scanner cannot disagree about a price. audit.py checks that
@@ -98,6 +99,16 @@ def game_start(con, mkt) -> str | None:
     if mkt["event_start"] and not (starts and mkt["venue"].startswith("sportsbook:")):
         starts.append(mkt["event_start"])
     return min(starts, default=None)
+
+
+def is_game(con, mkt) -> bool:
+    """The market is on a game: its canonical_event_id is a games row. With
+    no game_start, such a market cannot tell a pregame price from an in-play
+    one, so it is neither priced nor paper-traded - refuse rather than guess.
+    (A contract with no start of its own, on a game whose book prices were
+    all rejected, was priced from an in-play mid 45 minutes after the start.)"""
+    return con.execute("SELECT 1 FROM games WHERE game_id=?",
+                       (mkt["canonical_event_id"],)).fetchone() is not None
 
 
 def _pregame(con, mkt, at: str) -> str:
@@ -177,6 +188,8 @@ def fair_value(con, market_id: str, outcome: str, at, max_age_s: float | None = 
     ok, _ = allowed(mkt["venue"], mkt["sport"])
     if not ok:
         return None
+    if game_start(con, mkt) is None and is_game(con, mkt):
+        return None                         # a game with no known start
     at = canon_ts(at)
     found = None
     want = canonical_outcome(mkt, outcome)

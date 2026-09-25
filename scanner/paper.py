@@ -3,8 +3,9 @@ have happened - never better than the market actually showed.
 
   submit()    an intended order: venue, market, outcome, size, limit price,
               time. Refused unless it is paper or placebo, the venue may be
-              used, the market has neither started nor resolved, and the
-              strategy's daily exposure cap has room.
+              used, the market has neither started nor resolved (and, on a
+              game, has a known start), and the strategy's daily exposure
+              cap has room.
   simulate()  fills open orders against prices observed AFTER they were
               placed. Never the price showing when the order went in.
   settle()    a result for a position, and its profit.
@@ -57,7 +58,7 @@ from decimal import ROUND_CEILING, Decimal
 import config
 from feeds import ET, parse_utc
 from scanner import capital, fees
-from scanner.fair import fair_value, game_start
+from scanner.fair import fair_value, game_start, is_game
 from scanner.store import canon_ts, next_quotes_after
 from scanner.venues import family, paper_allowed
 
@@ -130,6 +131,9 @@ def submit(con, *, strategy: str, mode: str, market_id: str, outcome: str,
     # no start (weather, economics) settles at resolves_at. The start is the
     # one fair_value uses (game_start), not only this market's own.
     start = game_start(con, mkt)
+    if start is None and is_game(con, mkt):
+        raise Refused("a game market with no known start: in play cannot be"
+                      " ruled out")
     if start and now >= start:
         raise Refused(f"the market started at {start}: nothing fills"
                       " at or after the start")
