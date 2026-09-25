@@ -9,7 +9,9 @@
            its own coverage, its own placebo. It only ever updates the
            paper_trading part of a block that already exists, so the
            scheduled job's guard (only_paper_changed) can always discard it.
-           A realized_ev strategy cannot pass yet (UNCALIBRATED, below).
+           Two refusals sports do not need: a realized_ev strategy cannot
+           pass yet (UNCALIBRATED, below), and nor can one whose placebo
+           has fewer than 50 graded positions.
   gate 3   model.validation.arm(name): a person. Nothing here calls it.
 
 LOOKS. score() re-tests gate 2 at most MAX_LOOKS_PER_DAY times per ET day and
@@ -123,6 +125,13 @@ def score(con, name: str, now) -> dict | None:
         return None
     m = measured(con, name, s.metric, now)
     refuse = [UNCALIBRATED] if s.metric == "realized_ev" else []
+    # record_paper only refuses a placebo that PASSES, so one that placed
+    # nothing, or too little to be graded, would block nothing. A sport's
+    # placebo is automatic; a strategy's is whatever its author wrote.
+    if len(m["placebo"]) < validation.MIN_PAPER_BETS:
+        refuse.append(f"the placebo has only {len(m['placebo'])} graded positions,"
+                      f" need {validation.MIN_PAPER_BETS} - too little evidence to"
+                      f" show the gate is measuring the strategy, not a drift")
     r = validation.record_paper(name, m["values"], slots=m["slots"],
                                 coverage=m["coverage"], placebo=m["placebo"],
                                 metric=s.metric, refuse="; ".join(refuse) or None)

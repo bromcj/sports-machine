@@ -13,8 +13,9 @@ A Strategy is:
   signal      signal(con, now) -> [Intent]: what it would do right now
   placebo     placebo(con, intent, now) -> Intent | None: the same pipeline
               making a random choice. REQUIRED: gate 2 refuses a strategy
-              whose placebo also passes, so one without a placebo cannot
-              be tested at all.
+              whose placebo also passes, and one whose placebo has fewer
+              than 50 graded positions, so a strategy whose placebo places
+              nothing can never pass.
   metric      'info' or 'realized_ev' - what its gate 2 measures (S0)
   experiment  the whole heading of its entry in docs/experiments.md
   execute     execute(con, intent, now, mode) -> order_id. Default: a paper

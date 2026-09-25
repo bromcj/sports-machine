@@ -152,10 +152,27 @@ def test_a_placebo_that_also_passes_blocks_the_strategy(env):
     assert v.arm("t_one").startswith("REFUSED")
 
 
+def test_a_placebo_with_too_little_evidence_blocks_the_strategy(env):
+    # A placebo that placed nothing, or whose positions were never graded,
+    # cannot show the gate is measuring the strategy and not a drift.
+    _strategy()
+    gates.record_backtest("t_one", T1, True, "passed", {"n": 500})
+    _positions(env, "t_one", STRONG)
+    r = gates.score(env, "t_one", NOW)
+    assert not r["passed"] and "placebo has only 0" in r["reason"]
+    _positions(env, "t_one", STRONG[:49], mode="placebo")          # as good as it
+    _positions(env, "t_one", [None] * 30, mode="placebo")          # never graded
+    r = gates.score(env, "t_one", NOW + dt.timedelta(hours=1))
+    assert not r["passed"] and "placebo has only 49" in r["reason"]
+    assert v.arm("t_one").startswith("REFUSED - gate 2")
+
+
 def test_arm_refuses_while_gate_1_fails_however_good_gate_2_is(env):
     _strategy()
     gates.record_backtest("t_one", T1, False, "lost", {"n": 500})
+    rng = random.Random(1)
     _positions(env, "t_one", STRONG)
+    _positions(env, "t_one", [rng.gauss(0, 2.9) for _ in range(60)], mode="placebo")
     assert gates.score(env, "t_one", NOW)["passed"]
     assert v.arm("t_one").startswith("REFUSED - gate 1")
 
