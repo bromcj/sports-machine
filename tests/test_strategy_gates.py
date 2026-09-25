@@ -17,6 +17,7 @@ from scanner.venues import kalshi, sportsbook
 
 UTC = dt.timezone.utc
 NOW = dt.datetime(2026, 11, 3, 16, 0, tzinfo=UTC)
+T1 = "T1. A test strategy's backtest"
 
 
 @pytest.fixture
@@ -37,7 +38,7 @@ def env(tmp_path, monkeypatch, capsys):
 def _strategy(name="t_one", metric="info", **kw):
     args = dict(name=name, venues=("kalshi",), signal=lambda con, now: [],
                 placebo=lambda con, intent, now: None, metric=metric,
-                experiment="T1")
+                experiment=T1)
     args.update(kw)
     return strategies.register(Strategy(**args))
 
@@ -80,11 +81,12 @@ def test_phase_a_ships_no_strategies():
 
 def test_gate_1_needs_a_registered_strategy_and_a_preregistered_experiment(env):
     with pytest.raises(KeyError):
-        gates.record_backtest("t_one", "T1", True, "r", {"n": 1})
+        gates.record_backtest("t_one", T1, True, "r", {"n": 1})
     _strategy()
-    with pytest.raises(ValueError, match="pre-register"):
-        gates.record_backtest("t_one", "T9", True, "r", {"n": 1})
-    e = gates.record_backtest("t_one", "T1", False, "lost", {"n": 100})
+    for loose in ("T9", "T1", "T1."):            # absent, or only a prefix
+        with pytest.raises(ValueError, match="pre-register"):
+            gates.record_backtest("t_one", loose, True, "r", {"n": 1})
+    e = gates.record_backtest("t_one", T1, False, "lost", {"n": 100})
     assert e["kind"] == "strategy" and e["cleared"] is False and e["armed"] is False
     assert "backtest FAIL (lost)" in v.explain("t_one")
 
@@ -127,7 +129,7 @@ def test_a_strategy_passes_gate_2_on_its_own_positions_only(env):
     _strategy("t_one")
     _strategy("t_two")
     for name in ("t_one", "t_two"):
-        gates.record_backtest(name, "T1", True, "passed", {"n": 500})
+        gates.record_backtest(name, T1, True, "passed", {"n": 500})
     rng = random.Random(1)
     _positions(env, "t_one", STRONG)
     _positions(env, "t_one", [rng.gauss(0, 2.9) for _ in range(60)], mode="placebo")
@@ -142,7 +144,7 @@ def test_a_strategy_passes_gate_2_on_its_own_positions_only(env):
 
 def test_a_placebo_that_also_passes_blocks_the_strategy(env):
     _strategy()
-    gates.record_backtest("t_one", "T1", True, "passed", {"n": 500})
+    gates.record_backtest("t_one", T1, True, "passed", {"n": 500})
     _positions(env, "t_one", STRONG)
     _positions(env, "t_one", STRONG, mode="placebo")
     r = gates.score(env, "t_one", NOW)
@@ -152,7 +154,7 @@ def test_a_placebo_that_also_passes_blocks_the_strategy(env):
 
 def test_arm_refuses_while_gate_1_fails_however_good_gate_2_is(env):
     _strategy()
-    gates.record_backtest("t_one", "T1", False, "lost", {"n": 500})
+    gates.record_backtest("t_one", T1, False, "lost", {"n": 500})
     _positions(env, "t_one", STRONG)
     assert gates.score(env, "t_one", NOW)["passed"]
     assert v.arm("t_one").startswith("REFUSED - gate 1")
@@ -160,7 +162,7 @@ def test_arm_refuses_while_gate_1_fails_however_good_gate_2_is(env):
 
 def test_what_score_writes_is_what_the_scheduled_job_may_discard(env):
     _strategy()
-    gates.record_backtest("t_one", "T1", False, "lost", {"n": 500})
+    gates.record_backtest("t_one", T1, False, "lost", {"n": 500})
     before = json.loads(v.PATH.read_text(encoding="utf-8"))
     _positions(env, "t_one", STRONG[:30])
     gates.score(env, "t_one", NOW)
@@ -171,7 +173,7 @@ def test_what_score_writes_is_what_the_scheduled_job_may_discard(env):
 
 def test_gate_2_is_looked_at_no_more_than_twice_an_et_day(env):
     _strategy()
-    gates.record_backtest("t_one", "T1", False, "lost", {"n": 500})
+    gates.record_backtest("t_one", T1, False, "lost", {"n": 500})
     _positions(env, "t_one", STRONG[:10])
     assert gates.score(env, "t_one", NOW) is not None
     assert gates.score(env, "t_one", NOW + dt.timedelta(hours=1)) is not None
@@ -182,7 +184,7 @@ def test_gate_2_is_looked_at_no_more_than_twice_an_et_day(env):
 
 def test_realized_ev_coverage_counts_positions_that_should_have_settled(env):
     _strategy(metric="realized_ev")
-    gates.record_backtest("t_one", "T1", False, "lost", {"n": 500})
+    gates.record_backtest("t_one", T1, False, "lost", {"n": 500})
     _positions(env, "t_one", STRONG[:40])
     _positions(env, "t_one", [0.0] * 40, settled=False)        # never settled
     m = gates.measured(env, "t_one", "realized_ev", NOW)

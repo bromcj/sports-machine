@@ -16,7 +16,7 @@ A Strategy is:
               whose placebo also passes, so one without a placebo cannot
               be tested at all.
   metric      'info' or 'realized_ev' - what its gate 2 measures (S0)
-  experiment  the heading of its entry in docs/experiments.md
+  experiment  the whole heading of its entry in docs/experiments.md
   execute     execute(con, intent, now, mode) -> order_id. Default: a paper
               order through scanner.paper.submit
   grade       grade(con, position, now) -> None. Default: scanner.paper.grade

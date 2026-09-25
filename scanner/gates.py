@@ -35,12 +35,15 @@ SETTLE_GRACE_H = 36
 def record_backtest(name: str, experiment: str, passed: bool, reason: str,
                     evidence: dict) -> dict:
     strategies.get(name)                             # must be registered
-    headings = [ln.lstrip("#").strip() for ln in
+    # The WHOLE heading, not a prefix: "E1" alone would match the unrelated
+    # 2026-09-23 "E1. The market's recipe vs reality's recipe".
+    headings = {ln.lstrip("#").strip() for ln in
                 EXPERIMENTS.read_text(encoding="utf-8").splitlines()
-                if ln.startswith("#")]
-    if not any(h.startswith(experiment) for h in headings):
-        raise ValueError(f"{experiment!r} is not a heading in docs/experiments.md:"
-                         f" pre-register it before recording a result")
+                if ln.startswith("#")}
+    if experiment.strip() not in headings:
+        raise ValueError(f"{experiment!r} is not a heading in docs/experiments.md"
+                         f" (the whole heading): pre-register it before recording"
+                         f" a result")
     return validation.record_backtest(name, experiment, passed, reason, evidence)
 
 
