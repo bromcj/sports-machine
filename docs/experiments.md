@@ -452,6 +452,9 @@ settled) at least 0.75; no ET slot over 60% of graded positions unless coverage
 is at least 0.90 (a position's slot is its event's start time, or its first
 fill's time when the market has no start time); and a placebo, run through the
 same pipeline under the same strategy name, that must **not** clear the same bar.
+*Note added 2026-09-25 by the Phase A re-verification:* the dated amendments
+below tighten this paragraph. Gate 2 now takes one value per event (game), not
+per position, and coverage is counted over the positions that are due.
 
 **The metric is one of two, chosen in the strategy's own entry:**
 
@@ -497,23 +500,36 @@ Each one names the code that enforces it.
   a whole markdown heading above the Results log, outside code fences. No two
   strategies may register against the same entry: `scanner.strategies.register`
   refuses the second. A name whose gate record already holds a different
-  experiment is refused (`model.validation.record_backtest`). A new definition
-  is a new strategy under a new name, with none of the old one's positions,
-  looks or gate-2 record. S0 itself, and the other section headings in this
+  experiment is refused (`model.validation.record_backtest`). *Tightened
+  2026-09-25 by the re-verification (below):* the gate record also holds the
+  strategy's metric, and gate 1 refuses an entry that any other name's gate
+  record holds, a retired strategy's included. A new definition is a new
+  strategy under a new name, with none of the old one's positions, looks or
+  gate-2 record. S0 itself, and the other section headings in this
   file, are not entries. The code cannot tell a section heading from an entry,
   so that rule rests on whoever writes the strategy.
-- **Gate 2 counts only positions that are graded AND settled.** For `info`,
-  coverage is positions graded and settled ÷ positions settled. A position
-  graded at its game's start but not yet settled counts in neither. For
-  `realized_ev`, coverage is positions settled among those due ÷ positions
-  due. "Due" means the market resolved more than 36 hours ago, or the position
-  has no `resolves_at` at all, in which case it counts against coverage until
-  it settles. The top and the bottom count the same positions
-  (`scanner.gates.measured`).
+- **Gate 2 counts only positions that are graded AND settled.** A position
+  graded but not yet settled is not in the sample. Coverage counts the
+  positions that are due: the market resolved more than 36 hours ago, or the
+  position has no `resolves_at` at all, in which case it counts against
+  coverage until it settles. For `info`, coverage is positions graded and
+  settled among those due ÷ positions due. For `realized_ev`, it is positions
+  settled among those due ÷ positions due. The top and the bottom count the
+  same positions (`scanner.gates.measured`), and a due position that never
+  settles counts against coverage.
+  *Changed 2026-09-25 by the re-verification:* for `info` this bullet first
+  said "positions graded and settled ÷ positions settled". A position that
+  never settles was then on neither side of that fraction, so it could not
+  lower coverage: 60 graded positions out of 260 resolved read as 100%
+  coverage, and gate 2 passed. Counted over the positions due, the same 260
+  give 23%, and gate 2 fails.
 - **The placebo must place.** A placebo that must "not clear the same bar"
   blocks nothing if it never places. So gate 2 also fails unless the placebo
-  has at least 50 graded, settled positions of its own. That means Phase B's
-  settlement must settle placebo positions too, or no strategy can pass.
+  has graded, settled positions on at least 50 distinct events of its own.
+  That means Phase B's settlement must settle placebo positions too, or no
+  strategy can pass. *Changed 2026-09-25 by the re-verification:* this first
+  said "at least 50 graded, settled positions", which 50 copies of one game
+  satisfied. Gate 2 now counts events (below).
 - **`realized_ev` cannot pass gate 2 yet.** The 3-SE bar was simulated on
   near-normal values, the kind `info` produces. `realized_ev` is win-or-lose
   instead. On it, a strategy with no skill that buys favourites at their fair
@@ -534,9 +550,18 @@ Each one names the code that enforces it.
     shows a worse price and not that one. This can under-fill, never
     over-fill.
   - A maker whose limit is at or through the ask showing when it is placed
-    is refused: it would take, not rest.
+    is refused: it would take, not rest. *Clarified 2026-09-25 by the
+    re-verification:* the ask is read from the latest observation of that
+    outcome's book at or before the order. If that observation shows no ask,
+    there is nothing to cross; an older ask is no longer there.
   - No order is accepted at or after the game's start, or at or after the
-    market's `resolves_at`.
+    market's `resolves_at`, or (*added 2026-09-25 by the re-verification*)
+    on a game with no known start (below).
+  - *Added 2026-09-25 by the re-verification:* a market with no start
+    (weather, economics) stops filling at its `resolves_at`, where it
+    already stopped accepting orders. Orders are filled in the order they
+    were placed, not the order they were recorded, so a replay that records
+    a later order first cannot fill one offer twice.
   - A taker order cannot carry an `expires_at`. It never rests, so it never
     honoured one.
   - An order's fees, exposure and EV are priced on the fee model showing at
@@ -548,9 +573,22 @@ Each one names the code that enforces it.
     final sub-cent rebate is still ignored, so this stays conservative.
   - A fill that would take a position's stake past the exposure its daily
     cap counted is not made.
-- **Grading waits for the start.** A position is graded only once its game
-  has started. Before that, the newest pull is only the latest price so far,
-  and a graded position is never graded again.
+- **Grading waits for the market to resolve.** A position is graded only
+  once its game has started and its market has reached its `resolves_at`.
+  Before the start, the newest pull is only the latest price so far. Before
+  the market resolves, a delay can still move the start later, and the close
+  with it. A graded position is never graded again.
+  *Changed 2026-09-25 by the re-verification:* this bullet was "Grading waits
+  for the start", and a position was graded as soon as its game had started.
+  But a delay announced after the scheduled start had passed still moves the
+  start later (a later start counts if it was reported before that later
+  start passed), so a position graded in between kept a close taken before
+  the real one. In
+  production's archive, 134 of 7,414 games had their start moved later after
+  the known start had passed. A sportsbook game's `resolves_at` is its start
+  plus a fixed game length, so it moves with a delay. An exchange contract's
+  `resolves_at` is the venue's own and does not, so the start check stays too
+  (`scanner.paper.grade`).
 - **"The start" is one start per game.** Everywhere above, and in
   `fair_value`'s in-play cutoff, the start is `scanner.fair.game_start()`:
   the one start the books give the game, capped by an exchange contract's own
@@ -558,6 +596,58 @@ Each one names the code that enforces it.
   The books' start is judged pull by pull for the whole game by
   `scanner.venues.sportsbook.next_start`. An earlier start always wins. A later
   one counts only if it was reported before it passed.
+
+**Amendments from the Phase A re-verification.** *Added 2026-09-25 by the
+Phase A re-verification, before any strategy existed.* A second pass
+re-checked the review's fixes and found more gaps. Again every change
+tightens a rule, none loosens one, and no threshold moves. The bullets above
+that changed with it are marked where they did.
+
+- **Gate 2 counts events, not positions.** Positions on one game share its
+  move, so entering a game again is not new evidence. Nothing stops a
+  strategy from entering the same market on every pass while its price stays
+  attractive, and the 3-SE bar was simulated on one value per game.
+  `scanner.gates.measured` gives `record_paper` one value per event (the
+  market's `canonical_event_id`): the mean of that event's graded, settled
+  positions. Each event has one slot, its earliest start (or, if no position
+  knows the start, its first opening). The placebo is grouped the same way,
+  so both 50 floors, the strategy's and the placebo's, count events.
+  Coverage stays a share of positions. Counted per position, a strategy with
+  no skill that entered each game k times passed 15.2% of the time at k = 2,
+  29.3% at 3, 50.2% at 5 and 72.3% at 10, against 1.8% at k = 1 (10 games a
+  day, two looks a day, 120 days, 4,000 trials). Counted per event it passes
+  1.7–1.9% at every k.
+- **The gate record pins the definition.** A strategy's gate record now
+  holds its metric beside its experiment, and `model.validation.record_backtest`
+  refuses a different metric under an existing name, as it already refused a
+  different experiment. `scanner.gates.score` records gate 2 as failed, and
+  `arm()` refuses, while the strategy registered under that name has a
+  different experiment or metric from its record (`scanner.gates.redefined`);
+  `arm()` also refuses a name that is no longer registered. Before, a
+  strategy's file edited in place, under the same name, kept the old
+  definition's gates: gate 2 passed again and `arm()` armed it. Gate 1 also
+  refuses an experiment that another name's
+  gate record already holds, a retired strategy's included, since
+  `scanner.strategies.register` sees only the strategies loaded at the time.
+  And `model.validation.record()`, a sport's walk-forward gate 1, refuses to
+  write onto a strategy's block, so a winning walk-forward cannot turn a
+  failed backtest into a pass.
+- **A game market with no known start is neither priced nor traded.** When
+  `scanner.fair.game_start()` finds no start and the market's
+  `canonical_event_id` is a `games` row, `fair_value` returns nothing and
+  `paper.submit` refuses: in play cannot be ruled out. An exchange contract
+  with no start of its own, on a game whose book prices were all rejected,
+  had been priced from an in-play mid 45 minutes after the start. A market
+  that is not a game (weather, economics) has no start by nature and is
+  unaffected. A contract whose `canonical_event_id` is not a `games` row at
+  all is not known to be a game, so it is still priced; that waits for
+  Phase C's mapping.
+- **A price is stored only under its own venue's market.**
+  `scanner.store.insert_prices` rejects a price filed under another venue's
+  market, or under a market that is not stored, as a counted reject.
+  `fair_value` reads a book row's price as a moneyline and a fill charges
+  the price row's own fee, so a Kalshi row under a sportsbook market made
+  `fair_value` crash and could fill a book order at the exchange's price.
 
 ### A-V. Phase A verification checks, pass rules fixed before running
 
