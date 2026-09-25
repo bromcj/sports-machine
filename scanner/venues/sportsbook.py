@@ -131,6 +131,45 @@ def rows(sport: str, events: list, captured_at, raw_ref: str | None = None,
     return games, markets, prices
 
 
+def from_snapshots(snaps) -> tuple[list, list]:
+    """(markets, prices) from odds_snapshots rows - the moneylines the machine
+    has collected since before the scanner existed. Used by audit.py to prove
+    fair_value and bets/log.fair_prob agree on the same prices."""
+    markets, prices, latest = {}, [], {}
+    for s in snaps:
+        start = parse_utc(s["commence_time"])
+        if start is None:
+            continue
+        sport, event_id = s["game_id"].split("-", 1)
+        venue = book_venue(s["book"])
+        mid = market_key(venue, event_id, "h2h")
+        taken = canon_ts(s["ts"])
+        m = markets.setdefault(mid, {
+            "market_id": mid, "venue": venue, "venue_market_id": event_id,
+            "sport": sport, "canonical_event_id": s["game_id"],
+            "market_type": "h2h", "line": None, "yes_outcome": None,
+            "resolution_source": "final score", "first_seen": taken})
+        m["first_seen"] = min(m["first_seen"], taken)
+        # The start the MOST RECENT pull reported. A rain delay moves it later
+        # pull by pull, and a price taken before the delayed start is still a
+        # pregame price - the first reported start would call it in-play.
+        # Live polling gets this from upsert_markets, which keeps the latest.
+        if taken >= latest.get(mid, ""):
+            latest[mid] = taken
+            m["event_start"] = canon_ts(start)
+            m["resolves_at"] = resolves_at(sport, start)
+        for side, ml in (("away", s["away_ml"]), ("home", s["home_ml"])):
+            if ml is None:
+                continue
+            prices.append({
+                "market_id": mid, "venue": venue, "outcome": side, "quote": "ask",
+                "level": 1, "price": 1 / american_to_decimal(int(ml)),
+                "price_native": str(int(ml)), "size_available": None,
+                "fee_model": FEE_MODEL, "captured_at": canon_ts(s["ts"]),
+                "source_last_update": None, "raw_ref": f"odds_snapshots:{s['id']}"})
+    return list(markets.values()), prices
+
+
 def write(con, sport: str, events: list, captured_at, raw_ref: str | None = None,
           rejects=None) -> dict:
     """Store one /odds response: games (the same rows ingest/odds.py writes),
