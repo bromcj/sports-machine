@@ -9,6 +9,105 @@ version", or "measured on 2026-09-…" belongs here.
 
 ---
 
+## 2026-09-25 — The Phase A review: what it changed, and why
+
+The brief required a fresh-session review of Phase A before anything is built
+on it. The review found defects in the strategy gates, paper fills, how fair
+value decides when a game started, and the polling loop. Every fix tightens
+something. None loosens a gate, moves a threshold or touches the schema. What
+the rules now are is in [experiments.md](experiments.md) (S0's dated
+amendments), [gates.md](gates.md) and [scanner.md](scanner.md). These are
+the decisions behind them.
+
+**`realized_ev` fails closed.** The 3-SE bar was simulated on near-normal
+values. On a win-or-lose payoff it does not hold: a strategy with no skill
+that buys favourites at their fair price passes 5.5% of the time at 80¢,
+14.7% at 95¢ and 40.6% at 98¢, because a run of wins has almost no spread.
+Rather than guess a new bar, gate 2 records a `realized_ev` strategy's
+evidence and fails, until a bar simulated for that payoff is pre-registered.
+The consequence: the brief's Phase B promo gate, "realized EV after fees
+clear of zero by 3 SE", cannot pass as written. Its bar has to be simulated
+and pre-registered first.
+
+**A new definition is a new name.** A strategy's positions, looks and gate-2
+record are all filed under its name. So recording a different gate-1
+experiment under an old name would carry the old definition's paper record
+into the new one. The first fix dropped the old gate-2 record, but the next
+scoring re-passed gate 2 on the old positions. `record_backtest` now refuses
+a different experiment under an existing name. The new definition is
+registered under a new name and starts from nothing.
+
+**A look is claimed before it is taken.** The 3-SE bar holds only at the
+cadence it was simulated for, two looks per ET day. A look used to be logged
+after its result was written, so a look that was never committed, hit a busy
+database, or ran beside another scorer was never counted. Now it is counted
+and committed under a write lock before anything is measured. A failure
+afterwards costs a look; it can never add one.
+
+**A placebo must place.** Gate 2 refused a strategy whose placebo passed,
+but a placebo that placed nothing can never pass, so it blocked nothing. The
+placebo now needs 50 graded, settled positions of its own, the same floor
+the strategy has.
+
+**Phase B's settlement must settle placebo positions too.** Gate 2 now
+counts only positions that are graded and settled, on both sides. Settling
+is venue-specific and not written yet. If it settles only `paper` positions,
+no strategy can ever reach the placebo's 50.
+
+**A game has one start.** `fair_value` refuses in-play prices, so it has to
+know when a game started, and a rain delay moves that pull by pull. The old
+rule went wrong two ways. A later start first reported after it had passed
+(a feed correcting itself mid-game) turned in-play prices back into pregame
+ones. And judging each book on its own let a book missing from the pull that
+announced a delay keep the old start and drag the game's start back
+(mlb-746c8fcb, 2024-04-03). The start is now judged once for the game, pull
+by pull (`sportsbook.next_start`: an earlier start always wins, a later one
+only if reported before it passed), and written onto every book market of
+the game.
+
+**A-V1 counts delayed-start pulls apart.** With one start per game, a pull
+taken after the start it reported can still be pregame. That happens when a
+delay was announced only after that start had passed, but before the new
+one. `fair_value` prices such a pull. `bets/log.fair_prob` judges each pull
+by its own report, so it cannot agree. Making `fair_value` refuse those
+pulls would throw away prices that really were pregame. So A-V1 counts them
+as "delayed-start, not scored", and it fails on any value priced from an
+in-play price. Over the whole archive that is 8 values in 4 games, against
+141,638 that agree and 0 that disagree.
+
+**No ledger row, no request.** The loop made the paid request first and
+wrote its ledger row afterwards. If that write failed, the call was billed
+but never counted, and today's allowance never shrank. Two loops could also
+both see room for one more call. Now the check and the call's row, at its
+estimate, are committed in one transaction before the request. A database
+that cannot be written means no request.
+
+**One ledger of record, and one loop.** The credit limits count the ledger
+in the data folder the loop runs against, but every checkout spends the same
+paid key, so each data folder had its own 6,000. The loop now runs only
+where `data/scanner/ledger-of-record` exists. The owner creates that file by
+hand, in production's data folder, when polling is turned on, and nothing
+creates it automatically. A running loop also holds an OS lock on
+`data/scanner/poll.lock` for its whole life. So a second loop is refused
+even while the first one's heartbeat looks old, after a slow tick or a PC
+that slept.
+
+**The brief's pace is 0 after its planned days.** The daily pace divides
+what is left by the polling days left, and that divisor never went below
+one. So from the 43rd polling day on, a single day was offered everything
+left of the brief. Phase F runs "four weeks minimum" or until the gate-2
+sample is met, so the loop would reach that state. Now, once the 42 planned
+days are used, every metered call is refused until the owner extends
+`BRIEF_POLL_DAYS` by a commit.
+
+**Paper uses the game's start.** Paper orders, fills, a maker's default
+expiry and grading read the order market's own `event_start`, while
+`fair_value` read the game's start. For an exchange contract whose own start
+is later than the books', that let a paper order fill at a price `fair_value`
+refuses. They all use `scanner.fair.game_start` now.
+
+---
+
 ## 2026-09-25 — Scanner Phase A: the judgment calls
 
 **Built on a branch, not on main.** Production runs `git pull` of `main` at
@@ -37,7 +136,10 @@ kept at every level: each game is priced in its last 30 minutes.
 **A strategy's record is a top-level block, the same shape as a sport's.**
 So `arm()`, `gates()` and the production guard's `only_paper_changed()` work
 unchanged, and a scheduled re-score can always be discarded by the next run.
-`kind: "strategy"` marks it; names may not collide with a sport's.
+(*Corrected by the Phase A review:* not always. The guard refuses to discard
+a local gate-2 fail when the committed copy holds a pass, because discarding
+it would bring the pass back.) `kind: "strategy"` marks it; names may not
+collide with a sport's.
 
 **Gate 2 metrics are the brief's two: `info` and `realized_ev`.** Not
 `ev_fair_close`, although for a price-taking strategy (E1's sharp-line control,
