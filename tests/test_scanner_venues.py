@@ -241,3 +241,21 @@ def test_a_malformed_fee_key_is_refused_but_an_unread_one_is_kept():
     assert store.check_price(dict(row, fee_model="kalshi")) is not None
     assert store.check_price(dict(row, price=1.0)) is not None
     assert store.check_price(dict(row, quote="mid")) is not None
+
+
+def test_a_price_whose_fee_model_belongs_to_another_venue_is_refused(con):
+    # A Kalshi price tagged 'book' was paper-traded with no fee at all.
+    row = {"market_id": "k1", "venue": "kalshi", "outcome": "yes", "quote": "ask",
+           "level": 1, "price": 0.5, "price_native": "0.5000", "size_available": 10.0,
+           "fee_model": KM, "captured_at": T0}
+    book = dict(row, venue="sportsbook:draftkings", price_native="+100",
+                size_available=None, fee_model="book")
+    for good in (row, book, dict(row, venue="polymarket", fee_model="polymarket:0.05")):
+        assert store.check_price(good) is None
+    bad = [dict(row, fee_model="book"), dict(row, fee_model="polymarket:0"),
+           dict(row, venue="polymarket", fee_model="book"),
+           dict(row, venue="polymarket", fee_model=KM), dict(book, fee_model=KM)]
+    for b in bad:
+        assert store.check_price(b) is not None, b
+    r = Rejects()
+    assert store.insert_prices(con, bad, rejects=r) == 0 and len(r) == len(bad)

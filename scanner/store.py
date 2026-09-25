@@ -14,7 +14,7 @@ import datetime as dt
 
 from feeds import parse_utc
 from ingest import quality
-from scanner import fees
+from scanner import fees, venues
 
 QUOTES = ("ask", "bid")
 
@@ -80,7 +80,21 @@ def check_price(p: dict) -> str | None:
     # here: a price is worth keeping even before its fee table is read.
     if not fees.well_formed(p["fee_model"]):
         return f"fee model {p['fee_model']!r} is not a known key format"
+    # And it must be this venue's: paper fills charge the fee of the price
+    # row, so a Kalshi price tagged 'book' would trade as if Kalshi were free.
+    try:
+        fam = venues.family(p["venue"])
+    except ValueError as e:
+        return str(e)
+    if _fee_family(p["fee_model"]) != fam:
+        return f"fee model {p['fee_model']!r} is not a {fam} fee"
     return None
+
+
+def _fee_family(model: str) -> str:
+    """'kalshi:quadratic:1' -> 'kalshi'; 'book' -> 'sportsbook'."""
+    head = str(model).split(":", 1)[0]
+    return "sportsbook" if head == "book" else head
 
 
 # ---------------------------------------------------------------- writes ---
