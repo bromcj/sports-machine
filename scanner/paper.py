@@ -182,6 +182,14 @@ def _dec(x) -> Decimal:
     return Decimal(str(x))
 
 
+def _contracts_of(x: float) -> float:
+    """A fill's size with the float noise of subtraction taken off, before
+    any fee is priced on it: 10 - 3.3 - 3.3 is 3.4000000000000004, whose
+    cash at 0.40 is ceiled to 4.01 against an exposure of 4.00, so the fill
+    that completed the order was refused."""
+    return round(x, 9)
+
+
 def _fill(con, order, price_row, contracts: float, price: float, role: str) -> bool:
     """Record one fill. Returns False, and records nothing, when it would take
     the order's stake past the exposure its daily cap counted: that is hard.
@@ -316,7 +324,7 @@ def simulate(con, now) -> dict:
                 if is_book:
                     take = o["size"] / q["price"]   # the stake, at the price shown
                 else:
-                    take = min(left, _unused(con, o, q))
+                    take = _contracts_of(min(left, _unused(con, o, q)))
                 if take > 0:
                     if not _fill(con, o, q, take, q["price"], "taker"):
                         break                       # past its exposure: see _fill
@@ -369,7 +377,7 @@ def _simulate_maker(con, o, target: float, now: str, tally: dict) -> str:
         after = quotes[0]["captured_at"]
         through = [q for q in quotes if q["price"] < o["limit_price"] - 1e-12]
         for q in through:
-            take = min(target - got, _unused(con, o, q))
+            take = _contracts_of(min(target - got, _unused(con, o, q)))
             if take > 0 and _fill(con, o, q, take, o["limit_price"], "maker"):
                 tally["fills"] += 1
                 got += take

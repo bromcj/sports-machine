@@ -483,6 +483,9 @@ def test_a_position_carries_its_stake_fee_days_and_annualized_ev(con):
     (K, 0.405, [str(m) for m in range(1, 101)]),                     # 100 fills of 1
     ("kalshi:quadratic_with_maker_fees:1", 0.40, ["3", "6", "10"]),  # 3 + 3 + 4
     (K, 0.40, ["3.33", "6.66", "10"]),                               # 3.33 + 3.33 + 3.34
+    # 10 - 3.3 - 3.3 is 3.4000000000000004 in floats: that last fill cost
+    # 4.0000000000000002, ceiled to 4.01 against 4.00, and was refused.
+    (K, 0.40, ["3.3", "6.6", "10"]),                                 # 3.3 + 3.3 + 3.4
 ])
 def test_a_position_never_stakes_more_than_the_exposure_the_cap_counted(con, fee,
                                                                         limit, shown):
