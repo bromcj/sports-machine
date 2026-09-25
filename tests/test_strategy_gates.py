@@ -13,6 +13,7 @@ import time
 import pytest
 
 import db
+from feeds import ET
 from model import validation as v
 from scanner import gates, paper, store, strategies
 from scanner.strategies import Intent, Strategy
@@ -197,6 +198,19 @@ def test_a_new_experiment_does_not_keep_the_old_definitions_gate_2(env):
     assert v.arm("t_one").startswith("REFUSED - gate 2")
 
 
+def test_a_new_backtest_result_disarms_the_strategy(env):
+    # Gate 3 is a person's decision about THIS result, not the next one.
+    _strategy()
+    gates.record_backtest("t_one", T1, True, "passed", {"n": 500})
+    rng = random.Random(1)
+    _positions(env, "t_one", STRONG)
+    _positions(env, "t_one", [rng.gauss(0, 2.9) for _ in range(60)], mode="placebo")
+    assert gates.score(env, "t_one", NOW)["passed"]
+    assert "ARMED" in v.arm("t_one") and v.gates("t_one")["armed"]
+    gates.record_backtest("t_one", T1, True, "re-run", {"n": 800})
+    assert v.gates("t_one")["armed"] is False
+
+
 def test_a_placebo_that_also_passes_blocks_the_strategy(env):
     _strategy()
     gates.record_backtest("t_one", T1, True, "passed", {"n": 500})
@@ -258,6 +272,17 @@ def _looked_at_before(env):
     _strategy()
     gates.record_backtest("t_one", T1, False, "lost", {"n": 500})
     _positions(env, "t_one", STRONG[:10])
+
+
+def test_the_look_cap_counts_the_et_day_not_the_utc_day(env):
+    # 10:00 and 21:30 ET on Nov 3 are one ET day, though 21:30 ET is already
+    # Nov 4 in UTC; 00:30 ET on Nov 4 starts the next one.
+    _looked_at_before(env)
+    et = lambda d, h, m=0: dt.datetime(2026, 11, d, h, m, tzinfo=ET).astimezone(UTC)
+    assert gates.score(env, "t_one", et(3, 10)) is not None
+    assert gates.score(env, "t_one", et(3, 21, 30)) is not None
+    assert gates.score(env, "t_one", et(3, 23)) is None
+    assert gates.score(env, "t_one", et(4, 0, 30)) is not None
 
 
 def test_a_look_counts_even_if_the_caller_never_commits(env):
