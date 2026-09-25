@@ -28,8 +28,9 @@ familiarity with jargon.
   deliberate commit (brief Phase C4). Its limits (6,000 for the brief,
   12,000 a month, a daily pace) are in code, checked before every call, and
   count the ledger in the data folder the loop runs against. So `poll --live`
-  runs only where `data/scanner/ledger-of-record` exists (production's data
-  folder, created by hand when polling is turned on), and it holds
+  runs only where `data/scanner/ledger-of-record` exists and contains that
+  data folder's own full path (production's, written by hand when polling
+  is turned on; a copy of the folder is refused), and it holds
   `data/scanner/poll.lock` so only one loop runs.
   Free and safe any time: `picks`, `audit`, `dashboard`, `backup`,
   `cronstatus`, `validation`, `merge_archive`, `poll --plan`, `poll --status`,
