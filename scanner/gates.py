@@ -82,12 +82,17 @@ def measured(con, name: str, metric: str, now) -> dict:
         coverage = len(rows["paper"]) / settled if settled else None
     else:
         # Every settled position has a realized EV, so the honest question is
-        # how many of the positions that SHOULD have settled did.
+        # how many of the positions that SHOULD have settled did - counted
+        # over the same positions top and bottom, or a recent settlement
+        # stands in for an old one that never settled. A position with no
+        # resolves_at cannot be shown not to be due yet, so it counts as due:
+        # against coverage until it settles (fails closed).
         due_before = canon_ts(parse_utc(canon_ts(now)) - dt.timedelta(hours=SETTLE_GRACE_H))
-        due = con.execute("SELECT COUNT(*) FROM paper_positions WHERE strategy=?"
-                          " AND mode='paper' AND resolves_at < ?",
-                          (name, due_before)).fetchone()[0]
-        coverage = min(1.0, settled / due) if due else None
+        due, settled_due = con.execute(
+            "SELECT COUNT(*), COUNT(result) FROM paper_positions WHERE strategy=?"
+            " AND mode='paper' AND (resolves_at IS NULL OR resolves_at < ?)",
+            (name, due_before)).fetchone()
+        coverage = settled_due / due if due else None
     return {"values": [r[col] for r in rows["paper"]],
             "slots": [_slot(r) for r in rows["paper"]],
             "placebo": [r[col] for r in rows["placebo"]],

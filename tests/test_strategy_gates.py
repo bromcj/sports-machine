@@ -191,6 +191,27 @@ def test_realized_ev_coverage_counts_positions_that_should_have_settled(env):
     assert len(m["values"]) == 40 and m["coverage"] == pytest.approx(0.5)
 
 
+def _set_resolves_at(con, last_n, when):
+    con.execute("UPDATE paper_positions SET resolves_at=? WHERE position_id IN"
+                " (SELECT position_id FROM paper_positions ORDER BY position_id DESC"
+                " LIMIT ?)", (when, last_n))
+
+
+def test_realized_ev_coverage_is_not_topped_up_by_recent_settlements(env):
+    # Top and bottom of the fraction are the same positions: those due.
+    _strategy(metric="realized_ev")
+    _positions(env, "t_one", STRONG[:40])                       # due, settled
+    _positions(env, "t_one", [0.0] * 40, settled=False)         # due, never settled
+    _positions(env, "t_one", STRONG[:20])                       # settled, not yet due
+    _set_resolves_at(env, 20, (NOW - dt.timedelta(hours=2)).isoformat())
+    _positions(env, "t_one", STRONG[:10])                       # no resolves_at: count
+    _set_resolves_at(env, 10, None)                             # as due (fail closed)
+    _positions(env, "t_one", [0.0] * 10, settled=False)
+    _set_resolves_at(env, 10, None)
+    m = gates.measured(env, "t_one", "realized_ev", NOW)
+    assert m["coverage"] == pytest.approx(50 / 100)
+
+
 def test_info_coverage_counts_only_graded_positions_that_settled(env):
     # The scanner grades at the start and settles later, so a graded position
     # may not have settled. It must not stand in for a settled, ungraded one.
