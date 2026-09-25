@@ -321,6 +321,29 @@ def test_a_taker_does_not_retake_an_offer_its_strategy_already_took(con):
     assert _fills(con)[-1] == (fourth, 0.40, 30.0)
 
 
+def test_an_offer_pushed_below_the_levels_recorded_has_not_gone(con):
+    # Only the top three levels are stored. Three better offers on top hide
+    # the 0.40 one; that is not the same as it leaving the book.
+    mid, _ = _kmarket(con)
+    _book(con, mid, -1, [("0.5000", "500")])
+    first = _order(con, mid, size=20, limit_price=0.45)
+    maker = _order(con, mid, strategy="u", role="maker", size=60, limit_price=0.45,
+                   expires_at=at(60))
+    _book(con, mid, 1, [("0.6000", "20")])                     # 0.40 x20
+    paper.simulate(con, at(1))
+    _book(con, mid, 2, [("0.6200", "1"), ("0.6100", "1"), ("0.6050", "1"),
+                        ("0.6000", "20")])                     # 0.40 x20 under three 1s
+    paper.simulate(con, at(2))
+    second = _order(con, mid, size=20, limit_price=0.45, now=at(2.5))
+    _book(con, mid, 3, [("0.6000", "20")])                     # the same 0.40 x20
+    paper.simulate(con, at(3))
+    assert _status(con, second) == "expired"                   # its strategy took it
+    got = con.execute("SELECT SUM(contracts) FROM paper_fills WHERE order_id=?",
+                      (maker,)).fetchone()[0]
+    assert got == 23.0                                         # 20, then the three 1s
+    assert [f for f in _fills(con) if f[0] == first] == [(first, 0.40, 20.0)]
+
+
 # ---------------------------------------------------------------- refusals ---
 
 def test_only_paper_and_placebo_orders_exist(con):

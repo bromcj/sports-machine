@@ -25,8 +25,9 @@ THE FILL RULES (pre-registered in docs/experiments.md, section S0):
 A size shown is filled once per strategy and mode. Our fills never leave the
 recorded book, so an offer still showing at the same price in a later
 observation is the same offer, and what this strategy already took from it
-is gone (_unused). Paper and placebo are separate counterfactuals, and one
-strategy does not compete with another.
+is gone (_unused) - until an observation shows a worse price and not that
+one. Paper and placebo are separate counterfactuals, and one strategy does
+not compete with another.
 
 A sportsbook shows no size, so a book order fills in full or not at all.
 
@@ -254,16 +255,21 @@ def _unused(con, o, q) -> float:
     recorded book, so an offer still showing at the same price in later
     observations is the same offer: take off what this strategy's orders in
     this mode already took at that price, here and back to the last
-    observation that did not show it. A size is filled once per strategy and
+    observation that showed a worse price but not this one. Only the top
+    levels are stored, so an observation with nothing worse cannot tell
+    "gone" from "pushed below the levels recorded" - it is not a gap. That
+    can under-fill, never over-fill. A size is filled once per strategy and
     mode - paper and placebo are separate counterfactuals, and one strategy
     does not compete with another."""
     gap = con.execute(
         "SELECT a.captured_at FROM prices a WHERE a.market_id=? AND a.outcome=?"
-        " AND a.quote='ask' AND a.captured_at < ? AND NOT EXISTS (SELECT 1 FROM"
+        " AND a.quote='ask' AND a.captured_at < ? AND a.price > ? + 1e-9"
+        " AND NOT EXISTS (SELECT 1 FROM"
         " prices b WHERE b.market_id=a.market_id AND b.outcome=a.outcome AND"
         " b.quote='ask' AND b.captured_at=a.captured_at AND ABS(b.price - ?) < 1e-9)"
         " ORDER BY a.captured_at DESC LIMIT 1",
-        (q["market_id"], q["outcome"], q["captured_at"], q["price"])).fetchone()
+        (q["market_id"], q["outcome"], q["captured_at"], q["price"],
+         q["price"])).fetchone()
     used = con.execute(
         "SELECT COALESCE(SUM(f.contracts), 0) FROM paper_fills f"
         " JOIN paper_orders o ON o.order_id=f.order_id"
