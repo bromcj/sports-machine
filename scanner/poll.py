@@ -210,7 +210,7 @@ class Poller:
     """One loop, all sports. Every clock is injectable, so tests drive time."""
 
     def __init__(self, source, sports=None, connect=None, clock=utcnow,
-                 sleep=time.sleep, out=print):
+                 sleep=time.sleep, out=print, code_sha=None):
         self.source = source
         self.sports = list(sports or config.POLL_SPORTS)
         self.connect = connect or db.connect
@@ -225,7 +225,7 @@ class Poller:
         # The commit this process's code came from. Read once: after a pull
         # the checkout's HEAD moves on, but the code already imported does
         # not, and ensure()'s restart-on-new-code compares against this.
-        self.code_sha = db.code_sha()
+        self.code_sha = code_sha or db.code_sha()
 
     # -- state that survives a restart comes from the ledger, not memory
     def _last_polls(self, con) -> dict:
@@ -547,14 +547,17 @@ def live() -> int:
     if why:
         print(f"REFUSED: {why}")
         return 2
+    # Read before the lock, so the loop beats the instant it holds it: git
+    # and the import take a moment, and touch no database and no key.
+    from ingest.raw import save_raw
+    sha = db.code_sha()
     # The lock first, and only the lock: a fresh heartbeat under a free lock
     # is a loop that has already ended (alive()).
     lock = take_lock()                             # held until this process ends
     if lock is None:
         print(f"REFUSED: a polling loop is already running (it holds {LOCK}).")
         return 2
-    from ingest.raw import save_raw
-    poller = Poller(OddsSource(save_raw=save_raw))
+    poller = Poller(OddsSource(save_raw=save_raw), code_sha=sha)
     # Beat before db.init(), which can take seconds: until this loop beats,
     # the heartbeat under its lock is the last loop's, and a monitor reading
     # a dead loop's hours-old beat there reported this one hung.
