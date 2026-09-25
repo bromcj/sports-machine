@@ -219,6 +219,23 @@ def test_a_resting_order_stops_at_the_start(con):
     assert _status(con, oid) == "expired"
 
 
+def test_a_market_with_no_start_stops_filling_at_its_resolution(con):
+    # A weather or economics market has no start: its resolution is its only
+    # cutoff, for fills as for orders. An order placed before it filled at a
+    # price captured after it, and the position's days to resolution came
+    # out negative.
+    mid, _ = _kmarket(con, resolves_at=at(10))
+    _book(con, mid, -1, [("0.5000", "500")])
+    taker = _order(con, mid, size=10, limit_price=0.9, now=at(5))
+    maker = _order(con, mid, role="maker", size=10, limit_price=0.46, now=at(5))
+    paper.simulate(con, at(9))
+    assert _status(con, taker) == _status(con, maker) == "open"
+    _book(con, mid, 40, [("0.6000", "500")])     # yes ask 0.40, 30 min after it resolved
+    paper.simulate(con, at(45))
+    assert _status(con, taker) == _status(con, maker) == "expired"
+    assert con.execute("SELECT COUNT(*) FROM paper_fills").fetchone()[0] == 0
+
+
 @pytest.mark.parametrize("role, limit", [("taker", 0.50), ("maker", 0.40)])
 def test_a_price_captured_exactly_at_the_start_is_in_play(con, role, limit):
     # "Nothing fills at or after a game's start" - AT it too. Every other

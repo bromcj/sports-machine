@@ -39,7 +39,8 @@ past the exposure the daily cap counted is not made.
 Nothing fills at or after a game's start. The Odds API keeps quoting in-play
 prices, and a pregame order must not be filled at one: fair_value refuses
 them, so the position would be graded against a different market state. An
-order still open at the start expires.
+order still open at the start expires. A market with no start stops at its
+resolution instead.
 
 UNITS. An exchange order's size is contracts; a book order's size is dollars
 staked. Both are held as contracts paying $1 if they win - a $100 stake at
@@ -349,12 +350,19 @@ def simulate(con, now) -> dict:
 
 
 def _start(con, market_id: str) -> str | None:
-    """The game's start by fair_value's own rule (scanner.fair.game_start): an
-    exchange contract's own start can be later than the books', and a fill
-    between the two would be at an in-play price fair_value refuses."""
+    """When fills stop. The game's start by fair_value's own rule
+    (scanner.fair.game_start): an exchange contract's own start can be later
+    than the books', and a fill between the two would be at an in-play price
+    fair_value refuses. A market with no start (weather, economics) stops at
+    its resolution, as submit() does."""
     row = con.execute("SELECT * FROM markets WHERE market_id=?",
                       (market_id,)).fetchone()
-    return game_start(con, row) if row else None
+    if row is None:
+        return None
+    start = game_start(con, row)
+    if start is None and row["resolves_at"]:
+        return canon_ts(row["resolves_at"])
+    return start
 
 
 def _simulate_maker(con, o, target: float, now: str, tally: dict) -> str:
