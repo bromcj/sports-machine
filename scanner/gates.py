@@ -146,8 +146,8 @@ def measured(con, name: str, metric: str, now) -> dict:
     col = "info" if metric == "info" else "realized_ev"
     events = {}
     for mode in ("paper", "placebo"):
-        # Graded AND settled. The scanner grades at the start and settles
-        # later, so a graded position that has not settled would otherwise
+        # Graded AND settled. The scanner grades once the market resolves and
+        # settles separately, so a graded position that has not settled would otherwise
         # stand in for a settled one that could not be graded (review
         # 2026-09-25: gate 2 passed at a true coverage of 17%).
         rows = con.execute(

@@ -630,7 +630,7 @@ def test_re_entering_one_game_through_the_pipeline_is_one_gate_2_value(env):
                                                    "kalshi:quadratic:1", sport="nba"))
         strategies.run(env, s, t)
     _game(env, {"pinnacle": (140, -160)}, "2026-11-04T00:00:00Z")     # the close
-    strategies.run(env, s, dt.datetime(2026, 11, 4, 0, 30, tzinfo=UTC))
+    strategies.run(env, s, dt.datetime(2026, 11, 4, 3, 0, tzinfo=UTC))   # resolved
     for (pid,) in env.execute("SELECT position_id FROM paper_positions").fetchall():
         paper.settle(env, pid, "win", "2026-11-04T04:00:00Z")
     graded = env.execute("SELECT COUNT(*) FROM paper_positions WHERE mode='paper'"
@@ -676,7 +676,7 @@ def test_info_is_graded_when_both_ends_are_pinnacle(env):
     _game(env, {"pinnacle": (130, -150)}, NOW - dt.timedelta(minutes=5))
     pid = _kalshi_position(env)
     _game(env, {"pinnacle": (140, -160)}, "2026-11-04T00:00:00Z")   # 10 min out
-    r = paper.grade(env, pid, NOW + dt.timedelta(hours=9))
+    r = paper.grade(env, pid, NOW + dt.timedelta(hours=11))   # resolved at 03:00
     assert r["graded"] and r["info"] > 0                # home got shorter: moved our way
 
 
@@ -684,14 +684,14 @@ def test_a_switch_of_fair_source_leaves_a_position_ungraded(env):
     _game(env, {"draftkings": (130, -150)}, NOW - dt.timedelta(minutes=5))
     pid = _kalshi_position(env)
     _game(env, {"pinnacle": (140, -160)}, "2026-11-04T00:00:00Z")
-    r = paper.grade(env, pid, NOW + dt.timedelta(hours=9))
+    r = paper.grade(env, pid, NOW + dt.timedelta(hours=11))   # resolved at 03:00
     assert not r["graded"] and "consensus -> pinnacle" in r["why"]
 
 
 def test_a_close_taken_too_early_leaves_a_position_ungraded(env):
     _game(env, {"pinnacle": (130, -150)}, NOW - dt.timedelta(minutes=5))
     pid = _kalshi_position(env)                         # last book: 8+ hours out
-    r = paper.grade(env, pid, NOW + dt.timedelta(hours=9))
+    r = paper.grade(env, pid, NOW + dt.timedelta(hours=11))   # resolved at 03:00
     assert not r["graded"] and "window" in r["why"]
 
 

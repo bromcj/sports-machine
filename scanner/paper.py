@@ -417,9 +417,11 @@ def grade(con, position_id: int, when) -> dict:
     """The fair close against the fair price at entry: `info`, in percent.
 
     Graded only when (pre-registered, docs/experiments.md S0):
-      - the market has a start time, and `when` is at or after it, so the
-        close exists. Before the start the newest pull is only the latest
-        price so far (and, in a replay, a later one is already stored);
+      - the market has a start time, and `when` is at or after it and at
+        or after the market's resolves_at, so the close exists and the
+        start is final. Before the start the newest pull is only the latest
+        price so far (and, in a replay, a later one is already stored); a
+        delay announced after the start had passed moves the start later;
         a graded position is never graded again, so it waits;
       - a fair close was captured within CLOSING_WINDOW_MIN of the start
         (bets/log.py's constant - the sport model's window);
@@ -438,6 +440,11 @@ def grade(con, position_id: int, when) -> dict:
         return {"graded": False, "why": "no start time, so no closing price"}
     if canon_ts(when) < start:
         return {"graded": False, "why": "not started yet, so the close is not in"}
+    # And only once the market has resolved: a delay announced after the
+    # start had passed can still move it later (next_start), and a position
+    # graded in between would keep a close taken before the real one.
+    if m["resolves_at"] and canon_ts(when) < canon_ts(m["resolves_at"]):
+        return {"graded": False, "why": "not resolved yet, so the start may still move"}
     close = fair_value(con, p["market_id"], p["outcome"], start)
     entry = fair_value(con, p["market_id"], p["outcome"], p["opened_at"])
     if close is None or entry is None:
