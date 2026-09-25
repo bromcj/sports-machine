@@ -650,6 +650,25 @@ def test_the_ledger_of_record_names_its_own_folder(env, monkeypatch, capsys):
     assert poll.ensure(spawn=spawn, now=T0).startswith("started") and started == [1]
 
 
+def test_a_marker_written_as_utf16_is_refused_not_a_crash(env, monkeypatch, capsys):
+    # Windows PowerShell 5.1's `>`, Out-File and Set-Content -Encoding Unicode
+    # all write UTF-16. The marker's reader raised UnicodeDecodeError, so
+    # `poll --live` and `poll --ensure` printed a traceback instead of the
+    # refusal and the line that fixes it.
+    monkeypatch.setattr(config, "POLLING_ENABLED", True)
+    for name in ("Poller", "OddsSource"):
+        monkeypatch.setattr(poll, name, lambda *a, **k: pytest.fail("a loop was built"))
+    here = str(env.resolve())
+    line = (f"Set-Content -LiteralPath '{poll.RECORD}' -Value '{here}'")
+    poll.STATE_DIR.mkdir(exist_ok=True)
+    poll.RECORD.write_text(here + "\r\n", encoding="utf-16")      # starts FF FE
+    assert poll.live() == 2
+    out = capsys.readouterr().out
+    assert "not UTF-8 text" in out and line in out, out
+    msg = poll.ensure(spawn=lambda: pytest.fail("a loop was started"), now=T0)
+    assert msg.startswith("NOT started") and "not UTF-8 text" in msg and line in msg
+
+
 def test_ensure_leaves_a_loop_stopped_by_a_refused_key(env, monkeypatch):
     monkeypatch.setattr(config, "POLLING_ENABLED", True)
     poll.STATE_DIR.mkdir(exist_ok=True)

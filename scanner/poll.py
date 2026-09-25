@@ -453,15 +453,19 @@ def _not_of_record() -> str | None:
     marker must name the folder it is in: a file that only had to exist
     travelled with any copy of the folder, and the copy was of record too."""
     here = str(paths.DATA_DIR.resolve())
+    what = None
     try:
         # utf-8-sig: PowerShell's Set-Content -Encoding utf8 writes a BOM.
         names = RECORD.read_text(encoding="utf-8-sig").strip()
     except OSError:
         names = None
+    except UnicodeDecodeError:
+        # PowerShell 5.1's `>` and Out-File write UTF-16: refused, not a crash.
+        names, what = "", "is not UTF-8 text"
     if names == here:
         return None
-    what = ("does not exist" if names is None else "is empty" if not names
-            else f"names {names}, not this folder")
+    what = what or ("does not exist" if names is None else "is empty" if not names
+                    else f"names {names}, not this folder")
     q = lambda p: str(p).replace("'", "''")                   # noqa: E731
     return (f"this data folder is not the ledger of record ({RECORD} {what})."
             " The credit limits count only the ledger in the folder the loop"
