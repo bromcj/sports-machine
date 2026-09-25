@@ -57,8 +57,11 @@ SPORTS = {
 KALSHI_SPORTS_ENABLED = True
 
 # THE POLLING LOOP (scanner/poll.py). Off until Phase C4 turns it on. While
-# False, the scheduled job's `poll --ensure` does nothing and `poll --live`
-# refuses. It is the only switch; flipping it is a commit.
+# False, `poll --live` refuses and the scheduled job's `poll --ensure` starts
+# nothing - and asks a loop still running from before to stop. A running loop
+# never rereads this flag, so a False commit reaches it only at the next
+# scheduled run, after its pull; to stop it at once, create
+# data/scanner/poll.stop. It is the only switch; flipping it is a commit.
 POLLING_ENABLED = False
 
 # What each metered call asks The Odds API for. A named list bills as one

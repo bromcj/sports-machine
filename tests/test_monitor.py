@@ -1,5 +1,6 @@
 """The monitor's levels and thresholds."""
 import datetime as dt
+import json
 
 import pytest
 
@@ -70,6 +71,20 @@ def test_the_brief_cap_alerts_at_25_and_10_percent_left(con):
 def test_scanner_checks_are_silent_until_the_scanner_exists(monkeypatch):
     monkeypatch.setattr(config, "POLLING_ENABLED", False)
     assert monitor.scanner_checks(None, NOW, {"games", "bets"}) == []
+
+
+def test_a_live_loop_while_polling_is_off_is_an_error(con, monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "POLLING_ENABLED", False)
+    monkeypatch.setattr(poll, "STOP", tmp_path / "poll.stop")
+    loop = [x for x in monitor.scanner_checks(con, NOW, _tables(con))
+            if "loop" in x["check"]]
+    assert loop == []                            # no heartbeat: silent, as today
+    poll.HEARTBEAT.write_text(json.dumps({"state": "running", "pid": 7,
+                                          "beat_at": NOW.isoformat()}))
+    loop = [x for x in monitor.scanner_checks(con, NOW, _tables(con))
+            if "loop" in x["check"]]
+    assert [x["level"] for x in loop] == ["ERROR"]
+    assert "running while polling is switched off" in loop[0]["detail"]
 
 
 def test_a_dead_polling_loop_is_an_error_once_polling_is_on(con, monkeypatch):

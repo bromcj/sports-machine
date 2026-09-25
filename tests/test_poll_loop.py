@@ -286,7 +286,24 @@ def test_ensure_does_nothing_while_polling_is_switched_off(env, monkeypatch):
     started = []
     msg = poll.ensure(spawn=lambda: started.append(1))
     assert not started and "switched off" in msg
+    assert not poll.STOP.exists()                             # no loop, nothing to stop
     assert poll.live() == 2                                   # --live refuses too
+
+
+def test_switching_polling_off_stops_a_running_loop(env, monkeypatch):
+    # A loop started while polling was on keeps its own copy of config. The
+    # scheduled job's --ensure, after the pull that brings the False, is
+    # what reaches it.
+    monkeypatch.setattr(config, "POLLING_ENABLED", False)
+    get = FakeGet([T0 + dt.timedelta(minutes=45)])
+    p = _poller(get, lambda: T0)
+    said = []
+    p.sleep = lambda s: said.append(poll.ensure(spawn=lambda: pytest.fail("spawned"),
+                                                now=T0))
+    assert p.run(max_ticks=5) == 0
+    assert "stop" in said[0] and "switched off" in said[0]
+    assert poll.heartbeat()["state"] == "stopped: asked to"
+    assert [c for c in get.calls if c[0] == "odds"] == [("odds", 1)]   # one, then none
 
 
 def test_ensure_starts_a_missing_loop_and_leaves_a_live_one(env, monkeypatch):

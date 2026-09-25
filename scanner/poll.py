@@ -17,7 +17,9 @@ price through the sportsbook adapter. Start times come from the free events
 list, refreshed hourly. Kalshi and Polymarket join as free sources in Phase C.
 
 Safety, in the order it applies:
-  - config.POLLING_ENABLED False: nothing starts, --live refuses.
+  - config.POLLING_ENABLED False: nothing starts, --live refuses, and
+    --ensure asks a loop still running from before to stop (a running loop
+    never rereads the flag). data/scanner/poll.stop stops it at once.
   - budget.check() before every metered call; OverBudget means no request.
     A daily-pace refusal waits for tomorrow; the brief's cap or the month's
     budget stops the loop.
@@ -336,11 +338,19 @@ def ensure(spawn=_spawn, now=None, wait=time.sleep) -> str:
     A loop that stopped itself stays stopped unless the reason is gone: a
     spent budget is retried once the limits allow a call again; a refused key
     or an exhausted account ('api') waits for a person.
+
+    Switched off, it starts nothing, and asks a loop still running (started
+    while polling was on - it never rereads the flag) to stop.
     """
+    hb = heartbeat()
     if not config.POLLING_ENABLED:
+        if alive(hb, now):
+            STOP.parent.mkdir(parents=True, exist_ok=True)
+            STOP.write_text("polling switched off", encoding="utf-8")
+            return ("polling is switched off (config.POLLING_ENABLED = False);"
+                    f" asked the running loop (pid {hb.get('pid')}) to stop")
         return ("polling is switched off (config.POLLING_ENABLED = False);"
                 " nothing started")
-    hb = heartbeat()
     if hb and str(hb.get("state", "")).startswith("stopped:") \
             and hb.get("stop_kind") in ("api", "budget"):
         if hb["stop_kind"] == "api":

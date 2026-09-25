@@ -206,8 +206,9 @@ def _credit_level(frac_left: float) -> str:
 
 def scanner_checks(con, now, tables) -> list[dict]:
     """The scanner's own limits and its polling loop. Silent until the
-    scanner exists here (its tables, or polling switched on), so the
-    scheduled job's findings do not change before then."""
+    scanner exists here (its tables, polling switched on, or a loop still
+    running after it was switched off), so the scheduled job's findings do
+    not change before then."""
     import config
     out = []
     if "credit_ledger" in tables:
@@ -238,6 +239,17 @@ def scanner_checks(con, now, tables) -> list[dict]:
             out.append(_find("ERROR", "the polling loop is running",
                              f"no heartbeat since {ago}; the next scheduled run"
                              f" restarts it (`python run_daily.py poll --ensure`)"))
+    else:
+        # A loop started while polling was on never rereads the flag. Silent
+        # when there is no fresh heartbeat, as there is none today.
+        from scanner import poll
+        hb = poll.heartbeat()
+        if poll.alive(hb, now):
+            out.append(_find("ERROR", "no polling loop while polling is switched off",
+                             f"a polling loop is running while polling is switched"
+                             f" off (pid {hb.get('pid')}); the next scheduled"
+                             f" `poll --ensure` asks it to stop, or create"
+                             f" {poll.STOP} to stop it now"))
     return out
 
 
