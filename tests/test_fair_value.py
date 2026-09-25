@@ -132,6 +132,61 @@ def test_a_start_reported_later_after_the_game_began_does_not_reopen_it(con):
     assert after["p"] == before["p"]
 
 
+def _pull(con, when, start, books):
+    ev = _event(books)
+    ev[0]["commence_time"] = start
+    sportsbook.write(con, "mlb", ev, when)
+
+
+def test_a_book_that_stops_quoting_before_a_delay_does_not_drag_the_start_back(con):
+    # Royals @ Twins, 2026-06-05: Pinnacle's last pull said 00:16; the delay
+    # was reported only in pulls Pinnacle was no longer in (01:06, then 01:31).
+    # The earliest start over the books kept answering with Pinnacle's price
+    # from 23:55, an hour and more old, and A-V1 went red on that week.
+    _pull(con, "2026-06-05T23:55:00+00:00", "2026-06-06T00:16:00Z",
+          {"pinnacle": (102, -110), "draftkings": (100, -121)})
+    _pull(con, "2026-06-06T00:55:00+00:00", "2026-06-06T01:06:00Z",
+          {"draftkings": (100, -121)})
+    for via in ("draftkings", "pinnacle"):
+        fv = fair_value(con, _h2h(via), "home", "2026-06-06T00:55:00+00:00")
+        assert fv["as_of"] == "2026-06-06T00:55:00.000000+00:00", (via, fv)
+        assert fv["source"] == "consensus" and fv["p"] == novig_probs(100, -121)[1]
+
+
+def test_a_book_last_seen_before_an_earlier_start_is_not_trusted_either(con):
+    # Orioles @ Reds, 2024-05-03: the 00:55 pull still said 01:10; the next
+    # pull (Pinnacle gone) said first pitch was 00:50:51. Pinnacle's 00:55
+    # price was in play, whichever book's market is asked - so the start is
+    # not each book's own, nor the latest over the books.
+    _pull(con, "2024-05-03T23:25:00+00:00", "2024-05-03T23:40:00Z",
+          {"pinnacle": (105, -114), "draftkings": (100, -120)})
+    _pull(con, "2024-05-04T00:55:00+00:00", "2024-05-04T01:10:00Z",
+          {"pinnacle": (100, -108), "draftkings": (-105, -115)})
+    _pull(con, "2024-05-04T01:25:00+00:00", "2024-05-04T00:50:51Z",
+          {"draftkings": (-105, -125)})
+    for via in ("draftkings", "pinnacle"):
+        fv = fair_value(con, _h2h(via), "home", "2024-05-04T00:55:00+00:00")
+        assert fv["as_of"] == "2024-05-03T23:25:00.000000+00:00", (via, fv)
+
+
+def test_books_priced_together_that_disagree_on_the_start_take_the_earliest(con):
+    # Pinnacle missed the pull that moved the start EARLIER, to 18:30; the
+    # 18:50 pull then said 18:45, after 18:45, which DraftKings rightly
+    # ignores and Pinnacle takes (earlier than its 19:00). Both were last
+    # priced at 18:50. The 18:40 pull is in play by the feed's own word.
+    _pull(con, "2026-09-20T18:00:00+00:00", "2026-09-20T19:00:00Z",
+          {"pinnacle": (205, -230), "draftkings": (200, -245)})
+    _pull(con, "2026-09-20T18:20:00+00:00", "2026-09-20T18:30:00Z",
+          {"draftkings": (190, -230)})
+    _pull(con, "2026-09-20T18:40:00+00:00", "2026-09-20T18:30:00Z",
+          {"draftkings": (900, -2000)})
+    _pull(con, "2026-09-20T18:50:00+00:00", "2026-09-20T18:45:00Z",
+          {"pinnacle": (1500, -10000), "draftkings": (1400, -9000)})
+    for via in ("draftkings", "pinnacle"):
+        fv = fair_value(con, _h2h(via), "home", "2026-09-20T18:40:00+00:00")
+        assert fv["as_of"] == "2026-09-20T18:20:00.000000+00:00", (via, fv)
+
+
 def test_the_archive_conversion_ignores_a_start_reported_after_it():
     snap = {"id": 1, "game_id": "mlb-abc", "book": "pinnacle", "away_ml": 110,
             "home_ml": -120, "commence_time": "2024-04-27T22:05:00Z",
