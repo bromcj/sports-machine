@@ -3,7 +3,8 @@ name: tests
 # Every push and pull request. No secrets: the suite touches no database and
 # no network, so it runs on a bare checkout with no data/ at all - which is
 # the point. audit.py checks the live system against live data and cannot run
-# here; this is the other half.
+# here, except its paper-only scan, which reads code only and runs here as
+# tests/test_paper_only_scan.py; this is the other half.
 on:
   push:
   pull_request:
