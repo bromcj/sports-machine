@@ -300,13 +300,41 @@ file `data\scanner\poll.stop`; the loop checks for it about every 30 seconds.
 
 **Turning it on takes two steps.** One is the commit that sets
 `POLLING_ENABLED = True`. The other is creating the file
-`C:\Users\BromC\sports-machine\data\scanner\ledger-of-record` by hand. The
-credit limits count only the ledger in the data folder the loop runs
-against, and every checkout spends the same paid key. So `--live` refuses,
-and `--ensure` will not start or restart the loop, in any data folder without
-that file. A loop run from dev must point `SPORTS_MACHINE_DATA_DIR` at
-production's data folder. Only one loop runs at a time: `--live` holds
-`data\scanner\poll.lock` for as long as it runs, and a second is refused.
+`C:\Users\BromC\sports-machine\data\scanner\ledger-of-record` by hand,
+containing that data folder's full path, so that a copy of the folder is not
+of record. In PowerShell it is this one line:
+
+```powershell
+New-Item -ItemType Directory -Force -Path 'C:\Users\BromC\sports-machine\data\scanner' | Out-Null; Set-Content -LiteralPath 'C:\Users\BromC\sports-machine\data\scanner\ledger-of-record' -Value 'C:\Users\BromC\sports-machine\data'
+```
+
+A refused `--live` or `--ensure` prints the same line for the folder it ran
+against. Run it only for production's folder, never for a copy. The credit
+limits count only the ledger in the data folder the loop runs against, and
+every checkout spends the same paid key. So `--live` refuses, and `--ensure`
+will not start or restart the loop, in any data folder whose file is missing,
+empty or names another folder. A loop run from dev must point
+`SPORTS_MACHINE_DATA_DIR` at production's data folder. Only one loop runs at
+a time: `--live` takes `data\scanner\poll.lock` first and holds it for as
+long as it runs, and a second is refused.
+
+**Two ERRORs that are the loop's, and what to do.** `monitor.py` writes them
+to `ALERTS.md` like any other finding.
+
+- *the polling loop is running: ... holds its lock but has not beaten for N
+  min - it may be hung; end pid N ...* The loop is stuck, most likely in a
+  request that never came back, or in a console window paused by a click.
+  It has not written its heartbeat for over 15 minutes, and nothing is being
+  polled. End that process: Task Manager, Details tab, the PID the message
+  names. The next scheduled run (11:30 am or 10 pm ET) starts a new loop.
+  `poll --ensure` says the same thing.
+- *scanner credits: the brief's polling days: the loop makes no metered
+  call: the brief's 42 planned polling days are used ...; to keep polling,
+  extend config.BRIEF_POLL_DAYS by a commit.* Nothing is broken: the loop
+  has used the days the brief planned and is paused, spending nothing. To
+  keep polling, raise `BRIEF_POLL_DAYS` in `config.py` in a commit (made in
+  dev and pulled into production, like any change). The brief's 6,000 cap
+  still applies.
 
 When it is on, it asks The Odds API for every NFL, NBA and NHL game's prices
 (h2h, spreads, totals; Pinnacle plus nine NJ books) at 3 credits a call, as
@@ -343,9 +371,11 @@ There are none yet: the brief adds them in Phases B and E, each only after
 its entry in `docs/experiments.md` is written. Each strategy has its own
 block in `validation.json`, held to the same three gates as a sport. Gate 1 is
 its own backtest, from its own entry; a new definition needs a new name.
-Gate 2 is its own 50+ graded and settled paper positions at 3 standard
-errors, with coverage and a placebo that has 50+ graded positions of its
-own. Gate 3 is your own `arm("<name>")`. A strategy scored on `realized_ev`
+Gate 2 is its own paper record at 3 standard errors, counted per game: 50+
+games with a graded and settled position, and entering a game again adds no
+new evidence. It needs coverage, and a placebo that covers 50+ graded games of its
+own. Editing a strategy's experiment or metric under the same name fails
+gate 2 and gate 3. Gate 3 is your own `arm("<name>")`. A strategy scored on `realized_ev`
 cannot pass gate 2 until a bar for its payoff is pre-registered. Gate 2 is
 re-tested at most twice per ET day per strategy. Every order is paper: the
 database itself refuses any other kind, and `python audit.py` checks no code
