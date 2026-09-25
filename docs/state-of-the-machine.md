@@ -210,8 +210,10 @@ capital accounting, and per-strategy gates — on a branch, reviewed before it
 reaches production. **It is switched off** (`config.POLLING_ENABLED = False`),
 **has no strategies**, and **cannot place a real order**: there is no order
 path in the code, the database refuses a non-paper order, and `audit.py`
-checks both. For the code, it reads every module (tests included) and every
-scheduled job and workflow, looking for anything that sends more than a GET,
+checks both. For the code, it reads every module, `.py` and `.pyw` alike
+(tests and the tracked `archive/` folder included, since a module sitting
+there can still be imported), and every scheduled job and workflow, looking
+for anything that sends more than a GET,
 an order endpoint, or an order call such as `create_order`. CI runs the same
 scan on every push (`tests/test_paper_only_scan.py`). It is a tripwire for
 the ordinary ways to write an order path, not a proof against a hidden one.
@@ -236,8 +238,11 @@ paper bets settling, no price used from after first pitch, Statcast currency,
 no truncated Statcast game, predictions covering the slate, the mean predicted
 home probability, and credits remaining (the paid key's; nothing on this PC
 can see the cloud key's). Once the scanner's tables exist it adds the
-scanner's two credit limits (a warning at 25% left, critical at 10%), and once
-polling is switched on, whether the loop is alive. Findings are written to `ALERTS.md` at the repo
+scanner's two credit limits (a warning at 25% left, critical at 10%), and an
+ERROR once the brief's 42 planned polling days are used. Once polling is
+switched on, it adds whether the loop is alive, and an ERROR if the loop
+holds its lock but has not written its heartbeat for 15 minutes (it may be
+hung; the finding names the process to end). Findings are written to `ALERTS.md` at the repo
 root, which every scheduled run rewrites — including one that refuses — and
 whose first line is the time it was written.
 
@@ -278,11 +283,11 @@ import check on every push, on Python 3.11. It was red for 11 pushes until
 noticed. `.github/workflows/daily.yml` is the three-times-a-day
 collection.
 
-`python -m pytest tests/` gave 643 passed, 2 skipped on 2026-09-25 (on the
-`phase-a-foundations` branch, in a checkout without `data_golden/`), and
-needs no database or network. The two skipped are the golden test, which
-runs only where `data_golden/` exists; in the dev folder, which has it, all
-645 pass.
+`python -m pytest tests/` gave 679 passed, 2 skipped on 2026-09-25 (on the
+`phase-a-foundations` branch at 04c6d7f, in a checkout without
+`data_golden/`), and needs no database or network. The two skipped are the
+golden test, which runs only where `data_golden/` exists; in the dev folder,
+which has it, all 681 pass.
 
 **Free and safe any time:** `picks`, `audit`, `dashboard`, `backup`,
 `cronstatus`, `validation`, `merge_archive`. **Free, but they rewrite tracked
