@@ -8,7 +8,9 @@
                                         not, restart it on new code. Free.
     python run_daily.py poll --live     run the loop in this window.
                                         COSTS CREDITS. Refuses unless
-                                        config.POLLING_ENABLED is True.
+                                        config.POLLING_ENABLED is True and
+                                        the data folder is the ledger of
+                                        record (RECORD, below).
 
 Every ~30 seconds it asks, per sport, whether a poll is due (scanner.budget:
 the cadence by time to the soonest unstarted game, at the ladder level the
@@ -59,6 +61,12 @@ STATE_DIR = paths.DATA_DIR / "scanner"
 HEARTBEAT = STATE_DIR / "poll.json"
 STOP = STATE_DIR / "poll.stop"
 LOCK = STATE_DIR / "poll.lock"
+# The credit limits count the ledger in the data folder the loop runs
+# against, but every checkout spends the same paid key: a loop in a second
+# folder would start again from a fresh 6,000. So the loop runs only where
+# this file says "this ledger is the one" - production's data folder. The
+# owner creates it by hand there, in the step that turns polling on.
+RECORD = STATE_DIR / "ledger-of-record"
 LOG = ROOT / "logs" / "poll.log"
 
 API = "https://api.the-odds-api.com/v4"
@@ -384,6 +392,17 @@ def _spawn():
     return subprocess.Popen(args, start_new_session=True, **kw)
 
 
+def _not_of_record() -> str | None:
+    """Why this data folder may not run the loop, or None if it may."""
+    if RECORD.exists():
+        return None
+    return (f"this data folder is not the ledger of record ({RECORD} does not"
+            " exist). The credit limits count only the ledger in the folder the"
+            " loop runs against, and every checkout spends the same paid key, so"
+            " the loop runs only against production's data folder. The owner"
+            " creates that file there, by hand, in the step that turns polling on.")
+
+
 def ensure(spawn=_spawn, now=None, wait=time.sleep) -> str:
     """Start the loop if it should run and is not; restart it on new code.
 
@@ -423,9 +442,15 @@ def ensure(spawn=_spawn, now=None, wait=time.sleep) -> str:
                 wait(10)
                 if not STOP.exists():
                     break
+            why = _not_of_record()
+            if why:
+                return f"NOT restarted - {why}"
             p = spawn()
             return f"restarted on new code {db.code_sha()} (pid {p.pid})"
         return f"running (pid {hb.get('pid')}, level {hb.get('level')})"
+    why = _not_of_record()
+    if why:
+        return f"NOT started - {why}"
     p = spawn()
     return f"started (pid {p.pid}); log: {LOG}"
 
@@ -434,6 +459,10 @@ def live() -> int:
     if not config.POLLING_ENABLED:
         print("REFUSED: polling is switched off (config.POLLING_ENABLED = False)."
               " Turning it on is a deliberate commit - see COMMANDS.md.")
+        return 2
+    why = _not_of_record()
+    if why:
+        print(f"REFUSED: {why}")
         return 2
     lock = None if alive() else take_lock()        # held until this process ends
     if lock is None:

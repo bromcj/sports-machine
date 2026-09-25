@@ -66,6 +66,7 @@ def env(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(poll, "HEARTBEAT", tmp_path / "scanner" / "poll.json")
     monkeypatch.setattr(poll, "STOP", tmp_path / "scanner" / "poll.stop")
     monkeypatch.setattr(poll, "LOCK", tmp_path / "scanner" / "poll.lock")
+    monkeypatch.setattr(poll, "RECORD", tmp_path / "scanner" / "ledger-of-record")
     monkeypatch.setattr(config, "CREDIT_CAP_BRIEF", 6000)
     monkeypatch.setattr(config, "BRIEF_POLL_DAYS", 42)
     db.init()
@@ -352,6 +353,7 @@ def test_a_loop_that_holds_the_lock_is_running_however_old_its_beat(env, monkeyp
     spawn = lambda: (started.append(1), P())[1]               # noqa: E731
     lock = env / "scanner" / "poll.lock"
     lock.parent.mkdir(exist_ok=True)
+    poll.RECORD.write_text("")                     # so only the lock can refuse
     poll.HEARTBEAT.write_text(json.dumps({
         "state": "running", "pid": 7, "code_sha": db.code_sha(),
         "beat_at": (T0 - dt.timedelta(hours=8)).isoformat()}))
@@ -409,13 +411,34 @@ def test_ensure_starts_a_missing_loop_and_leaves_a_live_one(env, monkeypatch):
         pid = 4242
     started = []
     spawn = lambda: (started.append(1), P())[1]
-    assert "started" in poll.ensure(spawn=spawn, now=T0)
     poll.STATE_DIR.mkdir(exist_ok=True)
+    poll.RECORD.write_text("")
+    assert "started" in poll.ensure(spawn=spawn, now=T0)
     poll.HEARTBEAT.write_text(json.dumps({"state": "running", "beat_at": T0.isoformat(),
                                           "pid": 7, "code_sha": db.code_sha()}))
     assert "running" in poll.ensure(spawn=spawn, now=T0 + dt.timedelta(minutes=2))
     assert "started" in poll.ensure(spawn=spawn, now=T0 + dt.timedelta(minutes=20))
     assert len(started) == 2
+
+
+def test_the_loop_runs_only_against_the_ledger_of_record(env, monkeypatch, capsys):
+    # The limits count one data folder's ledger; every checkout spends the
+    # same paid key. A loop in a second folder would start again from zero.
+    monkeypatch.setattr(config, "POLLING_ENABLED", True)
+    for name in ("Poller", "OddsSource"):
+        monkeypatch.setattr(poll, name, lambda *a, **k: pytest.fail("a loop was built"))
+
+    class P:
+        pid = 4242
+    started = []
+    spawn = lambda: (started.append(1), P())[1]               # noqa: E731
+    assert poll.live() == 2
+    assert "ledger of record" in capsys.readouterr().out
+    assert poll.ensure(spawn=spawn, now=T0).startswith("NOT started") and not started
+    record = env / "scanner" / "ledger-of-record"               # the owner, by hand
+    record.parent.mkdir(exist_ok=True)
+    record.write_text("")
+    assert poll.ensure(spawn=spawn, now=T0).startswith("started") and started == [1]
 
 
 def test_ensure_leaves_a_loop_stopped_by_a_refused_key(env, monkeypatch):

@@ -19,6 +19,9 @@ which also writes the call's ledger row before the request), from the ledger:
            a busy weekend could spend the whole brief in one day. Unspent
            credits roll forward.
 
+The ledger is the one in the data folder the loop runs against, which is why
+the loop runs only against the ledger of record (scanner/poll.py, RECORD).
+
 A call that fails before a response counts at its estimate, because a limit
 that trusts a missing number is not a limit.
 
