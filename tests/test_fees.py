@@ -79,6 +79,19 @@ def test_polymarket_takers_pay_by_category_and_makers_never():
     assert fees.fee(fees.polymarket_key("geopolitics"), 0.5, 100) == 0.0
 
 
+def test_polymarket_fee_is_rounded_up_to_five_decimals():
+    # docs.polymarket.com/trading/fees (read 2026-09-25): "Fees are rounded to
+    # 5 decimal places." They do not say which way, so the fee is rounded up,
+    # in either mode: costed slightly high, never low.
+    m = fees.polymarket_key("sports")
+    assert fees.fee(m, 0.01, 1) == 0.0005              # exactly 0.000495
+    assert fees.fee(m, 0.37, 3) == 0.03497             # exactly 0.034965
+    assert fees.fee(m, 0.37, 3, conservative=False) == 0.03497
+    # The docs say a fee under 0.00001 "rounds to zero". Here it is charged as
+    # 0.00001, the one place rounding up departs from their words.
+    assert fees.fee(m, 0.01, 0.01) == 0.00001          # exactly 0.00000495
+
+
 def test_a_book_has_no_separate_fee_and_ev_is_p_times_decimal_minus_one():
     for ml in (-150, -110, +100, +135, +400):
         dec = american_to_decimal(ml)

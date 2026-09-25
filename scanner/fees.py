@@ -25,7 +25,12 @@ Sources, read 2026-09-25 (docs/venues.md has the detail):
               rebated later from a per-order accumulator. conservative=True
               charges that cent rounding and ignores the rebate.
   Polymarket  fee = C x rate x p x (1-p), takers only, makers never
-              (docs.polymarket.com/trading/fees).
+              (docs.polymarket.com/trading/fees). "Fees are rounded to 5
+              decimal places. The smallest fee charged is 0.00001 USDC.
+              Anything smaller rounds to zero". No direction is given, so
+              the fee is rounded up to 0.00001 in either mode: never
+              understated, and at most 0.00001 over. A fee under 0.00001
+              is charged as 0.00001, not the zero the docs describe.
 """
 from decimal import ROUND_CEILING, Decimal
 
@@ -48,6 +53,7 @@ POLYMARKET_RATES = {
 ROLES = ("taker", "maker")
 _MICRO = Decimal("0.000001")
 _CENT = Decimal("0.01")
+_POLY_DP = Decimal("0.00001")
 
 
 class UnknownFee(ValueError):
@@ -131,7 +137,8 @@ def fee(model: str, price: float, contracts: float, role: str = "taker",
         rate = _rate(parts[1])
         if role == "maker":
             return 0.0
-        return float(c * rate * p * (1 - p))
+        model_fee = c * rate * p * (1 - p)
+        return float(model_fee.quantize(_POLY_DP, rounding=ROUND_CEILING))
 
     raise UnknownFee(f"unknown fee model {model!r}")
 
