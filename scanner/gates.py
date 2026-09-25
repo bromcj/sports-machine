@@ -11,7 +11,8 @@
            models' rules - on the strategy's own graded paper positions,
            its own coverage, its own placebo. It only ever updates the
            paper_trading part of a block that already exists, so the
-           scheduled job's guard (only_paper_changed) can always discard it.
+           scheduled job's guard (only_paper_changed) may discard it - or
+           refuses to, when discarding would bring back a pass.
            Two refusals sports do not need: a realized_ev strategy cannot
            pass yet (UNCALIBRATED, below), and nor can one whose placebo
            has fewer than 50 graded positions.
@@ -21,7 +22,7 @@ LOOKS. score() re-tests gate 2 at most MAX_LOOKS_PER_DAY times per ET day and
 logs every look in gate_looks, so the cadence is the one the simulation
 covers. Measured (docs/gates.md): at 3 SE a no-skill strategy grading 50 a
 day passes by luck 2.3% of the time over 120 days at two looks a day, and
-2.9% if it were re-tested after every graded position. That simulation drew
+about 3% if it were re-tested after every graded position. That simulation drew
 near-normal values - the info metric - and says nothing about realized_ev.
 More looks, looser gate; the cap keeps it where it was measured.
 """
