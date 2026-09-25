@@ -84,6 +84,11 @@ no skill):
 | 10 | 1 | 1.5% |
 | 10 | 2 | 1.8% |
 
+*Corrected 2026-09-25 by the Phase A review:* those figures came from 20,000
+trials and sit 0.2–0.4 points low from Monte Carlo noise. Rerun with 100,000
+to 200,000 trials they are 1.4%, 1.6%, 1.8% and 1.9–2.0%. Every one is still
+under 5%, so no sigma changes.
+
 The bar still holds with room to spare (two sigma at 10 a day, twice a day,
 would be 16.9%), and a real +1% edge is still found. `audit.py`'s SEQUENTIAL
 TESTING check now simulates 10 graded bets a day tested twice a day. No sigma
