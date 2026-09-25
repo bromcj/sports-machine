@@ -15,6 +15,7 @@ import requests
 
 import config
 import db
+import paths
 from feeds import ET
 from ingest import http
 from scanner import budget, poll
@@ -63,6 +64,7 @@ class FakeGet:
 
 @pytest.fixture
 def env(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(paths, "DATA_DIR", tmp_path)
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "t.db")
     monkeypatch.setattr(poll, "STATE_DIR", tmp_path / "scanner")
     monkeypatch.setattr(poll, "HEARTBEAT", tmp_path / "scanner" / "poll.json")
@@ -80,6 +82,13 @@ def _poller(get, clock, sports=("nba",)):
     src = poll.OddsSource(get=get, key="test-key", clock=clock)
     return poll.Poller(src, sports=list(sports), clock=clock, sleep=lambda s: None,
                        out=lambda *a: None)
+
+
+def _of_record():
+    """Make the test's data folder the ledger of record, as the owner does
+    by hand in production's: the marker names the folder it is in."""
+    poll.STATE_DIR.mkdir(exist_ok=True)
+    poll.RECORD.write_text(str(paths.DATA_DIR.resolve()))
 
 
 def test_a_due_sport_is_polled_and_its_prices_stored(env):
@@ -436,8 +445,7 @@ def test_a_loop_that_holds_the_lock_is_never_doubled_however_old_its_beat(env, m
     started = []
     spawn = lambda: (started.append(1), P())[1]               # noqa: E731
     lock = env / "scanner" / "poll.lock"
-    lock.parent.mkdir(exist_ok=True)
-    poll.RECORD.write_text("")                     # so only the lock can refuse
+    _of_record()                                   # so only the lock can refuse
     poll.HEARTBEAT.write_text(json.dumps({
         "state": "running", "pid": 7, "code_sha": db.code_sha(),
         "beat_at": (T0 - dt.timedelta(hours=8)).isoformat()}))
@@ -497,8 +505,7 @@ def test_ensure_starts_a_missing_loop_and_leaves_a_live_one(env, monkeypatch):
         pid = 4242
     started = []
     spawn = lambda: (started.append(1), P())[1]
-    poll.STATE_DIR.mkdir(exist_ok=True)
-    poll.RECORD.write_text("")
+    _of_record()
     assert "started" in poll.ensure(spawn=spawn, now=T0)
     poll.HEARTBEAT.write_text(json.dumps({"state": "running", "beat_at": T0.isoformat(),
                                           "pid": 7, "code_sha": db.code_sha()}))
@@ -518,8 +525,7 @@ def test_ensure_does_not_restart_until_the_old_loop_has_stopped(env, monkeypatch
         pid = 4242
     started = []
     spawn = lambda: (started.append(1), P())[1]               # noqa: E731
-    poll.STATE_DIR.mkdir(exist_ok=True)
-    poll.RECORD.write_text("")
+    _of_record()
     poll.HEARTBEAT.write_text(json.dumps({"state": "running", "beat_at": T0.isoformat(),
                                           "pid": 7, "code_sha": "old"}))
     msg = poll.ensure(spawn=spawn, now=T0, wait=lambda s: None)     # it never stops
@@ -543,9 +549,37 @@ def test_the_loop_runs_only_against_the_ledger_of_record(env, monkeypatch, capsy
     assert poll.live() == 2
     assert "ledger of record" in capsys.readouterr().out
     assert poll.ensure(spawn=spawn, now=T0).startswith("NOT started") and not started
-    record = env / "scanner" / "ledger-of-record"               # the owner, by hand
-    record.parent.mkdir(exist_ok=True)
-    record.write_text("")
+    _of_record()                                                # the owner, by hand
+    assert poll.ensure(spawn=spawn, now=T0).startswith("started") and started == [1]
+
+
+def test_the_ledger_of_record_names_its_own_folder(env, monkeypatch, capsys):
+    # The marker was an empty file, checked only for being there, so it
+    # travelled with a copy: `cp -r` of production's data folder was a second
+    # ledger of record, and the re-verifier's copy made 9 odds calls counted
+    # against a fresh 6,000.
+    monkeypatch.setattr(config, "POLLING_ENABLED", True)
+    for name in ("Poller", "OddsSource"):
+        monkeypatch.setattr(poll, name, lambda *a, **k: pytest.fail("a loop was built"))
+
+    class P:
+        pid = 4242
+    started = []
+    spawn = lambda: (started.append(1), P())[1]               # noqa: E731
+    here = str(env.resolve())
+    line = (f"Set-Content -LiteralPath '{poll.RECORD}' -Value '{here}'")
+    poll.STATE_DIR.mkdir(exist_ok=True)
+    production = str((env.parent / "the-original" / "data").resolve())
+    for marker in ("", production, here + "-copy"):          # empty; copied along
+        poll.RECORD.write_text(marker)
+        assert poll.live() == 2
+        out = capsys.readouterr().out
+        assert "not the ledger of record" in out and line in out, out
+        msg = poll.ensure(spawn=spawn, now=T0)
+        assert msg.startswith("NOT started") and line in msg and not started
+    # What that PowerShell line writes: the path, a newline, and with
+    # -Encoding utf8 a byte-order mark.
+    poll.RECORD.write_text("﻿" + here + "\r\n", encoding="utf-8")
     assert poll.ensure(spawn=spawn, now=T0).startswith("started") and started == [1]
 
 

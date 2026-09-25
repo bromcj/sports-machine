@@ -74,7 +74,9 @@ LOCK = STATE_DIR / "poll.lock"
 # against, but every checkout spends the same paid key: a loop in a second
 # folder would start again from a fresh 6,000. So the loop runs only where
 # this file says "this ledger is the one" - production's data folder. The
-# owner creates it by hand there, in the step that turns polling on.
+# owner creates it by hand there, in the step that turns polling on, and it
+# holds that folder's full path: a copy of the folder carries the file along,
+# and must not be a second ledger of record (_not_of_record).
 RECORD = STATE_DIR / "ledger-of-record"
 LOG = ROOT / "logs" / "poll.log"
 
@@ -440,14 +442,28 @@ def _spawn():
 
 
 def _not_of_record() -> str | None:
-    """Why this data folder may not run the loop, or None if it may."""
-    if RECORD.exists():
+    """Why this data folder may not run the loop, or None if it may. The
+    marker must name the folder it is in: a file that only had to exist
+    travelled with any copy of the folder, and the copy was of record too."""
+    here = str(paths.DATA_DIR.resolve())
+    try:
+        # utf-8-sig: PowerShell's Set-Content -Encoding utf8 writes a BOM.
+        names = RECORD.read_text(encoding="utf-8-sig").strip()
+    except OSError:
+        names = None
+    if names == here:
         return None
-    return (f"this data folder is not the ledger of record ({RECORD} does not"
-            " exist). The credit limits count only the ledger in the folder the"
-            " loop runs against, and every checkout spends the same paid key, so"
-            " the loop runs only against production's data folder. The owner"
-            " creates that file there, by hand, in the step that turns polling on.")
+    what = ("does not exist" if names is None else "is empty" if not names
+            else f"names {names}, not this folder")
+    q = lambda p: str(p).replace("'", "''")                   # noqa: E731
+    return (f"this data folder is not the ledger of record ({RECORD} {what})."
+            " The credit limits count only the ledger in the folder the loop"
+            " runs against, and every checkout spends the same paid key, so the"
+            " loop runs only against production's data folder. The owner makes"
+            " that folder the ledger of record by hand, in the step that turns"
+            " polling on - only there, never in a copy - with this PowerShell"
+            f" line:\n    New-Item -ItemType Directory -Force -Path '{q(STATE_DIR)}'"
+            f" | Out-Null; Set-Content -LiteralPath '{q(RECORD)}' -Value '{q(here)}'")
 
 
 def ensure(spawn=_spawn, now=None, wait=time.sleep) -> str:
