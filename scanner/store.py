@@ -12,6 +12,7 @@ ever stored.
 """
 import datetime as dt
 
+from bets.engine import american_to_decimal
 from feeds import parse_utc
 from ingest import quality
 from scanner import fees, venues
@@ -41,14 +42,35 @@ def market_key(venue: str, venue_market_id: str, market_type: str, line=None) ->
 
 # ---------------------------------------------------------------- checks ---
 
+# A row these pass must be storable: nothing in it may make the insert raise
+# (canon_ts on a bad time did, mid-batch, with nothing counted).
+
+def _bad_time(row: dict, key: str) -> str | None:
+    if row.get(key) in (None, ""):
+        return None
+    try:
+        canon_ts(row[key])
+    except (TypeError, ValueError):
+        return f"{key} {row[key]!r} is not a timestamp"
+    return None
+
+
 def check_market(m: dict) -> str | None:
     """Reason to reject a markets row, or None to keep it."""
     for k in ("market_id", "venue", "venue_market_id", "canonical_event_id",
-              "market_type"):
+              "market_type", "first_seen"):
         if not m.get(k):
             return f"market has no {k}"
+    try:
+        venues.family(m["venue"])
+    except ValueError as e:
+        return str(e)
     if m["market_type"] not in ("h2h", "spread", "total", "prop", "futures", "binary"):
         return f"unknown market_type {m['market_type']!r}"
+    for k in ("first_seen", "event_start", "resolves_at"):
+        bad = _bad_time(m, k)
+        if bad:
+            return bad
     return None
 
 
@@ -58,11 +80,23 @@ def check_price(p: dict) -> str | None:
               "captured_at"):
         if p.get(k) in (None, ""):
             return f"price has no {k}"
+    try:
+        fam = venues.family(p["venue"])
+    except ValueError as e:
+        return str(e)
     if p.get("quote") not in QUOTES:
         return f"quote must be ask or bid, got {p.get('quote')!r}"
-    if int(p.get("level") or 0) < 1:
-        return "level must be 1 or more"
-    if p["venue"].startswith("sportsbook:"):
+    try:
+        whole = float(p.get("level")) == int(p.get("level"))
+    except (TypeError, ValueError, OverflowError):
+        whole = False
+    if not whole or int(p["level"]) < 1:
+        return f"level must be a whole number, 1 or more, got {p.get('level')!r}"
+    for k in ("captured_at", "source_last_update"):
+        bad = _bad_time(p, k)
+        if bad:
+            return bad
+    if fam == "sportsbook":
         bad = quality.moneyline(p["price_native"])     # the ingest rule
         if bad:
             return bad
@@ -73,8 +107,21 @@ def check_price(p: dict) -> str | None:
     if not 0.0 < price < 1.0:
         return f"price {price} is not a probability strictly inside (0, 1)"
     size = p.get("size_available")
-    if size is not None and float(size) < 0:
-        return f"size {size} is negative"
+    if fam == "sportsbook":
+        if size is not None:
+            return "a book row has no size: size_available must be NULL"
+        # fair_value reads price_native, a paper fill reads price: they must
+        # be the same number, by the formula both book adapters use.
+        want = 1 / american_to_decimal(int(p["price_native"]))
+        if abs(price - want) > 1e-12:
+            return f"book price {price} is not its moneyline {p['price_native']} ({want})"
+    elif size is not None:
+        try:
+            ok = float(size) >= 0                      # False for NaN too
+        except (TypeError, ValueError):
+            ok = False
+        if not ok:
+            return f"size {size!r} is negative or not a number"
     # The key must be well formed. Whether its fee can be computed yet (a
     # Kalshi `flat` series cannot) is decided where an EV is needed, not
     # here: a price is worth keeping even before its fee table is read.
@@ -82,10 +129,6 @@ def check_price(p: dict) -> str | None:
         return f"fee model {p['fee_model']!r} is not a known key format"
     # And it must be this venue's: paper fills charge the fee of the price
     # row, so a Kalshi price tagged 'book' would trade as if Kalshi were free.
-    try:
-        fam = venues.family(p["venue"])
-    except ValueError as e:
-        return str(e)
     if _fee_family(p["fee_model"]) != fam:
         return f"fee model {p['fee_model']!r} is not a {fam} fee"
     return None
