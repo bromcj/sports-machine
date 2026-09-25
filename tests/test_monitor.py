@@ -69,6 +69,29 @@ def test_the_brief_cap_alerts_at_25_and_10_percent_left(con):
     assert _level(con, 160) == "CRITICAL"      # 8% left
 
 
+def test_the_briefs_planned_polling_days_used_up_is_an_error(con, monkeypatch):
+    # Past the brief's 42 planned polling days the pace is 0 and the loop
+    # pauses, making no metered call, until the owner extends BRIEF_POLL_DAYS.
+    # Every finding stayed INFO ("126 of 6,000 spent (98% left)", the loop
+    # "running"), so polling stopped with nothing said.
+    monkeypatch.setattr(config, "BRIEF_ACTIVE", True)
+    monkeypatch.setattr(config, "CREDIT_CAP_BRIEF", 6000)
+    monkeypatch.setattr(config, "BRIEF_POLL_DAYS", 42)
+
+    def days_used():
+        return [(x["level"], x["detail"]) for x in monitor.scanner_checks(con, NOW, _tables(con))
+                if x["check"] == "scanner credits: the brief's polling days"]
+    for d in range(1, 42):
+        budget.record(con, consumer="poll", endpoint="odds", estimated=3, cost=3, ok=True,
+                      ts=NOW - dt.timedelta(days=d))
+    assert days_used() == []                     # the 42nd day may still poll
+    budget.record(con, consumer="poll", endpoint="odds", estimated=3, cost=3, ok=True,
+                  ts=NOW - dt.timedelta(days=42))
+    assert days_used() == [("ERROR", "the loop makes no metered call: the brief's 42 planned"
+                                     " polling days are used (126 of 6,000 spent); to keep"
+                                     " polling, extend config.BRIEF_POLL_DAYS by a commit")]
+
+
 def test_scanner_checks_are_silent_until_the_scanner_exists(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "POLLING_ENABLED", False)
     monkeypatch.setattr(poll, "HEARTBEAT", tmp_path / "poll.json")

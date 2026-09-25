@@ -142,6 +142,24 @@ def test_the_daily_pace_makes_the_loop_wait_not_stop(env, monkeypatch):
     assert not [c for c in get.calls if c[0] == "odds"]
 
 
+def test_a_loop_paused_because_the_briefs_days_are_used_says_so(env):
+    # Day 43 of the brief: no ladder level fits a pace of 0, so the loop
+    # pauses before it would ever ask check(). Its heartbeat said only
+    # "today's credits cannot cover even the last level".
+    con = db.connect()
+    for d in range(1, 43):
+        budget.record(con, consumer="poll", endpoint="odds", sport="nba", estimated=3,
+                      cost=3, ok=True, ts=T0 - dt.timedelta(days=d))
+    con.commit()
+    con.close()
+    get = FakeGet([T0 + dt.timedelta(minutes=45)])
+    _poller(get, lambda: T0).run(max_ticks=1)
+    assert poll.heartbeat()["state"] == (
+        "paused: the brief's 42 planned polling days are used (126 of 6,000 spent);"
+        " to keep polling, extend config.BRIEF_POLL_DAYS by a commit")
+    assert not [c for c in get.calls if c[0] == "odds"]
+
+
 def test_each_limit_says_which_it_is(env, monkeypatch):
     con = db.connect()
     monkeypatch.setattr(config, "CREDIT_CAP_BRIEF", 2)

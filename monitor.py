@@ -219,6 +219,17 @@ def scanner_checks(con, now, tables) -> list[dict]:
             out.append(_find(_credit_level(frac), "scanner credits: the brief's cap",
                              f"{s['brief_spent']:,} of {s['brief_cap']:,} spent"
                              f" ({frac:.0%} left)", spent=s["brief_spent"]))
+            if s["brief_days_left"] == 0:
+                # By design the loop then pauses, with no metered call and
+                # nothing in its log, until the owner extends BRIEF_POLL_DAYS
+                # by a commit. This is the alert, in check()'s own words.
+                why = "the brief's planned polling days are used"
+                try:
+                    budget.check(con, budget.call_cost(), now)
+                except budget.OverBudget as e:
+                    why = str(e)
+                out.append(_find("ERROR", "scanner credits: the brief's polling days",
+                                 f"the loop makes no metered call: {why}"))
         frac = s["month_left"] / s["month_budget"]
         out.append(_find(_credit_level(frac), "scanner credits: this month",
                          f"{s['month_spent']:,} of {s['month_budget']:,} spent"

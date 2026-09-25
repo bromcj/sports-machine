@@ -28,7 +28,8 @@ Safety, in the order it applies:
     used, no ladder level fits today's allowance and the loop stays paused,
     making no metered request - it does not stop. A spent month clears at
     the ET month turn; a spent brief waits for the owner to change config
-    by a commit, and monitor.py's credit findings are the alert. A call
+    by a commit, and monitor.py's credit findings are the alert (an ERROR
+    once the planned days are used; the heartbeat names it too). A call
     that the brief's cap or the month's budget refuses outright stops the
     loop.
   - no ledger row, no request: every call, free or not, is written to
@@ -214,6 +215,7 @@ class Poller:
         self.schedule_at = None
         self.level = None
         self.level_at = None
+        self.pause_why = "today's credits cannot cover even the last level"
         self.last_poll: dict = {}
         self.state = "starting"
         # The commit this process's code came from. Read once: after a pull
@@ -245,6 +247,14 @@ class Poller:
         self.level = budget.choose_level(self.schedule, now, s["left_today"],
                                          self.last_poll)
         self.level_at = now
+        # Past the brief's planned polling days the pace is 0, so no level
+        # fits and check() is never reached: name that reason, in its words.
+        self.pause_why = "today's credits cannot cover even the last level"
+        if s["brief_active"] and s["brief_days_left"] == 0:
+            try:
+                budget.check(con, budget.call_cost(), now)
+            except budget.OverBudget as e:
+                self.pause_why = str(e)
         return s
 
     def tick(self, now=None) -> list[str]:
@@ -259,7 +269,7 @@ class Poller:
             if self.level_at is None or now - self.level_at >= LEVEL_EVERY:
                 self.choose_level(con, now)
             if self.level is None:
-                self.state = "paused: today's credits cannot cover even the last level"
+                self.state = f"paused: {self.pause_why}"
                 return []
             polled = []
             for sp in self.sports:
