@@ -1,0 +1,160 @@
+"""The markets and prices tables: keys, checked inserts, and "what was on
+offer at that moment".
+
+ONE TIMESTAMP FORMAT. Every time written to a scanner table goes through
+canon_ts(): aware UTC, always with microseconds, '+00:00'. Queries compare
+these as strings, which is only correct when every value has the same shape:
+'...T23:20:00+00:00' sorts BEFORE '...T23:20:00Z' ('+' < 'Z'), and
+'...:33+00:00' sorts before '...:33.000000+00:00' although they are the same
+instant. This codebase has lost a closing line to the first of those already
+(bets/log.closing_snapshot). Here it cannot happen, because nothing else is
+ever stored.
+"""
+import datetime as dt
+
+from feeds import parse_utc
+from ingest import quality
+from scanner import fees
+
+QUOTES = ("ask", "bid")
+
+
+def canon_ts(value) -> str:
+    """Any timestamp -> 'YYYY-MM-DDTHH:MM:SS.ffffff+00:00'. Raises if unusable."""
+    when = value if isinstance(value, dt.datetime) else parse_utc(value)
+    if when is None:
+        raise ValueError(f"not a timestamp: {value!r}")
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=dt.timezone.utc)
+    return when.astimezone(dt.timezone.utc).isoformat(timespec="microseconds")
+
+
+def line_key(line) -> str:
+    return "" if line is None else f"{float(line):g}"
+
+
+def market_key(venue: str, venue_market_id: str, market_type: str, line=None) -> str:
+    """Our id for one venue's contract. The same inputs always give the same key,
+    so a re-poll lands on the same market row."""
+    return f"{venue}|{venue_market_id}|{market_type}|{line_key(line)}"
+
+
+# ---------------------------------------------------------------- checks ---
+
+def check_market(m: dict) -> str | None:
+    """Reason to reject a markets row, or None to keep it."""
+    for k in ("market_id", "venue", "venue_market_id", "canonical_event_id",
+              "market_type"):
+        if not m.get(k):
+            return f"market has no {k}"
+    if m["market_type"] not in ("h2h", "spread", "total", "prop", "futures", "binary"):
+        return f"unknown market_type {m['market_type']!r}"
+    return None
+
+
+def check_price(p: dict) -> str | None:
+    """Reason to reject a prices row, or None to keep it."""
+    for k in ("market_id", "venue", "outcome", "price_native", "fee_model",
+              "captured_at"):
+        if p.get(k) in (None, ""):
+            return f"price has no {k}"
+    if p.get("quote") not in QUOTES:
+        return f"quote must be ask or bid, got {p.get('quote')!r}"
+    if int(p.get("level") or 0) < 1:
+        return "level must be 1 or more"
+    if p["venue"].startswith("sportsbook:"):
+        bad = quality.moneyline(p["price_native"])     # the ingest rule
+        if bad:
+            return bad
+    try:
+        price = float(p["price"])
+    except (TypeError, ValueError):
+        return f"price {p.get('price')!r} is not a number"
+    if not 0.0 < price < 1.0:
+        return f"price {price} is not a probability strictly inside (0, 1)"
+    size = p.get("size_available")
+    if size is not None and float(size) < 0:
+        return f"size {size} is negative"
+    # The key must be well formed. Whether its fee can be computed yet (a
+    # Kalshi `flat` series cannot) is decided where an EV is needed, not
+    # here: a price is worth keeping even before its fee table is read.
+    if not fees.well_formed(p["fee_model"]):
+        return f"fee model {p['fee_model']!r} is not a known key format"
+    return None
+
+
+# ---------------------------------------------------------------- writes ---
+
+def upsert_markets(con, rows, rejects=None) -> int:
+    """Insert new markets. A later sighting may fill a start or resolution time
+    that was missing, or move one (a flexed kickoff); a NULL never erases one."""
+    n = 0
+    for m in rows:
+        bad = check_market(m)
+        if rejects is not None and not rejects.check(bad):
+            continue
+        if bad:
+            raise ValueError(bad)
+        con.execute(
+            "INSERT INTO markets (market_id, venue, venue_market_id, sport,"
+            " canonical_event_id, market_type, line, yes_outcome, event_start,"
+            " resolves_at, resolution_source, first_seen)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
+            " ON CONFLICT(market_id) DO UPDATE SET"
+            "   event_start=COALESCE(excluded.event_start, markets.event_start),"
+            "   resolves_at=COALESCE(excluded.resolves_at, markets.resolves_at)",
+            (m["market_id"], m["venue"], m["venue_market_id"], m.get("sport"),
+             m["canonical_event_id"], m["market_type"], m.get("line"),
+             m.get("yes_outcome"),
+             canon_ts(m["event_start"]) if m.get("event_start") else None,
+             canon_ts(m["resolves_at"]) if m.get("resolves_at") else None,
+             m.get("resolution_source"), canon_ts(m["first_seen"])))
+        n += 1
+    return n
+
+
+def insert_prices(con, rows, rejects=None) -> int:
+    """Append prices. The same observation twice is ignored, never an error."""
+    n = 0
+    for p in rows:
+        bad = check_price(p)
+        if rejects is not None and not rejects.check(bad):
+            continue
+        if bad:
+            raise ValueError(bad)
+        cur = con.execute(
+            "INSERT OR IGNORE INTO prices (market_id, venue, outcome, quote, level,"
+            " price, price_native, size_available, fee_model, captured_at,"
+            " source_last_update, raw_ref) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (p["market_id"], p["venue"], p["outcome"], p["quote"],
+             int(p.get("level") or 1), float(p["price"]), str(p["price_native"]),
+             None if p.get("size_available") is None else float(p["size_available"]),
+             p["fee_model"], canon_ts(p["captured_at"]),
+             canon_ts(p["source_last_update"]) if p.get("source_last_update") else None,
+             p.get("raw_ref")))
+        n += cur.rowcount
+    return n
+
+
+# ---------------------------------------------------------------- reads ---
+
+def market(con, market_id: str):
+    return con.execute("SELECT * FROM markets WHERE market_id=?",
+                       (market_id,)).fetchone()
+
+
+def next_quotes_after(con, market_id: str, outcome: str, quote: str, after):
+    """Every level of the FIRST observation strictly after `after`. The fill
+    simulator's only view of the market, so it can never see the price that
+    was showing when the order went in."""
+    after = canon_ts(after)
+    first = con.execute(
+        "SELECT MIN(captured_at) FROM prices WHERE market_id=? AND outcome=?"
+        " AND quote=? AND captured_at > ?",
+        (market_id, outcome, quote, after)).fetchone()[0]
+    if first is None:
+        return []
+    return con.execute(
+        "SELECT * FROM prices WHERE market_id=? AND outcome=? AND quote=?"
+        " AND captured_at=? ORDER BY level",
+        (market_id, outcome, quote, first)).fetchall()

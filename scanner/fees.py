@@ -68,6 +68,24 @@ def _dec(x) -> Decimal:
     return Decimal(str(x))
 
 
+def well_formed(model: str) -> bool:
+    """The key has a shape this module knows. Says nothing about whether its
+    fee can be computed: kalshi:flat:1 is well formed and still raises."""
+    parts = str(model).split(":")
+    try:
+        if parts == ["book"]:
+            return True
+        if parts[0] == "kalshi" and len(parts) == 3 and parts[1]:
+            Decimal(parts[2])
+            return True
+        if parts[0] == "polymarket" and len(parts) == 2:
+            Decimal(parts[1])
+            return True
+    except ArithmeticError:
+        return False
+    return False
+
+
 def fee(model: str, price: float, contracts: float, role: str = "taker",
         conservative: bool = True) -> float:
     """Dollars of fee for one order of `contracts` at `price` (0 < price < 1)."""
