@@ -21,6 +21,12 @@ def test_kalshi_fee_is_ceiled_exactly_not_in_floating_point():
     # happens in 386 of 594 price/size cases tried (1-99c x six sizes).
     assert fees.fee(K, 0.01, 1, conservative=False) == 0.000693
     assert fees.fee(K, 0.02, 3, conservative=False) == 0.004116
+    # Kalshi's Fee Rounding page: "ceil_6dp($0.00363825) = $0.003639".
+    assert fees.fee(K, 0.055, 1, conservative=False) == 0.003639
+    # Half-multiplier series: 0.07 x 0.5 x 0.01 x 0.99 = 0.0003465 is ceiled
+    # to the millionth. Cent prices at multiplier 1 never need the ceiling.
+    half = fees.kalshi_key("quadratic", 0.5)
+    assert fees.fee(half, 0.01, 1, conservative=False) == 0.000347
 
 
 def test_kalshi_conservative_fee_charges_the_cent_rounding():
@@ -29,6 +35,12 @@ def test_kalshi_conservative_fee_charges_the_cent_rounding():
     assert fees.fee(K, 0.50, 1) == pytest.approx(0.02, abs=1e-12)
     # A hundred: 50.00 + 1.75 is already whole cents.
     assert fees.fee(K, 0.50, 100) == pytest.approx(1.75, abs=1e-12)
+    # The balance is floored to the cent, so the cash rounds UP, never to the
+    # nearest: 0.01 + 0.000693 costs 0.02, a whole cent of fee, not 0.
+    assert fees.fee(K, 0.01, 1) == pytest.approx(0.01, abs=1e-12)
+    # Kalshi's worked example: "floor_cent(-$0.055 - $0.003639) =
+    # -$0.060000", so the trade and rounding fees total "exactly $0.005".
+    assert fees.fee(K, 0.055, 1) == pytest.approx(0.005, abs=1e-12)
 
 
 def test_kalshi_fee_is_symmetric_and_smallest_at_the_extremes():
