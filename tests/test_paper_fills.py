@@ -365,6 +365,21 @@ def test_two_makers_share_one_traded_through_offer(con):
     assert con.execute("SELECT SUM(contracts) FROM paper_fills").fetchone()[0] == 20.0
 
 
+def test_orders_recorded_out_of_time_order_still_share_one_offer(con):
+    # A replay may record a later order first. Walked by order_id, the 18:01:30
+    # taker took the 20-lot at 18:02 before the 18:00 maker took the same
+    # 20-lot at 18:01, and neither saw the other: 40 filled from one offer.
+    mid, _ = _kmarket(con)
+    _book(con, mid, -1, [("0.5000", "500")])
+    taker = _order(con, mid, size=20, limit_price=0.45, now=at(1.5))
+    maker = _order(con, mid, role="maker", size=20, limit_price=0.45, expires_at=at(60))
+    _book(con, mid, 1, [("0.6000", "20")])                     # 0.40 x20
+    _book(con, mid, 2, [("0.6000", "20")])                     # the same offer
+    paper.simulate(con, at(3))
+    assert _fills(con) == [(maker, 0.45, 20.0)]
+    assert _status(con, taker) == "expired"
+
+
 def test_a_maker_is_not_refilled_by_the_same_unchanged_offer(con):
     mid, _ = _kmarket(con)
     _book(con, mid, -1, [("0.5000", "500")])

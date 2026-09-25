@@ -306,12 +306,16 @@ def _last_seen(con, order_id: int):
 
 
 def simulate(con, now) -> dict:
-    """Fill what the market would have filled, up to `now`. Returns counts."""
+    """Fill what the market would have filled, up to `now`. Returns counts.
+
+    Orders are walked in the order they were placed, not recorded: _unused
+    sees only fills already made, so a later order walked first (a replay
+    can record it first) took an offer an earlier one then took again."""
     now = canon_ts(now)
     tally = {"filled": 0, "partial": 0, "expired": 0, "waiting": 0, "fills": 0}
     orders = con.execute("SELECT * FROM paper_orders WHERE status IN ('open',"
-                         " 'partial_open') AND placed_at < ? ORDER BY order_id",
-                         (now,)).fetchall()
+                         " 'partial_open') AND placed_at < ? ORDER BY placed_at,"
+                         " order_id", (now,)).fetchall()
     for o in orders:
         is_book = family(o["venue"]) == "sportsbook"
         target = _contracts(is_book, o["size"], o["limit_price"])
