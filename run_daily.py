@@ -200,8 +200,8 @@ if __name__ == "__main__":
     mode = sys.argv[1] if len(sys.argv) > 1 else ""
     if mode not in MODES:
         raise SystemExit(f"usage: python run_daily.py <mode>\n  modes: "
-                         f"{', '.join(MODES)}\n  (morning and close spend "
-                         f"API credits; see COMMANDS.md)")
+                         f"{', '.join(MODES)}\n  (morning, close and poll --live "
+                         f"spend API credits; see COMMANDS.md)")
     if mode == "cronstatus":
         from cronstatus import report
         raise SystemExit(report())
