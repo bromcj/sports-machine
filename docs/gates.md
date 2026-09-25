@@ -117,7 +117,7 @@ lucky bets can clear a t-statistic, and n is the cheaper guard.
 
 | constant | value | why |
 |---|---|---|
-| `MIN_COVERAGE` | 0.75 | graded / settled. Below this, gate 2 fails: an info average over a quarter of the sample is not the sample. |
+| `MIN_COVERAGE` | 0.75 | graded / settled for a sport (a strategy's is counted over the positions due; see below). Below this, gate 2 fails: an info average over a quarter of the sample is not the sample. |
 | `MAX_SLOT_SHARE` | 0.60 | no more than 60% of graded bets from one start-time slot, so the gate cannot be cleared by one favourable time of day. |
 | `COVERAGE_WAIVES_SLOTS` | 0.90 | above 90% coverage the slot rule is waived — at that point the sample is the slate, not a selection from it. |
 
@@ -131,20 +131,53 @@ or inherits another's pass.
 
 | gate | for a strategy | recorded by |
 |---|---|---|
-| 1 | its own **backtest**, written in `docs/experiments.md` before it is run as the strategy's **own** entry (a whole heading above the Results log, which no other strategy may register against), with that entry's pass rule. A name whose record already holds a different experiment is refused: a new definition is a new name | `scanner.gates.record_backtest` → `model.validation.record_backtest` |
-| 2 | `record_paper`, sport rules **unchanged**: 50+ positions graded **and settled**, the metric's mean clear of zero by 3 SE, coverage ≥ 0.75, the slot rule, and its own placebo must not pass **and must have 50+ graded, settled positions** of its own. A `realized_ev` strategy cannot pass yet (below) | `scanner.gates.score` |
-| 3 | a person calls `arm("<strategy>")` | `model.validation.arm` — nothing else calls it; `audit.py` checks |
+| 1 | its own **backtest**, written in `docs/experiments.md` before it is run as the strategy's **own** entry (a whole heading above the Results log, which no other strategy may register against), with that entry's pass rule. A name whose record already holds a different experiment or metric is refused, and so is an experiment another name's record already holds (a retired strategy's included): a new definition is a new name | `scanner.gates.record_backtest` → `model.validation.record_backtest` |
+| 2 | `record_paper`, sport rules **unchanged**, on one value per **event** (game), the mean of its positions: 50+ events with positions graded **and settled**, the metric's mean clear of zero by 3 SE, coverage ≥ 0.75 (over the positions due, below), the slot rule, and its own placebo must not pass **and must cover 50+ events** of its own. A `realized_ev` strategy cannot pass yet (below), and neither can one whose file now holds a different experiment or metric from its record | `scanner.gates.score` |
+| 3 | a person calls `arm("<strategy>")`. It also refuses a strategy whose registered experiment or metric differs from its record | `model.validation.arm` — nothing else calls it; `audit.py` checks |
 
 **The metric** is chosen in the strategy's own pre-registration: `info` (fair
 close ÷ fair at entry − 1, **both from the same fair source** — a position
 whose ends disagree is left ungraded and counts against coverage) or
 `realized_ev` (profit ÷ capital staked, after fees). *Changed 2026-09-25 by
 the Phase A review:* gate 2 counts only positions that are graded **and**
-settled. A scanner position is graded at its game's start and settles later,
-so for `info` a position graded but not yet settled counts in neither the
-sample nor the coverage. For `realized_ev`, coverage counts the same positions
-top and bottom. It is the share that has settled, out of the positions whose
-market resolved more than 36 hours ago or that have no `resolves_at` at all.
+settled. A scanner position is graded once its market has resolved, and
+settles separately, so a position graded but not yet settled is not in the
+sample. *Changed again 2026-09-25 by the re-verification:* coverage, for
+either metric, counts the same positions top and bottom: the ones that are
+**due**, whose market resolved more than 36 hours ago or that have no
+`resolves_at` at all. For `info` it is the share graded and settled; for
+`realized_ev`, the share settled. A due position that never settles counts
+against it. (For `info` it used to be graded and settled ÷ settled, so a
+position that never settled was on neither side: 60 graded positions out of
+260 resolved read as 100% coverage. Over the positions due it is 23%.)
+
+**One value per event, not per position.** *Added 2026-09-25 by the
+re-verification.* Positions on one game share its move, so a second entry on
+the same game is not a second piece of evidence, and nothing stops a
+strategy from entering the same market on every pass while the price stays
+attractive. The 3-SE bar was simulated on one value per game. So
+`scanner.gates.measured` gives gate 2 one value per event (the market's
+`canonical_event_id`): the mean of that event's graded, settled positions,
+with one start-time slot per event. The placebo is grouped the same way, so
+both 50 floors count events. Coverage stays a share of positions. A strategy
+with no skill, 10 games a day, two looks a day, 120 days, 4,000 trials:
+
+| entries per game | false pass, one value per position (before) | one value per event (now) |
+|---|---|---|
+| 1 | 1.8% | 1.8% |
+| 2 | 15.2% | 1.7% |
+| 3 | 29.3% | 1.9% |
+| 5 | 50.2% | 1.9% |
+| 10 | **72.3%** | 1.9% |
+
+**The gate record pins the definition.** *Added 2026-09-25 by the
+re-verification.* A strategy's gate record holds its experiment and its
+metric. Its file used to be editable in place, under the same name, and keep
+the old definition's gates: gate 2 passed again and `arm()` armed it. Now
+`score()` records gate 2 as failed, and `arm()` refuses, while the strategy
+registered under that name differs from its record
+(`scanner.gates.redefined`). A new definition is a new name, starting from
+nothing.
 
 **`realized_ev` fails closed.** The 3-SE bar was calibrated, and the table
 below was simulated, on near-normal values, the kind `info` produces
@@ -158,9 +191,10 @@ until a bar simulated for that payoff is pre-registered in
 [experiments.md](experiments.md).
 
 **A placebo is required** to register at all: gate 2 refuses a strategy
-whose placebo also passes. It also refuses one whose placebo has fewer than
-50 graded, settled positions, so a placebo that places nothing, or too
-little, blocks the strategy rather than waving it through.
+whose placebo also passes. It also refuses one whose placebo covers fewer
+than 50 events with graded, settled positions, so a placebo that places
+nothing, or too little, blocks the strategy rather than waving it through.
+(Fifty copies of one game are one event.)
 
 **Two things keep automated scoring from loosening anything.** `score()`
 writes nothing until a gate-1 record exists — creating a strategy's block is a
@@ -174,7 +208,8 @@ afterwards can cost that look, never add one.
 **Is 3 SE still enough at a strategy's volume?** A strategy may grade far more
 than 10 positions a day. Simulated with an exact block method (each look's
 sum, and its within-block sum of squares, drawn directly), 20,000 trials, a
-no-skill strategy, 120 days, sigma 3.0:
+no-skill strategy, 120 days, sigma 3.0 (since the re-verification gate 2
+takes one value per event, so read "graded a day" as events a day):
 
 | graded a day | looks a day | false pass |
 |---|---|---|
