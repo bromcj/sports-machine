@@ -106,6 +106,68 @@ expiry and grading read the order market's own `event_start`, while
 is later than the books', that let a paper order fill at a price `fair_value`
 refuses. They all use `scanner.fair.game_start` now.
 
+**Then a re-verification.** A second pass re-checked the review's fixes by
+attacking each one, and found more. Again every fix tightens something; no
+threshold moved and the schema is untouched.
+
+**Gate 2 counts events, not positions.** A strategy's positions on one game
+share that game's move, so a second entry is a near-copy of the first, not
+new evidence. Nothing stops a strategy from entering the same market on
+every pass while its price looks good, and the 3-SE bar was simulated on one
+value per game. Counted per position, a strategy with no skill that entered
+each game twice passed 15.2% of the time, and ten times 72.3%, against 1.8%
+entering once. Gate 2 now takes one value per event, the mean of its
+positions, and the placebo is grouped the same way, so both 50 floors count
+games. Counted that way it passes 1.7–1.9% however often it re-enters.
+
+**Coverage counts the positions that are due.** For `info`, coverage was
+graded and settled ÷ settled. A position that never settles was on neither
+side of that fraction, so it could not lower coverage, and a settlement hook
+that settles only what it could grade produces exactly that. 60 graded
+positions out of 260 resolved read as 100%, and gate 2 passed. Coverage now
+counts, for both metrics, the positions whose market resolved more than
+36 hours ago, or that have no `resolves_at`. The same 260 give 23%.
+
+**The record pins the definition.** "A new definition is a new name" held
+only while nobody edited a strategy's file in place. The gate record held the
+experiment but not the metric, and nothing compared the registered strategy
+with its record after gate 1. So an edited file kept the old definition's
+gates: gate 2 passed again, and `arm()` armed it. The record now holds the
+metric too, and `score()` and `arm()` refuse a strategy that no longer
+matches its record. Gate 1 also refuses an entry a retired strategy's record
+still holds, and the sports' `record()` refuses to write a walk-forward onto
+a strategy's block, where it would have turned a failed backtest into a
+pass.
+
+**Grading waits for the market to resolve.** Grading at the start froze the
+close too early when a delay was announced after the scheduled start had
+passed. The start then moves later, but a graded position is never graded
+again. In production's archive 134 of 7,414 games had their start moved
+later that way, and across them the close moved by a median 0.0037 in
+probability (at most 0.0413). A position is now graded only once its market's
+`resolves_at` has passed too. For a book game that is the start plus a fixed
+game length, and it moves with the delay. A game that was not delayed is
+graded later, never differently.
+
+**The marker names its folder.** The ledger-of-record marker was an empty
+file that only had to exist, so it travelled with every copy of the data
+folder, and copying that folder is routine here. A loop run against a copy
+started and made 9 calls, ledgered in the copy's own database, with each copy
+free to spend up to the cap. The marker must now contain the full path of
+the folder it sits in, so a copy's marker names the original and the copy is
+refused. A refused `poll --live` prints the PowerShell line that writes it.
+
+**The loop says when it has stopped.** A loop that held its lock counted as
+running however long ago it last wrote its heartbeat, so a loop stuck in one
+request read INFO "running" for 8 hours. A held lock with no heartbeat for
+15 minutes is now an ERROR naming the process to end: three times the
+5-minute window, where the slowest tick measured leaves under 7 minutes
+between heartbeats. Past the brief's 42 planned days the loop paused with
+nothing in its log and every finding INFO; that is an ERROR now too. And the
+lock outranks the heartbeat, so a loop killed just after it wrote one no
+longer blocks its own restart, which had meant up to 13.5 hours of no
+polling.
+
 ---
 
 ## 2026-09-25 — Scanner Phase A: the judgment calls
