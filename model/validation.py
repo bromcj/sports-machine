@@ -300,12 +300,22 @@ def record_backtest(name: str, experiment: str, passed: bool, reason: str,
     the same shape as a sport's - cleared, reason, recorded_at, armed,
     paper_trading - so gates(), arm() and only_paper_changed() treat it the
     same way. Like record(), a new result disarms.
+
+    It never writes onto a sport's block, or onto any block that is not
+    already a strategy's: a sport's gate 1 is record()'s walk-forward against
+    a real market, and a typed-in backtest must not stand in for it.
     """
+    import config
     if not isinstance(passed, bool):
         raise ValueError("passed must be True or False")
     if not evidence:
         raise ValueError("a backtest verdict needs its evidence")
     data = _load()
+    existing = data.get(name)
+    if name in config.SPORTS or (existing and existing.get("kind") != "strategy"):
+        raise ValueError(f"{name!r} is a sport's block (or another non-strategy"
+                         f" block): its gate 1 is a walk-forward, record(),"
+                         f" never a backtest")
     entry = data.setdefault(name, {})
     new_entry = dict(entry)
     new_entry.update({"kind": "strategy", "baseline_kind": "backtest",

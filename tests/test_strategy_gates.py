@@ -91,6 +91,23 @@ def test_gate_1_needs_a_registered_strategy_and_a_preregistered_experiment(env):
     assert "backtest FAIL (lost)" in v.explain("t_one")
 
 
+def test_a_backtest_can_never_be_written_onto_a_sports_block(env):
+    # A sport's gate 1 is its walk-forward. The low-level recorder must not
+    # turn one into a backtest PASS, whatever name it is handed.
+    rows = [{"season": 2025, "logloss_model": .66, "logloss_market": .65,
+             "n_games": 2000, "ll_diff_sd": 0.30}]
+    v.record("mlb", v.REAL_MARKET, rows)                 # a real, failed gate 1
+    v.record("_retired", v.REAL_MARKET, rows)            # a block not in SPORTS
+    before = v.PATH.read_text(encoding="utf-8")
+    for name in ("mlb", "nfl", "nba", "nhl", "_retired"):
+        with pytest.raises(ValueError):
+            v.record_backtest(name, T1, True, "typed", {"n": 1})
+    assert v.PATH.read_text(encoding="utf-8") == before
+    assert v.gates("mlb")["walk_forward"] is False
+    v.record_backtest("t_one", T1, False, "lost", {"n": 1})   # a strategy's own
+    assert v.record_backtest("t_one", T1, True, "won", {"n": 2})["cleared"] is True
+
+
 # ------------------------------------------------------------------ gate 2 ---
 
 ORDER_IDS = itertools.count(1)
