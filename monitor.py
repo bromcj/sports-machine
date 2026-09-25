@@ -194,7 +194,50 @@ def run_checks() -> list[dict]:
             out.append(_find(lvl, "odds API credits",
                              f"{row['remaining']} left of {total} ({frac:.0%})",
                              remaining=row["remaining"]))
+    out += scanner_checks(con, now, tables)
     con.close()
+    return out
+
+
+def _credit_level(frac_left: float) -> str:
+    return ("CRITICAL" if frac_left < CREDITS_CRIT else
+            "WARNING" if frac_left < CREDITS_WARN else "INFO")
+
+
+def scanner_checks(con, now, tables) -> list[dict]:
+    """The scanner's own limits and its polling loop. Silent until the
+    scanner exists here (its tables, or polling switched on), so the
+    scheduled job's findings do not change before then."""
+    import config
+    out = []
+    if "credit_ledger" in tables:
+        from scanner import budget
+        s = budget.status(con, now)
+        if s["brief_active"]:
+            frac = s["brief_left"] / s["brief_cap"]
+            out.append(_find(_credit_level(frac), "scanner credits: the brief's cap",
+                             f"{s['brief_spent']:,} of {s['brief_cap']:,} spent"
+                             f" ({frac:.0%} left)", spent=s["brief_spent"]))
+        frac = s["month_left"] / s["month_budget"]
+        out.append(_find(_credit_level(frac), "scanner credits: this month",
+                         f"{s['month_spent']:,} of {s['month_budget']:,} spent"
+                         f" ({frac:.0%} left)", spent=s["month_spent"]))
+    if config.POLLING_ENABLED:
+        from scanner import poll
+        hb = poll.heartbeat()
+        if poll.alive(hb, now):
+            out.append(_find("INFO", "the polling loop is running",
+                             f"{hb.get('state')} (level {hb.get('level')})"))
+        elif hb and str(hb.get("state", "")).startswith("stopped"):
+            out.append(_find("ERROR", "the polling loop is running",
+                             f"it {hb['state']} - see logs/poll.log"))
+        else:
+            beat = parse_utc((hb or {}).get("beat_at"))
+            ago = "never" if beat is None else \
+                f"{(now - beat).total_seconds() / 60:.0f} min ago"
+            out.append(_find("ERROR", "the polling loop is running",
+                             f"no heartbeat since {ago}; the next scheduled run"
+                             f" restarts it (`python run_daily.py poll --ensure`)"))
     return out
 
 
