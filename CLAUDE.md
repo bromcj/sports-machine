@@ -26,7 +26,11 @@ familiarity with jargon.
   a call), and so does the loop the scheduled job starts once
   `config.POLLING_ENABLED` is True — it is False, and turning it on is a
   deliberate commit (brief Phase C4). Its limits (6,000 for the brief,
-  12,000 a month, a daily pace) are in code, checked before every call.
+  12,000 a month, a daily pace) are in code, checked before every call, and
+  count the ledger in the data folder the loop runs against. So `poll --live`
+  runs only where `data/scanner/ledger-of-record` exists (production's data
+  folder, created by hand when polling is turned on), and it holds
+  `data/scanner/poll.lock` so only one loop runs.
   Free and safe any time: `picks`, `audit`, `dashboard`, `backup`,
   `cronstatus`, `validation`, `merge_archive`, `poll --plan`, `poll --status`,
   `strategies` (without `--score`). Free, but they rewrite tracked
@@ -104,10 +108,15 @@ If you were wrong, say so plainly in one sentence and move on.
   tables go further: every time through `scanner.store.canon_ts`, one shape,
   because they are compared as strings.
 - **A rain delay moves the start time pull by pull.** A game reported at
-  18:11, then 19:11, then 19:41 UTC was still pregame at 18:25. Anything that
-  decides "in play" must use the latest reported start, never the first
-  (found by A-V1; `scanner/venues/sportsbook.from_snapshots`). And no paper
-  fill may use a price captured at or after the start (found by A-V4).
+  18:11, then 19:11, then 19:41 UTC was still pregame at 18:25. But a later
+  start first reported after it had passed is the feed correcting itself
+  mid-game (Astros @ Rockies 2024-04-27: 22:05 re-reported as 22:26:59 at
+  23:55). Anything that decides "in play" uses the game's one start by
+  `scanner.venues.sportsbook.next_start`: an earlier start always wins, a
+  later one only if reported before it passed, judged for the whole game.
+  In code that is `scanner.fair.game_start()`, never a market's own
+  `event_start` (found by A-V1 and the Phase A review). Paper orders, fills
+  and grading never use a price captured at or after it (found by A-V4).
 - **Finished is final.** In every upsert, `status='final'` is terminal and a
   NULL never overwrites a real value. Both ingest paths once wiped completed
   scores when a feed re-reported a game as not started.
