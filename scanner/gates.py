@@ -2,11 +2,12 @@
 
   gate 1   record_backtest(): its pre-registered backtest. Refused unless the
            strategy is registered, the experiment is the one it is
-           registered against, and that is a heading in docs/experiments.md
-           above the Results log - and, once a block exists, the experiment
-           and metric it holds: a new definition is a new name. This is the
-           deliberate act that CREATES the strategy's block, by hand, in a
-           committed change, and the block pins the definition.
+           registered against, that is a heading in docs/experiments.md
+           above the Results log, and no other name's gate record holds it
+           (a retired strategy's included) - and, once a block exists, the
+           experiment and metric it holds: a new definition is a new name.
+           This is the deliberate act that CREATES the strategy's block, by
+           hand, in a committed change, and the block pins the definition.
   gate 2   score(): model.validation.record_paper - unchanged, the sport
            models' rules - on the strategy's own graded paper positions,
            one value per EVENT (measured()), its own coverage, its own
@@ -83,6 +84,13 @@ def record_backtest(name: str, experiment: str, passed: bool, reason: str,
         raise ValueError(f"{experiment!r} is not a heading above the Results log"
                          f" in docs/experiments.md (the whole heading): pre-register"
                          f" it before recording a result")
+    # register() sees only the strategies loaded now; a retired strategy's
+    # gate record still holds its entry.
+    for other, block in validation._load().items():
+        if (other != name and isinstance(block, dict)
+                and (block.get("experiment") or "").strip() == experiment.strip()):
+            raise ValueError(f"{other}'s gate record already holds {experiment!r}:"
+                             f" each strategy needs its own entry")
     return validation.record_backtest(name, experiment, passed, reason, evidence,
                                       metric=s.metric)
 

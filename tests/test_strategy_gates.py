@@ -113,6 +113,20 @@ def test_gate_1_is_the_strategys_own_entry_and_a_real_pre_registration(env):
     assert all(v.status(n) is None for n in ("t_one", "t_fence", "t_log", "t_result"))
 
 
+def test_a_retired_strategys_entry_is_still_its_own(env):
+    # register() only sees the strategies loaded now. A retired strategy's
+    # gate record still holds its entry, and a new strategy on it was
+    # accepted (re-verification 2026-09-25, attack.py H).
+    _strategy("t_old")
+    gates.record_backtest("t_old", T1, True, "passed", {"n": 500})
+    strategies.REGISTRY.pop("t_old")                  # its file deleted
+    _strategy("t_new")                                # on the same entry
+    before = v.PATH.read_text(encoding="utf-8")
+    with pytest.raises(ValueError, match="own entry"):
+        gates.record_backtest("t_new", T1, True, "passed", {"n": 1})
+    assert v.PATH.read_text(encoding="utf-8") == before and v.status("t_new") is None
+
+
 def test_a_backtest_can_never_be_written_onto_a_sports_block(env):
     # A sport's gate 1 is its walk-forward. The low-level recorder must not
     # turn one into a backtest PASS, whatever name it is handed.

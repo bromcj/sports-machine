@@ -18,7 +18,9 @@ A Strategy is:
               whose placebo places nothing can never pass.
   metric      'info' or 'realized_ev' - what its gate 2 measures (S0)
   experiment  the whole heading of its entry in docs/experiments.md - its
-              own: no two strategies may share one
+              own: no two strategies may share one. register() checks the
+              ones loaded; gate 1 (scanner.gates.record_backtest) checks
+              every gate record, a retired strategy's too
   execute     execute(con, intent, now, mode) -> order_id. Default: a paper
               order through scanner.paper.submit
   grade       grade(con, position, now) -> None. Default: scanner.paper.grade
