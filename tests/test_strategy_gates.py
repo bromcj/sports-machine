@@ -6,6 +6,9 @@ import datetime as dt
 import itertools
 import json
 import random
+import sqlite3
+import threading
+import time
 
 import pytest
 
@@ -249,6 +252,73 @@ def test_gate_2_is_looked_at_no_more_than_twice_an_et_day(env):
     assert gates.score(env, "t_one", NOW + dt.timedelta(hours=2)) is None
     assert env.execute("SELECT COUNT(*) FROM gate_looks").fetchone()[0] == 2
     assert gates.score(env, "t_one", NOW + dt.timedelta(days=1)) is not None
+
+
+def _looked_at_before(env):
+    _strategy()
+    gates.record_backtest("t_one", T1, False, "lost", {"n": 500})
+    _positions(env, "t_one", STRONG[:10])
+
+
+def test_a_look_counts_even_if_the_caller_never_commits(env):
+    _looked_at_before(env)
+    for hours in (0, 1):
+        assert gates.score(env, "t_one", NOW + dt.timedelta(hours=hours)) is not None
+        env.rollback()
+    assert gates.score(env, "t_one", NOW + dt.timedelta(hours=2)) is None
+    assert env.execute("SELECT COUNT(*) FROM gate_looks").fetchone()[0] == 2
+
+
+def test_a_busy_database_evaluates_nothing(env):
+    _looked_at_before(env)
+    env.commit()
+    before = v.PATH.read_text(encoding="utf-8")
+    other = db.connect()
+    other.execute("BEGIN IMMEDIATE")                  # another writer holds the lock
+    busy = sqlite3.connect(db.DB_PATH, timeout=0.1)
+    busy.row_factory = sqlite3.Row
+    try:
+        with pytest.raises(sqlite3.OperationalError):
+            gates.score(busy, "t_one", NOW)
+    finally:
+        other.rollback()
+        other.close()
+        busy.close()
+    assert v.PATH.read_text(encoding="utf-8") == before
+    assert env.execute("SELECT COUNT(*) FROM gate_looks").fetchone()[0] == 0
+
+
+def test_two_scorers_at_once_still_get_two_looks_a_day(env, monkeypatch):
+    _looked_at_before(env)
+    assert gates.score(env, "t_one", NOW) is not None           # look 1
+    env.commit()
+    inside, measured = threading.Event(), gates.measured
+
+    def slow(*a, **k):                  # the first scorer, mid-evaluation
+        inside.set()
+        time.sleep(0.5)
+        return measured(*a, **k)
+
+    monkeypatch.setattr(gates, "measured", slow)
+    results = []
+
+    def run():
+        c = db.connect()
+        try:
+            results.append(gates.score(c, "t_one", NOW + dt.timedelta(hours=1)))
+            c.commit()
+        finally:
+            c.close()
+
+    first = threading.Thread(target=run)
+    first.start()
+    inside.wait(5)
+    second = threading.Thread(target=run)
+    second.start()
+    first.join()
+    second.join()
+    assert env.execute("SELECT COUNT(*) FROM gate_looks").fetchone()[0] == 2
+    assert sum(r is None for r in results) == 1
 
 
 def test_realized_ev_coverage_counts_positions_that_should_have_settled(env):

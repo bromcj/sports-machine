@@ -134,14 +134,30 @@ def measured(con, name: str, metric: str, now) -> dict:
 
 def score(con, name: str, now) -> dict | None:
     """Re-test one strategy's gate 2. None, with nothing written, when it
-    has no gate record yet or has already been looked at twice today."""
+    has no gate record yet or has already been looked at twice today.
+
+    It commits, starting with whatever the caller had pending. The look is
+    counted and claimed under one write lock, and committed, BEFORE anything
+    is evaluated: a busy database, a rollback, a crash or a second scorer
+    running at the same moment can only cost a look, never add one."""
     s = strategies.get(name)
     if validation.status(name) is None:
         print(f"  {name}: no gate record yet - record its backtest first")
         return None
-    if looks_today(con, name, now) >= MAX_LOOKS_PER_DAY:
-        print(f"  {name}: gate 2 already re-tested {MAX_LOOKS_PER_DAY} times today")
-        return None
+    con.commit()
+    con.execute("BEGIN IMMEDIATE")
+    try:
+        if looks_today(con, name, now) >= MAX_LOOKS_PER_DAY:
+            con.rollback()
+            print(f"  {name}: gate 2 already re-tested {MAX_LOOKS_PER_DAY} times today")
+            return None
+        look = con.execute("INSERT INTO gate_looks (name, looked_at, metric, n, passed,"
+                           " reason) VALUES (?,?,?,0,0,'started')",
+                           (name, canon_ts(now), s.metric)).lastrowid
+        con.commit()
+    except BaseException:
+        con.rollback()
+        raise
     m = measured(con, name, s.metric, now)
     refuse = [UNCALIBRATED] if s.metric == "realized_ev" else []
     # record_paper only refuses a placebo that PASSES, so one that placed
@@ -154,10 +170,11 @@ def score(con, name: str, now) -> dict | None:
     r = validation.record_paper(name, m["values"], slots=m["slots"],
                                 coverage=m["coverage"], placebo=m["placebo"],
                                 metric=s.metric, refuse="; ".join(refuse) or None)
-    con.execute("INSERT INTO gate_looks (name, looked_at, metric, n, mean, se, t,"
-                " coverage, passed, reason) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                (name, canon_ts(now), s.metric, r["n_bets"], r["avg_clv"], r["se_clv"],
-                 r["t_stat"], r["coverage"], 1 if r["passed"] else 0, r["reason"]))
+    con.execute("UPDATE gate_looks SET n=?, mean=?, se=?, t=?, coverage=?, passed=?,"
+                " reason=? WHERE id=?",
+                (r["n_bets"], r["avg_clv"], r["se_clv"], r["t_stat"], r["coverage"],
+                 1 if r["passed"] else 0, r["reason"], look))
+    con.commit()
     return r
 
 
