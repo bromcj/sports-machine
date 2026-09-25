@@ -279,6 +279,17 @@ def test_a_stop_file_ends_the_loop(env):
     assert len(ticks) == 1 and poll.heartbeat()["state"] == "stopped: asked to"
 
 
+def test_the_heartbeat_names_the_code_the_loop_started_on(env, monkeypatch):
+    # After a `git pull` the checkout's HEAD moves, but a running process
+    # keeps the code it imported. Only the commit it started on tells
+    # ensure() that it needs a restart.
+    monkeypatch.setattr(db, "code_sha", lambda: "aaaaaaa")
+    p = _poller(FakeGet([T0 + dt.timedelta(days=3)]), lambda: T0)
+    monkeypatch.setattr(db, "code_sha", lambda: "bbbbbbb")     # the pull
+    p.run(max_ticks=1)
+    assert poll.heartbeat()["code_sha"] == "aaaaaaa"
+
+
 # ------------------------------------------------------------ supervisor ---
 
 def test_ensure_does_nothing_while_polling_is_switched_off(env, monkeypatch):

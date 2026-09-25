@@ -191,6 +191,10 @@ class Poller:
         self.level_at = None
         self.last_poll: dict = {}
         self.state = "starting"
+        # The commit this process's code came from. Read once: after a pull
+        # the checkout's HEAD moves on, but the code already imported does
+        # not, and ensure()'s restart-on-new-code compares against this.
+        self.code_sha = db.code_sha()
 
     # -- state that survives a restart comes from the ledger, not memory
     def _last_polls(self, con) -> dict:
@@ -266,7 +270,7 @@ class Poller:
         HEARTBEAT.write_text(json.dumps({
             "pid": os.getpid(), "beat_at": canon_ts(now), "state": self.state,
             "stop_kind": stop_kind,
-            "level": self.level, "code_sha": db.code_sha(),
+            "level": self.level, "code_sha": self.code_sha,
             "last_poll": {k: (canon_ts(v) if v else None)
                           for k, v in self.last_poll.items()}}, indent=1),
             encoding="utf-8")
