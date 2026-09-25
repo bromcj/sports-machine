@@ -183,11 +183,30 @@ def upsert_markets(con, rows, rejects=None) -> int:
     return n
 
 
+def _another_venues_market(con, p: dict, venue_of: dict) -> str | None:
+    """Reason to reject a price filed under a stored market of another venue.
+    check_price sees one row alone; fair_value reads a book row's
+    price_native as a moneyline and counts it as the book its venue names,
+    and a fill charges the row's own fee - so a Kalshi row under a
+    sportsbook market crashed fair_value and could fill a book order at the
+    exchange's price."""
+    mid = p["market_id"]
+    if mid not in venue_of:
+        row = con.execute("SELECT venue FROM markets WHERE market_id=?",
+                          (mid,)).fetchone()
+        venue_of[mid] = None if row is None else row[0]
+    if venue_of[mid] is not None and venue_of[mid] != p["venue"]:
+        return f"a {p['venue']} price under {mid!r}, a {venue_of[mid]} market"
+    return None
+
+
 def insert_prices(con, rows, rejects=None) -> int:
-    """Append prices. The same observation twice is ignored, never an error."""
+    """Append prices, never under another venue's market. The same
+    observation twice is ignored, never an error."""
     n = 0
+    venue_of = {}
     for p in rows:
-        bad = check_price(p)
+        bad = check_price(p) or _another_venues_market(con, p, venue_of)
         if rejects is not None and not rejects.check(bad):
             continue
         if bad:

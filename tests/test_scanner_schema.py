@@ -114,6 +114,25 @@ def test_a_bad_price_row_is_a_reason_never_a_crash(con, row):
     assert len(r) == 1
 
 
+def test_a_price_under_another_venues_market_is_a_reason(con):
+    # Each row passes check_price on its own. Filed under another venue's
+    # market, a Kalshi row made fair_value crash ('0.9000' is no moneyline)
+    # and could fill a book order at the exchange's price; a Pinnacle row
+    # under DraftKings' market would be counted as Pinnacle.
+    dk = dict(MKT, market_id="b1", venue="sportsbook:draftkings", venue_market_id="e1",
+              canonical_event_id="nfl-e1", market_type="h2h")
+    store.upsert_markets(con, [MKT, dk])
+    bad = [dict(KAL, market_id="b1"), dict(BOOK, market_id="k1"),
+           dict(BOOK, venue="sportsbook:pinnacle")]
+    for row in bad:
+        assert store.check_price(row) is None
+    r = Rejects()
+    assert store.insert_prices(con, bad, rejects=r) == 0 and len(r) == len(bad)
+    with pytest.raises(ValueError, match="market"):
+        store.insert_prices(con, bad[:1])
+    assert store.insert_prices(con, [KAL, BOOK]) == 2       # each under its own market
+
+
 @pytest.mark.parametrize("row", [
     dict(MKT, venue="predictit"), dict(MKT, venue="sportsbook:"),
     dict(MKT, venue="Kalshi"),
