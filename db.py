@@ -273,7 +273,8 @@ CREATE TABLE IF NOT EXISTS paper_orders (
     fair_source TEXT,
     fair_as_of TEXT,
     ev_at_order REAL,                  -- per dollar, after fees, at the limit
-    status TEXT NOT NULL DEFAULT 'open',   -- open | partial | filled | expired
+    status TEXT NOT NULL DEFAULT 'open',   -- open | partial_open (a maker, still
+                                           -- resting) | partial | filled | expired
     note TEXT
 );
 
