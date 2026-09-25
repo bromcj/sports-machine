@@ -11,8 +11,9 @@ that produced it:
   polymarket:<rate>        Polymarket, at the taker rate for the market's
                            category.
 
-An unknown or unread model raises UnknownFee. A strategy that cannot price
-its costs cannot say whether a trade is worth taking, so it must not take it.
+An unknown or unread model raises UnknownFee, and so does a multiplier or
+rate that is NaN, infinite or negative. A strategy that cannot price its
+costs cannot say whether a trade is worth taking, so it must not take it.
 
 Sources, read 2026-09-25 (docs/venues.md has the detail):
   Kalshi      general fee 0.07 x C x P x (1-P) for takers; maker fees on
@@ -68,6 +69,19 @@ def _dec(x) -> Decimal:
     return Decimal(str(x))
 
 
+def _rate(s: str) -> Decimal:
+    """The multiplier or rate in a key. NaN, infinity or a negative number
+    would make the fee nan, a crash or a rebate, so it is refused, not priced.
+    Zero is a real rate: Polymarket charges nothing on geopolitics."""
+    try:
+        d = Decimal(s)
+    except ArithmeticError:
+        raise UnknownFee(f"fee number {s!r} is not a number") from None
+    if not d.is_finite() or d < 0:
+        raise UnknownFee(f"fee number {s!r} is not finite and non-negative")
+    return d
+
+
 def well_formed(model: str) -> bool:
     """The key has a shape this module knows. Says nothing about whether its
     fee can be computed: kalshi:flat:1 is well formed and still raises."""
@@ -76,12 +90,12 @@ def well_formed(model: str) -> bool:
         if parts == ["book"]:
             return True
         if parts[0] == "kalshi" and len(parts) == 3 and parts[1]:
-            Decimal(parts[2])
+            _rate(parts[2])
             return True
         if parts[0] == "polymarket" and len(parts) == 2:
-            Decimal(parts[1])
+            _rate(parts[1])
             return True
-    except ArithmeticError:
+    except UnknownFee:
         return False
     return False
 
@@ -106,7 +120,7 @@ def fee(model: str, price: float, contracts: float, role: str = "taker",
         if fee_type not in KALSHI_MAKER_SHARE:
             raise UnknownFee(f"Kalshi fee_type {fee_type!r} has not been read")
         share = Decimal(1) if role == "taker" else KALSHI_MAKER_SHARE[fee_type]
-        model_fee = KALSHI_TAKER * _dec(mult) * share * c * p * (1 - p)
+        model_fee = KALSHI_TAKER * _rate(mult) * share * c * p * (1 - p)
         trade_fee = model_fee.quantize(_MICRO, rounding=ROUND_CEILING)
         if not conservative:
             return float(trade_fee)
@@ -114,9 +128,10 @@ def fee(model: str, price: float, contracts: float, role: str = "taker",
         return float(cash.quantize(_CENT, rounding=ROUND_CEILING) - c * p)
 
     if parts[0] == "polymarket" and len(parts) == 2:
+        rate = _rate(parts[1])
         if role == "maker":
             return 0.0
-        return float(c * _dec(parts[1]) * p * (1 - p))
+        return float(c * rate * p * (1 - p))
 
     raise UnknownFee(f"unknown fee model {model!r}")
 

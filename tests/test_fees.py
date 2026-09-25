@@ -57,6 +57,20 @@ def test_an_unread_fee_type_refuses_rather_than_guessing():
         fees.polymarket_key("astrology")
 
 
+def test_a_multiplier_or_rate_that_is_not_a_finite_non_negative_number_is_refused():
+    # A negative number turns the fee into a rebate and inflates EV; NaN makes
+    # it nan; Infinity crashed with InvalidOperation, which paper.submit does
+    # not catch. None of them is a fee rule anyone has read.
+    for bad in ("kalshi:quadratic:-5", "kalshi:quadratic:NaN",
+                "kalshi:quadratic:Infinity", "kalshi:quadratic:sNaN",
+                "polymarket:-0.05", "polymarket:NaN", "polymarket:Infinity"):
+        assert fees.well_formed(bad) is False, bad
+        with pytest.raises(UnknownFee):
+            fees.fee(bad, 0.5, 1)
+    # Zero is a real rate: Polymarket charges nothing on geopolitics.
+    assert fees.well_formed(fees.polymarket_key("geopolitics"))
+
+
 def test_polymarket_takers_pay_by_category_and_makers_never():
     m = fees.polymarket_key("Sports")
     assert m == "polymarket:0.05"
