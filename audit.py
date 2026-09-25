@@ -1440,7 +1440,19 @@ def scanner_checks(_false_pass):
                 m, pr = from_snapshots(snaps)
                 ss.upsert_markets(cA, m)
                 ss.insert_prices(cA, pr)
-                agree = disagree = inplay = 0
+                # When each pull's game was in play: from the start that pull
+                # reported, or from an earlier one a later pull reported (it
+                # turned out to be in play). Neither is scored against
+                # fair_prob, which judges a pull by its own report only. Each
+                # is counted, and must be refused: a value taken from a price
+                # captured at or after that start fails the check, as the
+                # pre-registered clarification requires (docs/experiments.md).
+                began, soonest = {}, {}
+                for s in sorted(snaps, key=lambda s: ss.canon_ts(s["ts"]), reverse=True):
+                    c = ss.canon_ts(s["commence_time"])
+                    soonest[s["game_id"]] = min(soonest.get(s["game_id"], c), c)
+                    began[(s["game_id"], s["ts"])] = soonest[s["game_id"]]
+                agree = disagree = inplay = answered = 0
                 seen = set()
                 for s in snaps:
                     if (s["game_id"], s["ts"]) in seen:
@@ -1450,8 +1462,10 @@ def scanner_checks(_false_pass):
                                         s["game_id"].split("-", 1)[1], "h2h")
                     for side in ("home", "away"):
                         fv = fair_value(cA, mid, side, s["ts"])
-                        if parse_utc(s["ts"]) >= parse_utc(s["commence_time"]):
-                            inplay += (fv is None or fv["as_of"] != ss.canon_ts(s["ts"]))
+                        start = began[(s["game_id"], s["ts"])]
+                        if ss.canon_ts(s["ts"]) >= start:
+                            inplay += 1
+                            answered += fv is not None and fv["as_of"] >= start
                             continue
                         p, source = fair_prob(src, s["game_id"], s["ts"], side)
                         ok = (fv is not None and p is not None and abs(fv["p"] - p) <= 1e-12
@@ -1462,9 +1476,9 @@ def scanner_checks(_false_pass):
             finally:
                 dbS.DB_PATH = real
             check("fair_value agrees with fair_prob on every recent pregame pull (A-V1)",
-                  disagree == 0 and agree > 0,
-                  f"{agree} agree, {disagree} disagree, {inplay} in-play refused,"
-                  f" {len(seen)} pulls since {since[:10]}")
+                  disagree == 0 and agree > 0 and answered == 0,
+                  f"{agree} agree, {disagree} disagree, {inplay - answered} of {inplay}"
+                  f" in-play refused, {len(seen)} pulls since {since[:10]}")
         else:
             skip("fair_value agrees with fair_prob on every recent pregame pull (A-V1)",
                  "no odds_snapshots yet")
