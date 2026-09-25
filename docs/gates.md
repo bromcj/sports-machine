@@ -116,6 +116,56 @@ lucky bets can clear a t-statistic, and n is the cheaper guard.
 | `MAX_SLOT_SHARE` | 0.60 | no more than 60% of graded bets from one start-time slot, so the gate cannot be cleared by one favourable time of day. |
 | `COVERAGE_WAIVES_SLOTS` | 0.90 | above 90% coverage the slot rule is waived — at that point the sample is the slate, not a selection from it. |
 
+## Strategies: the same three gates, one set each
+
+Added 2026-09-25 for the scanner brief. A strategy (`scanner/strategies/`) is
+held to exactly what a sport is held to, with its own record — a top-level
+block in `validation.json` under the strategy's name, the same shape as a
+sport's, marked `"kind": "strategy"`. No strategy counts another's positions
+or inherits another's pass.
+
+| gate | for a strategy | recorded by |
+|---|---|---|
+| 1 | its own **backtest**, named in `docs/experiments.md` before it is run, with that entry's pass rule | `scanner.gates.record_backtest` → `model.validation.record_backtest` |
+| 2 | `record_paper`, **unchanged**: 50+ graded positions, the metric's mean clear of zero by 3 SE, coverage ≥ 0.75, the slot rule, and its own placebo must not pass | `scanner.gates.score` |
+| 3 | a person calls `arm("<strategy>")` | `model.validation.arm` — nothing else calls it; `audit.py` checks |
+
+**The metric** is chosen in the strategy's own pre-registration: `info` (fair
+close ÷ fair at entry − 1, **both from the same fair source** — a position
+whose ends disagree is left ungraded and counts against coverage) or
+`realized_ev` (profit ÷ capital staked, after fees). For `realized_ev`,
+coverage is positions settled ÷ positions whose market resolved more than 36
+hours ago, since every settled position has a value.
+
+**A placebo is required** to register at all: gate 2 refuses a strategy
+whose placebo also passes, so a strategy without one could never be tested.
+
+**Two things keep automated scoring from loosening anything.** `score()`
+writes nothing until a gate-1 record exists — creating a strategy's block is a
+deliberate, committed act — and then only the `paper_trading` part, which the
+scheduled job's guard (`only_paper_changed`) may discard; a test checks that.
+And it re-tests gate 2 **at most twice per ET day**, logging every look in
+`gate_looks`.
+
+**Is 3 SE still enough at a strategy's volume?** A strategy may grade far more
+than 10 positions a day. Simulated with an exact block method (each look's
+sum, and its within-block sum of squares, drawn directly), 20,000 trials, a
+no-skill strategy, 120 days, sigma 3.0:
+
+| graded a day | looks a day | false pass |
+|---|---|---|
+| 10 | 2 | 2.0% (the brute-force simulation above: 1.6%) |
+| 50 | 2 | 2.3% |
+| 200 | 2 | 2.3% |
+| 50 | 50 — after every position | 2.9% |
+| 50, at **2** SE | 2 | **20.8%** |
+
+The 3-SE bar does the work; the look cap keeps the cadence where it was
+measured. A real +1% edge at 50 a day was found within 200 days in all 4,000
+trials of that run.
+`audit.py` re-runs the 50-a-day row, and checks the block method against the
+brute-force one at 10 a day, on every run.
+
 ## The rule underneath all of it
 
 Edge is not "my number differs from the market's." It is "my number is

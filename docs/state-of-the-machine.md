@@ -200,6 +200,21 @@ worthwhile price appearing about once in a hundred games.
 
 ---
 
+## The scanner (Phase A built 2026-09-25, switched off)
+
+The brief of 2026-09-25 changes the machine's job from predicting games to
+finding prices that are wrong and proving it on paper. Phase A built the
+foundation — one price table for every venue, one fair price, fees, a
+credit-limited polling loop, paper orders filled only against later prices,
+capital accounting, and per-strategy gates — on a branch, reviewed before it
+reaches production. **It is switched off** (`config.POLLING_ENABLED = False`),
+**has no strategies**, and **cannot place a real order**: there is no order
+path in the code, the database refuses a non-paper order, and `audit.py`
+checks both. How it works: [scanner.md](scanner.md). The venues and what has
+been read about them: [venues.md](venues.md).
+
+---
+
 ## How to tell if something is broken
 
 Three things, in order of how much they tell you.
@@ -215,7 +230,9 @@ reaching a final state, no impossible finals, feeds agreeing on first pitch,
 paper bets settling, no price used from after first pitch, Statcast currency,
 no truncated Statcast game, predictions covering the slate, the mean predicted
 home probability, and credits remaining (the paid key's; nothing on this PC
-can see the cloud key's). Findings are written to `ALERTS.md` at the repo
+can see the cloud key's). Once the scanner's tables exist it adds the
+scanner's two credit limits (a warning at 25% left, critical at 10%), and once
+polling is switched on, whether the loop is alive. Findings are written to `ALERTS.md` at the repo
 root, which every scheduled run rewrites — including one that refuses — and
 whose first line is the time it was written.
 
@@ -227,11 +244,12 @@ file carrying an intercept is the one trained at 2026-09-24 03:00 UTC. As the
 older predictions age out, the mean should rise toward the new ones. If it
 drifts back under 0.50, the intercept is not reaching the serving path.
 
-**Every entry point.** `run_daily.py` has 14 modes: `morning`, `close`,
+**Every entry point.** `run_daily.py` has 16 modes: `morning`, `close`,
 `picks`, `refresh`, `grade`, `predict`, `finals`, `cronstatus`, `market`,
-`bet`, `shop`, `scoreboard`, `paper` and `backup`. It needs one; with none, or
-an unknown word, it prints that list and exits. Of these, only `morning` and
-`close` spend credits. `tests/test_entry_points.py` checks, in CI, that
+`bet`, `shop`, `scoreboard`, `paper`, `backup`, and the scanner's `poll` and
+`strategies`. It needs one; with none, or an unknown word, it prints that list
+and exits. Of these, only `morning`, `close` and `poll --live` spend credits,
+and `poll --live` refuses while polling is switched off. `tests/test_entry_points.py` checks, in CI, that
 every mode is documented in COMMANDS.md and every module is reachable from
 an entry point.
 
@@ -281,6 +299,7 @@ scheduled run refuses until `validation.json` is reset. **Costs credits:** `morn
 | [part-e-results.md](part-e-results.md), [b3-results.md](b3-results.md) | the two full write-ups |
 | [reports/](reports/) | one per phase of the last brief, plus the 2026-09-24 review (`review-independent.md`, `review-claims.md`) |
 | [briefs/](briefs/) | every brief, by date |
+| [scanner.md](scanner.md), [venues.md](venues.md) | the scanner: how it works; what each venue is, costs, and what has been read |
 
 ## Things this codebase has already got wrong
 
