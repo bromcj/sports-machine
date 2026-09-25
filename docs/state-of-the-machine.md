@@ -283,11 +283,11 @@ import check on every push, on Python 3.11. It was red for 11 pushes until
 noticed. `.github/workflows/daily.yml` is the three-times-a-day
 collection.
 
-`python -m pytest tests/` gave 679 passed, 2 skipped on 2026-09-25 (on the
-`phase-a-foundations` branch at 04c6d7f, in a checkout without
+`python -m pytest tests/` gave 690 passed, 2 skipped on 2026-09-25 (on the
+`phase-a-foundations` branch at 201a80e, in a checkout without
 `data_golden/`), and needs no database or network. The two skipped are the
 golden test, which runs only where `data_golden/` exists; in the dev folder,
-which has it, all 681 pass.
+which has it, all 692 pass.
 
 **Free and safe any time:** `picks`, `audit`, `dashboard`, `backup`,
 `cronstatus`, `validation`, `merge_archive`. **Free, but they rewrite tracked
