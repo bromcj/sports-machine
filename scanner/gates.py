@@ -9,14 +9,16 @@
            its own coverage, its own placebo. It only ever updates the
            paper_trading part of a block that already exists, so the
            scheduled job's guard (only_paper_changed) can always discard it.
+           A realized_ev strategy cannot pass yet (UNCALIBRATED, below).
   gate 3   model.validation.arm(name): a person. Nothing here calls it.
 
 LOOKS. score() re-tests gate 2 at most MAX_LOOKS_PER_DAY times per ET day and
 logs every look in gate_looks, so the cadence is the one the simulation
 covers. Measured (docs/gates.md): at 3 SE a no-skill strategy grading 50 a
 day passes by luck 2.3% of the time over 120 days at two looks a day, and
-2.9% if it were re-tested after every graded position. More looks, looser
-gate; the cap keeps it where it was measured.
+2.9% if it were re-tested after every graded position. That simulation drew
+near-normal values - the info metric - and says nothing about realized_ev.
+More looks, looser gate; the cap keeps it where it was measured.
 """
 import datetime as dt
 from pathlib import Path
@@ -30,6 +32,16 @@ EXPERIMENTS = Path(__file__).parent.parent / "docs" / "experiments.md"
 MAX_LOOKS_PER_DAY = 2
 # A position whose market resolved this long ago should have settled.
 SETTLE_GRACE_H = 36
+# realized_ev is win-or-lose: +(1-p)/p or -100% a position. The 3-SE bar was
+# never simulated on that payoff, and it does not hold there: a no-skill
+# strategy buying favourites passes 5.5% of the time at 80c, 14.7% at 95c and
+# 40.6% at 98c (Phase A review, 2026-09-25), because a run of wins has almost
+# no spread. So its evidence is recorded and gate 2 fails, until a bar
+# simulated for this payoff is pre-registered in docs/experiments.md.
+UNCALIBRATED = ("realized_ev cannot pass gate 2 yet: the 3-SE bar was calibrated"
+                " on near-normal values, and on a win-or-lose payoff a no-skill"
+                " favourite buyer clears it 5-41% of the time - a bar for this"
+                " payoff has to be pre-registered first")
 
 
 def record_backtest(name: str, experiment: str, passed: bool, reason: str,
@@ -110,8 +122,10 @@ def score(con, name: str, now) -> dict | None:
         print(f"  {name}: gate 2 already re-tested {MAX_LOOKS_PER_DAY} times today")
         return None
     m = measured(con, name, s.metric, now)
+    refuse = [UNCALIBRATED] if s.metric == "realized_ev" else []
     r = validation.record_paper(name, m["values"], slots=m["slots"],
-                                coverage=m["coverage"], placebo=m["placebo"])
+                                coverage=m["coverage"], placebo=m["placebo"],
+                                metric=s.metric, refuse="; ".join(refuse) or None)
     con.execute("INSERT INTO gate_looks (name, looked_at, metric, n, mean, se, t,"
                 " coverage, passed, reason) VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (name, canon_ts(now), s.metric, r["n_bets"], r["avg_clv"], r["se_clv"],

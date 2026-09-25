@@ -320,7 +320,7 @@ def record_backtest(name: str, experiment: str, passed: bool, reason: str,
 
 
 def record_paper(sport: str, clvs, slots=None, coverage=None,
-                 placebo=None) -> dict:
+                 placebo=None, metric="info", refuse=None) -> dict:
     """Gate 2: the model moved the fair line its way, by more than noise.
 
     `clvs` is the per-bet INFO component, not raw CLV. CLV against the same
@@ -367,6 +367,12 @@ def record_paper(sport: str, clvs, slots=None, coverage=None,
 
     The 50-bet floor stays as a separate, independent condition: a handful
     of lucky bets can clear a t-statistic, and n is the cheaper guard.
+
+    For scanner strategies (scanner.gates.score) only: `metric` names what
+    `clvs` holds in the reason, and `refuse`, when given, is a rule the
+    caller holds this record to that sports are not. The evidence is
+    recorded as usual, but it cannot pass, and the reason says why first.
+    The defaults leave every sport caller exactly as it was.
     """
     clvs = [float(c) for c in clvs]
     n_bets = len(clvs)
@@ -412,16 +418,16 @@ def record_paper(sport: str, clvs, slots=None, coverage=None,
         placebo_passes = False
 
     passed = (enough and convincing and covered and lopsided is None
-              and not placebo_passes)
+              and not placebo_passes and refuse is None)
     if not enough:
         reason = f"only {n_bets} graded paper bets, need {MIN_PAPER_BETS}"
     elif avg_clv <= 0:
-        reason = f"mean info {avg_clv:+.2f}% over {n_bets} bets is not positive"
+        reason = f"mean {metric} {avg_clv:+.2f}% over {n_bets} bets is not positive"
     elif not convincing:
-        reason = (f"mean info {avg_clv:+.2f}% over {n_bets} bets is within noise "
+        reason = (f"mean {metric} {avg_clv:+.2f}% over {n_bets} bets is within noise "
                   f"(SE {se:.2f}%, needs to clear {PAPER_CLV_SIGMA:g} SE; t={t:.2f})")
     elif cov is None:
-        reason = (f"mean info {avg_clv:+.2f}% over {n_bets} bets clears the noise, "
+        reason = (f"mean {metric} {avg_clv:+.2f}% over {n_bets} bets clears the noise, "
                   f"but coverage was not supplied, so the graded bets cannot be "
                   f"shown to represent the bets actually placed")
     elif not covered:
@@ -429,20 +435,22 @@ def record_paper(sport: str, clvs, slots=None, coverage=None,
                   f"could be graded (need {MIN_COVERAGE:.0%}). The graded ones are "
                   f"whichever games a cron happened to land near, not a random "
                   f"sample. Fix pre-game collection before reading anything into "
-                  f"the {avg_clv:+.2f}% info over {n_bets} bets")
+                  f"the {avg_clv:+.2f}% {metric} over {n_bets} bets")
     elif placebo_passes:
-        reason = (f"mean info {avg_clv:+.2f}% over {n_bets} bets clears the bar, "
+        reason = (f"mean {metric} {avg_clv:+.2f}% over {n_bets} bets clears the bar, "
                   f"but SO DOES A RANDOM-SIDE PLACEBO "
                   f"({placebo_stat['mean']:+.2f}% over {placebo_stat['n']}) - "
                   f"whatever this is measuring, it is not the model")
     elif lopsided is not None:
-        reason = (f"mean info {avg_clv:+.2f}% over {n_bets} bets clears the noise "
+        reason = (f"mean {metric} {avg_clv:+.2f}% over {n_bets} bets clears the noise "
                   f"at {cov:.0%} coverage, but {slot_share[lopsided]:.0%} of them "
                   f"are '{lopsided}' games (max {MAX_SLOT_SHARE:.0%}) - that "
                   f"validates a slate slot, not the model")
     else:
-        reason = (f"mean info {avg_clv:+.2f}% over {n_bets} bets, {t:.1f} SE "
+        reason = (f"mean {metric} {avg_clv:+.2f}% over {n_bets} bets, {t:.1f} SE "
                   f"above zero, at {cov:.0%} coverage")
+    if refuse is not None:
+        reason = f"{refuse}. Measured: {reason}"
 
     data = _load()
     entry = data.setdefault(sport, {})

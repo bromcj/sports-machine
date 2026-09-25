@@ -212,6 +212,23 @@ def test_realized_ev_coverage_is_not_topped_up_by_recent_settlements(env):
     assert m["coverage"] == pytest.approx(50 / 100)
 
 
+def test_a_realized_ev_strategy_cannot_pass_gate_2_until_its_bar_is_calibrated(env):
+    # A no-skill favourite buyer wins almost every time, so its realized_ev
+    # clears 3 SE easily (review 2026-09-25: 5-41% false passes). Refused,
+    # the evidence still recorded, and only in the part the job may discard.
+    _strategy(metric="realized_ev")
+    gates.record_backtest("t_one", T1, True, "passed", {"n": 500})
+    before = json.loads(v.PATH.read_text(encoding="utf-8"))
+    rng = random.Random(1)
+    _positions(env, "t_one", [(1.8, 2.8, 3.8)[i % 3] for i in range(60)])  # 60 wins
+    _positions(env, "t_one", [rng.gauss(0, 2.9) for _ in range(60)], mode="placebo")
+    r = gates.score(env, "t_one", NOW)
+    assert not r["passed"] and "realized_ev" in r["reason"] and "calibrat" in r["reason"]
+    assert r["n_bets"] == 60 and r["t_stat"] > 3
+    assert not v.gates("t_one")["paper_trading"] and v.arm("t_one").startswith("REFUSED")
+    assert v.only_paper_changed(before, json.loads(v.PATH.read_text(encoding="utf-8")))
+
+
 def test_info_coverage_counts_only_graded_positions_that_settled(env):
     # The scanner grades at the start and settles later, so a graded position
     # may not have settled. It must not stand in for a settled, ungraded one.
