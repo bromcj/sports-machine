@@ -289,6 +289,36 @@ def record(sport: str, baseline_kind: str, seasons: list[dict]) -> dict:
     _save(data)
     return new_entry
 
+def record_backtest(name: str, experiment: str, passed: bool, reason: str,
+                    evidence: dict) -> dict:
+    """Gate 1 for a scanner STRATEGY: its own pre-registered backtest.
+
+    A strategy is not a forecaster, so its gate 1 is not a walk-forward
+    against the close: it is the one historical test its entry in
+    docs/experiments.md names, with that entry's pass rule
+    (scanner.gates.record_backtest checks the entry exists). The block has
+    the same shape as a sport's - cleared, reason, recorded_at, armed,
+    paper_trading - so gates(), arm() and only_paper_changed() treat it the
+    same way. Like record(), a new result disarms.
+    """
+    if not isinstance(passed, bool):
+        raise ValueError("passed must be True or False")
+    if not evidence:
+        raise ValueError("a backtest verdict needs its evidence")
+    data = _load()
+    entry = data.setdefault(name, {})
+    new_entry = dict(entry)
+    new_entry.update({"kind": "strategy", "baseline_kind": "backtest",
+                      "experiment": experiment, "cleared": passed,
+                      "reason": reason, "backtest": evidence,
+                      "recorded_at": _now(), "armed": False})
+    if entry and _same_except_time(entry, new_entry):
+        return entry
+    data[name] = new_entry
+    _save(data)
+    return new_entry
+
+
 def record_paper(sport: str, clvs, slots=None, coverage=None,
                  placebo=None) -> dict:
     """Gate 2: the model moved the fair line its way, by more than noise.
@@ -493,9 +523,10 @@ def explain(sport: str) -> str:
     if all(g.values()):
         return f"{sport}: CLEARED - all three gates passed"
     paper = s.get("paper_trading") or {}
+    gate1 = "backtest" if s.get("kind") == "strategy" else "walk-forward"
     bits = [
-        "walk-forward " + ("PASS" if g["walk_forward"]
-                           else "FAIL (" + str(s.get("reason", "?")) + ")"),
+        gate1 + (" PASS" if g["walk_forward"]
+                 else " FAIL (" + str(s.get("reason", "?")) + ")"),
         "paper-trading " + ("PASS" if g["paper_trading"]
                             else "FAIL (" + paper.get("reason", "nothing recorded") + ")"),
         "armed " + ("YES" if g["armed"] else "NO (a human must call arm())"),

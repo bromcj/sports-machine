@@ -255,6 +255,46 @@ def _simulate_maker(con, o, target: float, now: str, tally: dict) -> str:
     return "partial_open" if got > 0 else "open"
 
 
+# ---------------------------------------------------------------- grading ---
+
+def grade(con, position_id: int, when) -> dict:
+    """The fair close against the fair price at entry: `info`, in percent.
+
+    Graded only when (pre-registered, docs/experiments.md S0):
+      - the market has a start time, so a close exists;
+      - a fair close was captured within CLOSING_WINDOW_MIN of the start
+        (bets/log.py's constant - the sport model's window);
+      - entry and close come from the SAME fair source. The 2026-09-24
+        review found the MLB gate mixing consensus at entry with Pinnacle at
+        the close on every graded bet; a position like that is left ungraded
+        here, and so counts against coverage.
+    """
+    from bets.log import CLOSING_WINDOW_MIN
+    p = con.execute("SELECT * FROM paper_positions WHERE position_id=?",
+                    (position_id,)).fetchone()
+    m = con.execute("SELECT * FROM markets WHERE market_id=?",
+                    (p["market_id"],)).fetchone()
+    if m is None or not m["event_start"]:
+        return {"graded": False, "why": "no start time, so no closing price"}
+    close = fair_value(con, p["market_id"], p["outcome"], m["event_start"])
+    entry = fair_value(con, p["market_id"], p["outcome"], p["opened_at"])
+    if close is None or entry is None:
+        return {"graded": False, "why": "no fair price at entry or at the close"}
+    early = capital.days_between(close["as_of"], m["event_start"]) * 1440
+    if early > CLOSING_WINDOW_MIN:
+        return {"graded": False,
+                "why": f"nearest close {early:.0f} min before the start"
+                       f" (window {CLOSING_WINDOW_MIN})"}
+    if close["source"] != entry["source"]:
+        return {"graded": False,
+                "why": f"fair source changed: {entry['source']} -> {close['source']}"}
+    info = (close["p"] / entry["p"] - 1) * 100
+    con.execute("UPDATE paper_positions SET fair_close_p=?, fair_close_source=?,"
+                " info=?, graded_at=? WHERE position_id=?",
+                (close["p"], close["source"], info, canon_ts(when), position_id))
+    return {"graded": True, "info": info}
+
+
 # ------------------------------------------------------------- settlement ---
 
 def settle(con, position_id: int, result: str, when) -> float:
