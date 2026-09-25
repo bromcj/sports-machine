@@ -14,8 +14,8 @@ A Strategy is:
   placebo     placebo(con, intent, now) -> Intent | None: the same pipeline
               making a random choice. REQUIRED: gate 2 refuses a strategy
               whose placebo also passes, and one whose placebo has fewer
-              than 50 graded positions, so a strategy whose placebo places
-              nothing can never pass.
+              than 50 graded events (games, not positions), so a strategy
+              whose placebo places nothing can never pass.
   metric      'info' or 'realized_ev' - what its gate 2 measures (S0)
   experiment  the whole heading of its entry in docs/experiments.md - its
               own: no two strategies may share one

@@ -135,14 +135,16 @@ def test_a_backtest_can_never_be_written_onto_a_sports_block(env):
 ORDER_IDS = itertools.count(1)
 
 
-def _positions(con, name, infos, mode="paper", settled=True):
-    """Graded positions straight into the table: the gate reads rows."""
+def _positions(con, name, infos, mode="paper", settled=True, event=None):
+    """Graded positions straight into the table: the gate reads rows. Each
+    on a game of its own, unless `event` puts them all on one."""
     for i, x in enumerate(infos):
         oid = next(ORDER_IDS)
         start = (NOW - dt.timedelta(days=2, hours=i % 12)).isoformat()
         mid = f"m-{oid}"
         store.upsert_markets(con, [{"market_id": mid, "venue": "kalshi",
-                                    "venue_market_id": mid, "canonical_event_id": "e",
+                                    "venue_market_id": mid,
+                                    "canonical_event_id": event or f"e-{oid}",
                                     "market_type": "binary", "event_start": start,
                                     "resolves_at": start, "first_seen": start}])
         con.execute("INSERT INTO paper_positions (order_id, strategy, mode, venue,"
@@ -430,6 +432,65 @@ def test_info_coverage_counts_only_graded_positions_that_settled(env):
     r = gates.score(env, "t_one", NOW)
     assert not r["passed"] and "COVERAGE" in r["reason"]
     assert v.arm("t_one").startswith("REFUSED")
+
+
+def test_gate_2_counts_events_not_positions(env):
+    # Positions on one game share that game's move, so a second entry is not
+    # a second piece of evidence. Counted per position, a no-skill strategy
+    # entering each game k times passed 15% (k=2) to 72% (k=10), against 1.8%
+    # at k=1 (Phase A re-verification, 2026-09-25). One value per event: the
+    # mean of its positions.
+    _strategy()
+    gates.record_backtest("t_one", T1, True, "passed", {"n": 500})
+    rng = random.Random(1)
+    _positions(env, "t_one", [1.0, 2.0, 3.0] * 20, event="g1")     # 60 entries, one game
+    _positions(env, "t_one", [5.0, 7.0], event="g2")
+    _positions(env, "t_one", [rng.gauss(0, 2.9) for _ in range(60)], mode="placebo")
+    m = gates.measured(env, "t_one", "info", NOW)
+    assert m["values"] == [2.0, 6.0] and len(m["slots"]) == 2
+    assert len(m["placebo"]) == 60 and m["coverage"] == 1.0      # coverage: positions
+    r = gates.score(env, "t_one", NOW)
+    assert not r["passed"] and r["n_bets"] == 2
+    assert v.arm("t_one").startswith("REFUSED - gate 2")
+
+
+def test_the_placebo_floor_is_50_events_not_50_rows(env):
+    # 50 copies of one losing placebo game are one game of evidence.
+    _strategy()
+    gates.record_backtest("t_one", T1, True, "passed", {"n": 500})
+    _positions(env, "t_one", STRONG)
+    _positions(env, "t_one", [-0.5] * 60, mode="placebo", event="p1")
+    r = gates.score(env, "t_one", NOW)
+    assert not r["passed"] and "placebo has only 1 graded" in r["reason"]
+    assert v.arm("t_one").startswith("REFUSED - gate 2")
+
+
+def test_re_entering_one_game_through_the_pipeline_is_one_gate_2_value(env):
+    # The natural shape of a 'price below fair' signal: it asks for the same
+    # market every pass while the price stays attractive, and nothing in
+    # run() or paper.submit refuses a second position on it.
+    _game(env, {"pinnacle": (130, -150)}, NOW - dt.timedelta(minutes=5))
+    row = kalshi.market_row("KXG", canonical_event_id="nba-g1", first_seen=NOW,
+                            sport="nba", market_type="h2h", yes_outcome="home",
+                            event_start=START, resolves_at="2026-11-04T03:00:00Z")
+    store.upsert_markets(env, [row])
+    book = {"orderbook_fp": {"yes_dollars": [["0.5500", "100"]],
+                             "no_dollars": [["0.4000", "100"]]}}
+    s = _strategy(signal=lambda con, now: [Intent(row["market_id"], "yes", "taker", 10, 0.65)],
+                  placebo=lambda con, i, now: Intent(i.market_id, "no", "taker", 10, 0.65))
+    for i in range(5):
+        t = NOW + dt.timedelta(minutes=10 * i)
+        store.insert_prices(env, kalshi.price_rows(row["market_id"], book, t,
+                                                   "kalshi:quadratic:1", sport="nba"))
+        strategies.run(env, s, t)
+    _game(env, {"pinnacle": (140, -160)}, "2026-11-04T00:00:00Z")     # the close
+    strategies.run(env, s, dt.datetime(2026, 11, 4, 0, 30, tzinfo=UTC))
+    for (pid,) in env.execute("SELECT position_id FROM paper_positions").fetchall():
+        paper.settle(env, pid, "win", "2026-11-04T04:00:00Z")
+    graded = env.execute("SELECT COUNT(*) FROM paper_positions WHERE mode='paper'"
+                         " AND info IS NOT NULL").fetchone()[0]
+    m = gates.measured(env, "t_one", "info", NOW + dt.timedelta(days=3))
+    assert graded >= 2 and len(m["values"]) == 1 and len(m["placebo"]) == 1
 
 
 # ---------------------------------------------------------------- grading ---

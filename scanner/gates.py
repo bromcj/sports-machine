@@ -9,13 +9,14 @@
            change.
   gate 2   score(): model.validation.record_paper - unchanged, the sport
            models' rules - on the strategy's own graded paper positions,
-           its own coverage, its own placebo. It only ever updates the
-           paper_trading part of a block that already exists, so the
-           scheduled job's guard (only_paper_changed) may discard it - or
-           refuses to, when discarding would bring back a pass.
+           one value per EVENT (measured()), its own coverage, its own
+           placebo. It only ever updates the paper_trading part of a block
+           that already exists, so the scheduled job's guard
+           (only_paper_changed) may discard it - or refuses to, when
+           discarding would bring back a pass.
            Two refusals sports do not need: a realized_ev strategy cannot
            pass yet (UNCALIBRATED, below), and nor can one whose placebo
-           has fewer than 50 graded positions.
+           has fewer than 50 graded events.
   gate 3   model.validation.arm(name): a person. Nothing here calls it.
 
 LOOKS. score() re-tests gate 2 at most MAX_LOOKS_PER_DAY times per ET day and
@@ -92,30 +93,49 @@ def looks_today(con, name: str, now) -> int:
                         canon_ts(start + dt.timedelta(days=1)))).fetchone()[0]
 
 
-def _slot(pos) -> str:
-    when = parse_utc(pos["event_start"]) or parse_utc(pos["opened_at"])
+def _slot(event) -> str:
+    """An event's slot: its earliest start, or, if none of its positions
+    knows the start, its first opening."""
+    starts = [parse_utc(p["event_start"]) for p in event if p["event_start"]]
+    when = min(starts or [parse_utc(p["opened_at"]) for p in event])
     return validation.slot_of(when.astimezone(ET).hour)
 
 
 def measured(con, name: str, metric: str, now) -> dict:
-    """The strategy's graded values, placebo values, slots and coverage."""
+    """The strategy's graded values, placebo values, slots and coverage.
+
+    One value per EVENT (the market's canonical_event_id), the mean of that
+    event's positions, for the strategy and its placebo alike. Positions on
+    one game share its move, so a second entry is not a second piece of
+    evidence: counted per position, a no-skill strategy entering each game
+    k times passed the 3-SE bar 15% (k=2) to 72% (k=10) of the time, against
+    1.8% at k=1 - the one-value-per-game shape the bar was simulated on
+    (Phase A re-verification, 2026-09-25). Coverage stays a share of
+    positions."""
     col = "info" if metric == "info" else "realized_ev"
-    rows = {}
+    events = {}
     for mode in ("paper", "placebo"):
         # Graded AND settled. The scanner grades at the start and settles
         # later, so a graded position that has not settled would otherwise
         # stand in for a settled one that could not be graded (review
         # 2026-09-25: gate 2 passed at a true coverage of 17%).
-        rows[mode] = con.execute(
-            f"SELECT p.*, m.event_start FROM paper_positions p"
+        rows = con.execute(
+            f"SELECT p.*, m.event_start,"
+            f" COALESCE(m.canonical_event_id, p.market_id) AS event"
+            f" FROM paper_positions p"
             f" LEFT JOIN markets m ON m.market_id = p.market_id"
             f" WHERE p.strategy=? AND p.mode=? AND p.{col} IS NOT NULL"
             f" AND p.result IS NOT NULL"
             f" ORDER BY p.position_id", (name, mode)).fetchall()
+        by_event = {}                          # in order of each event's first entry
+        for r in rows:
+            by_event.setdefault(r["event"], []).append(r)
+        events[mode] = list(by_event.values())
     settled = con.execute("SELECT COUNT(*) FROM paper_positions WHERE strategy=?"
                           " AND mode='paper' AND result IS NOT NULL", (name,)).fetchone()[0]
     if metric == "info":
-        coverage = len(rows["paper"]) / settled if settled else None
+        graded = sum(len(e) for e in events["paper"])
+        coverage = graded / settled if settled else None
     else:
         # Every settled position has a realized EV, so the honest question is
         # how many of the positions that SHOULD have settled did - counted
@@ -129,9 +149,10 @@ def measured(con, name: str, metric: str, now) -> dict:
             " AND mode='paper' AND (resolves_at IS NULL OR resolves_at < ?)",
             (name, due_before)).fetchone()
         coverage = settled_due / due if due else None
-    return {"values": [r[col] for r in rows["paper"]],
-            "slots": [_slot(r) for r in rows["paper"]],
-            "placebo": [r[col] for r in rows["placebo"]],
+    mean = lambda event: sum(p[col] for p in event) / len(event)
+    return {"values": [mean(e) for e in events["paper"]],
+            "slots": [_slot(e) for e in events["paper"]],
+            "placebo": [mean(e) for e in events["placebo"]],
             "coverage": coverage, "settled": settled}
 
 
@@ -167,7 +188,7 @@ def score(con, name: str, now) -> dict | None:
     # nothing, or too little to be graded, would block nothing. A sport's
     # placebo is automatic; a strategy's is whatever its author wrote.
     if len(m["placebo"]) < validation.MIN_PAPER_BETS:
-        refuse.append(f"the placebo has only {len(m['placebo'])} graded positions,"
+        refuse.append(f"the placebo has only {len(m['placebo'])} graded events,"
                       f" need {validation.MIN_PAPER_BETS} - too little evidence to"
                       f" show the gate is measuring the strategy, not a drift")
     r = validation.record_paper(name, m["values"], slots=m["slots"],
