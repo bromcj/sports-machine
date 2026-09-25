@@ -104,6 +104,19 @@ def test_a_taker_walks_levels_up_to_its_limit_and_the_rest_is_cancelled(con):
     assert con.execute("SELECT COUNT(*) FROM paper_fills").fetchone()[0] == 2
 
 
+def test_a_takers_last_level_is_filled_without_float_noise(con):
+    # 10 - 3.3 - 3.3 is 3.4000000000000004 in floats. The maker path's test
+    # caught a fill of that size; nothing caught it in the taker path.
+    mid, _ = _kmarket(con)
+    _book(con, mid, -1, [("0.4000", "500")])
+    oid = _order(con, mid, size=10, limit_price=0.40)
+    _book(con, mid, 1, [("0.6200", "3.3"), ("0.6100", "3.3"), ("0.6000", "500")])
+    paper.simulate(con, at(2))
+    assert _status(con, oid) == "filled"
+    fills = con.execute("SELECT contracts FROM paper_fills ORDER BY fill_id").fetchall()
+    assert [f[0] for f in fills] == [3.3, 3.3, 3.4]
+
+
 def test_a_maker_is_not_filled_by_the_market_merely_touching_its_price(con):
     mid, _ = _kmarket(con)
     _book(con, mid, -1, [("0.5000", "500")])

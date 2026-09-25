@@ -88,6 +88,9 @@ def test_grading_reads_nothing_captured_after_the_moment_it_is_asked(con):
     _pinnacle(con, 100, -120, "2026-11-04T00:05:00Z")
     assert paper.grade(con, pid, BEFORE)["graded"] is False
     assert paper.grade(con, pid, START)["graded"] is False     # started, not resolved
+    # All the way to the resolution, not most of the way: a grade that
+    # waited only an hour past the start passed every other test.
+    assert paper.grade(con, pid, "2026-11-04T02:59:59Z")["graded"] is False
     assert paper.grade(con, pid, "2026-11-04T03:00:00Z")["graded"] is True
 
 

@@ -513,6 +513,21 @@ def test_a_running_loop_holds_the_lock(env, monkeypatch):
     mine.close()
 
 
+def test_live_asks_only_the_lock_not_a_fresh_beat(env, monkeypatch):
+    # live() takes the lock and nothing else decides: a fresh beat with no
+    # lock file is no loop at all, since every loop makes the file and holds
+    # it. A live() that asked alive() first refused here, and every test
+    # still passed (the whole-branch re-verifier's one surviving mutation).
+    monkeypatch.setattr(config, "POLLING_ENABLED", True)
+    seen = _fake_loop(monkeypatch)
+    _of_record()
+    poll.HEARTBEAT.write_text(json.dumps({
+        "state": "running", "pid": 7, "code_sha": db.code_sha(),
+        "beat_at": poll.utcnow().isoformat()}))
+    assert not poll.LOCK.exists()
+    assert poll.live() == 0 and seen["locked"]
+
+
 def test_a_loop_killed_hard_just_after_a_beat_does_not_block_its_restart(env, monkeypatch):
     # Every loop holds the lock for its whole life, and the OS lets go the
     # moment it ends. A fresh beat under a free lock is a loop killed hard
