@@ -493,6 +493,11 @@ entry above.
   every pull. **Pass:** every value equals `bets/log.fair_prob` on the same pull
   within 1e-12, with the same source label. Any disagreement is a defect in one of
   them, fixed before Phase A is reported.
+  *Clarification, added 2026-09-25 after `fair_value` was written and before
+  A-V1 was run:* `fair_value` refuses any price captured at or after the game's
+  start (in-play), which `fair_prob` does not check because its callers only
+  ever pass pregame times. In-play pulls in the sample are counted and reported
+  as refusals, not scored as agreements or disagreements.
 - **A-V2. Kalshi's fee arithmetic.** **Pass:** a 50¢ taker contract carries a
   model fee of $0.0175; 100 of them $1.75; a maker on a plain `quadratic` series
   pays nothing; an unread fee type (`flat`) refuses rather than guessing.
