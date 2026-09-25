@@ -51,11 +51,12 @@ OPPOSITE = {"home": "away", "away": "home", "over": "under", "under": "over"}
 
 
 def canonical_outcome(mkt, outcome: str) -> str | None:
-    """The book-side outcome this market's `outcome` corresponds to."""
+    """The book-side outcome this market's `outcome` corresponds to, or None
+    if it has none. Never the other side's number for a name it lacks."""
     if mkt["market_type"] in PAIRS and not mkt["venue"].startswith(("kalshi", "polymarket")):
-        return outcome
+        return outcome if outcome in PAIRS[mkt["market_type"]] else None
     yes = mkt["yes_outcome"]
-    if not yes or mkt["market_type"] not in PAIRS:
+    if mkt["market_type"] not in PAIRS or yes not in PAIRS[mkt["market_type"]]:
         return None
     if outcome == "yes":
         return yes

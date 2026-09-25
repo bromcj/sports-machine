@@ -215,6 +215,25 @@ def test_a_spread_is_priced_only_from_books_at_the_same_line(con):
     assert set(fv["books"]) == {"sportsbook:draftkings", "sportsbook:fanduel"}
 
 
+@pytest.mark.parametrize("outcome", ["yes", "no", "draw", "Home", "Away", "", "over"])
+def test_an_outcome_a_book_market_does_not_have_gets_none(con, outcome):
+    # Not the home side's number, which is what any unknown name used to get.
+    sportsbook.write(con, "nfl", _event({"pinnacle": (205, -230)}), PULL1)
+    assert fair_value(con, _h2h("pinnacle"), outcome, PULL1) is None
+
+
+def test_a_total_is_over_or_under_and_nothing_else(con):
+    ev = _event({"pinnacle": (205, -230)})
+    ev[0]["bookmakers"][0]["markets"].append({"key": "totals", "outcomes": [
+        {"name": "Over", "price": -120, "point": 44.5},
+        {"name": "Under", "price": 100, "point": 44.5}]})
+    sportsbook.write(con, "nfl", ev, PULL1)
+    tot = store.market_key("sportsbook:pinnacle", "g1", "total", 44.5)
+    assert fair_value(con, tot, "over", PULL1)["p"] == novig_probs(-120, 100)[0]
+    for bad in ("home", "Over", "yes", ""):          # 'Over' is the feed's spelling
+        assert fair_value(con, tot, bad, PULL1) is None
+
+
 def test_a_book_with_only_one_side_is_ignored(con):
     ev = _event({"pinnacle": (205, -230)})
     sportsbook.write(con, "nfl", ev, PULL1)
@@ -242,6 +261,15 @@ def test_a_kalshi_contract_is_priced_from_the_books_through_yes_outcome(con):
     assert fair_value(con, k, "yes", PULL1)["p"] == p_home
     assert fair_value(con, k, "no", PULL1)["p"] == p_away
     assert fair_value(con, k, "yes", PULL1)["source"] == "pinnacle"
+
+
+@pytest.mark.parametrize("yes", ["Away", "over", "draw"])
+def test_a_yes_outcome_the_books_do_not_have_is_not_priced_from_them(con, yes):
+    # yes_outcome='Away' used to price YES as the HOME side, from Pinnacle.
+    sportsbook.write(con, "nfl", _event({"pinnacle": (205, -230)}), PULL1)
+    k = _kalshi(con, yes_outcome=yes)
+    for side in ("yes", "no"):
+        assert fair_value(con, k, side, PULL1)["source"] == "kalshi-mid"
 
 
 def test_with_no_books_an_exchange_falls_back_to_its_own_mid(con):
