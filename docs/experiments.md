@@ -453,8 +453,9 @@ is at least 0.90 (a position's slot is its event's start time, or its first
 fill's time when the market has no start time); and a placebo, run through the
 same pipeline under the same strategy name, that must **not** clear the same bar.
 *Note added 2026-09-25 by the Phase A re-verification:* the dated amendments
-below tighten this paragraph. Gate 2 now takes one value per event (game), not
-per position, and coverage is counted over the positions that are due.
+below tighten this paragraph. Gate 2 now takes one value per event (game) -
+the strategy's first position on it - not every position, and coverage is
+counted over those first positions that are due.
 
 **The metric is one of two, chosen in the strategy's own entry:**
 
@@ -522,7 +523,10 @@ Each one names the code that enforces it.
   never settles was then on neither side of that fraction, so it could not
   lower coverage: 60 graded positions out of 260 resolved read as 100%
   coverage, and gate 2 passed. Counted over the positions due, the same 260
-  give 23%, and gate 2 fails.
+  give 23%, and gate 2 fails. *And changed again the same day:* the positions
+  counted, top and bottom, are each game's first position only (below), so
+  re-entering the games that get graded cannot lift coverage either (60
+  graded games of 100 read as 82% counted per position; it is 60%).
 - **The placebo must place.** A placebo that must "not clear the same bar"
   blocks nothing if it never places. So gate 2 also fails unless the placebo
   has graded, settled positions on at least 50 distinct events of its own.
@@ -603,20 +607,30 @@ re-checked the review's fixes and found more gaps. Again every change
 tightens a rule, none loosens one, and no threshold moves. The bullets above
 that changed with it are marked where they did.
 
-- **Gate 2 counts events, not positions.** Positions on one game share its
-  move, so entering a game again is not new evidence. Nothing stops a
-  strategy from entering the same market on every pass while its price stays
-  attractive, and the 3-SE bar was simulated on one value per game.
-  `scanner.gates.measured` gives `record_paper` one value per event (the
-  market's `canonical_event_id`): the mean of that event's graded, settled
-  positions. Each event has one slot, its earliest start (or, if no position
-  knows the start, its first opening). The placebo is grouped the same way,
-  so both 50 floors, the strategy's and the placebo's, count events.
-  Coverage stays a share of positions. Counted per position, a strategy with
-  no skill that entered each game k times passed 15.2% of the time at k = 2,
-  29.3% at 3, 50.2% at 5 and 72.3% at 10, against 1.8% at k = 1 (10 games a
-  day, two looks a day, 120 days, 4,000 trials). Counted per event it passes
-  1.7–1.9% at every k.
+- **Gate 2 counts each game's FIRST position, not every position.**
+  Positions on one game share its move, so entering a game again is not new
+  evidence. Nothing stops a strategy from entering the same market on every
+  pass while its price stays attractive, and the 3-SE bar was simulated on
+  one value per game. Counted per position, a strategy with no skill that
+  entered each game k times passed 15.2% of the time at k = 2, 29.3% at 3,
+  50.2% at 5 and 72.3% at 10, against 1.8% at k = 1 (10 games a day, two looks
+  a day, 120 days, 4,000 trials). The first version of this fix took the MEAN
+  of a game's positions; that is unfair when how often a strategy re-enters
+  depends on the price. Buying again once the price fell below the first
+  entry halves every losing first entry: a no-skill strategy doing that passed
+  65% of the time re-entering at most twice, and 99–100% re-entering more
+  (per position it was 13.7–44%), and scored by the real code 11 of 20
+  no-skill histories passed. `scanner.gates.measured` therefore gives
+  `record_paper` one value per event (the market's `canonical_event_id`): the
+  strategy's FIRST position on it, the order placed first. It was decided
+  before the path it is judged on, so a no-skill strategy's first entries
+  average zero whatever it does afterwards: 1.9% at every re-entry rule
+  simulated, and 0 of the same 20 histories. The slot is that game's; the
+  placebo is taken the same way, so both 50 floors count games. Coverage
+  counts the same unit: of the games whose first position is due, the share
+  whose first position is graded and settled. A first position that cannot be
+  graded counts against coverage; a later, gradable entry on the same game
+  does not stand in for it.
 - **The gate record pins the definition.** A strategy's gate record now
   holds its metric beside its experiment, and `model.validation.record_backtest`
   refuses a different metric under an existing name, as it already refused a

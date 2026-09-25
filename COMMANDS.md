@@ -372,8 +372,8 @@ its entry in `docs/experiments.md` is written. Each strategy has its own
 block in `validation.json`, held to the same three gates as a sport. Gate 1 is
 its own backtest, from its own entry; a new definition needs a new name.
 Gate 2 is its own paper record at 3 standard errors, counted per game: 50+
-games with a graded and settled position, and entering a game again adds no
-new evidence. It needs coverage, and a placebo that covers 50+ graded games of its
+games whose first position is graded and settled; entering a game again adds
+no new evidence. It needs coverage, and a placebo that covers 50+ graded games of its
 own. Editing a strategy's experiment or metric under the same name fails
 gate 2 and gate 3. Gate 3 is your own `arm("<name>")`. A strategy scored on `realized_ev`
 cannot pass gate 2 until a bar for its payoff is pre-registered. Gate 2 is

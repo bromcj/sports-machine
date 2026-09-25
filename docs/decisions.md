@@ -116,9 +116,16 @@ new evidence. Nothing stops a strategy from entering the same market on
 every pass while its price looks good, and the 3-SE bar was simulated on one
 value per game. Counted per position, a strategy with no skill that entered
 each game twice passed 15.2% of the time, and ten times 72.3%, against 1.8%
-entering once. Gate 2 now takes one value per event, the mean of its
-positions, and the placebo is grouped the same way, so both 50 floors count
-games. Counted that way it passes 1.7–1.9% however often it re-enters.
+entering once. The first fix took the mean of a game's positions, and a
+second check broke it: when a strategy re-enters only after the price has
+fallen, the mean halves every losing first entry, and a no-skill strategy
+passed 65% of the time re-entering once and 99–100% re-entering more (scored
+by the real code, 11 of 20 no-skill histories). So gate 2 takes each game's
+FIRST position, the order placed first. It was decided before the price path
+it is judged on, so a no-skill strategy's first entries average zero whatever
+it does afterwards: 1.9% at every re-entry rule tried, 0 of the same 20
+histories. The placebo is taken the same way, so both 50 floors count games,
+and coverage counts those same first positions.
 
 **Coverage counts the positions that are due.** For `info`, coverage was
 graded and settled ÷ settled. A position that never settles was on neither

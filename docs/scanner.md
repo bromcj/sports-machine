@@ -286,8 +286,10 @@ experiment is its own entry: no two strategies may share one, a retired
 strategy's included. Its gate record pins the definition, the experiment and
 the metric, so a new definition takes a new name: a different experiment or
 metric under the same name fails gate 2 and gate 3. Gate 2 counts events
-(games), not positions: one value per game, the mean of that game's
-positions, so entering a game again adds no new evidence. Its gates are in
+(games), not positions: one value per game, the strategy's first position
+on it (the order placed first), so entering a game again adds no new
+evidence and cannot dilute a losing first entry; coverage counts the same
+first positions. Its gates are in
 [gates.md](gates.md). None exists in Phase A.
 
 ## Commands

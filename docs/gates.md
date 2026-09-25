@@ -132,7 +132,7 @@ or inherits another's pass.
 | gate | for a strategy | recorded by |
 |---|---|---|
 | 1 | its own **backtest**, written in `docs/experiments.md` before it is run as the strategy's **own** entry (a whole heading above the Results log, which no other strategy may register against), with that entry's pass rule. A name whose record already holds a different experiment or metric is refused, and so is an experiment another name's record already holds (a retired strategy's included): a new definition is a new name | `scanner.gates.record_backtest` → `model.validation.record_backtest` |
-| 2 | `record_paper`, sport rules **unchanged**, on one value per **event** (game), the mean of its positions: 50+ events with positions graded **and settled**, the metric's mean clear of zero by 3 SE, coverage ≥ 0.75 (over the positions due, below), the slot rule, and its own placebo must not pass **and must cover 50+ events** of its own. A `realized_ev` strategy cannot pass yet (below), and neither can one whose file now holds a different experiment or metric from its record | `scanner.gates.score` |
+| 2 | `record_paper`, sport rules **unchanged**, on one value per **event** (game), the strategy's **first** position on it: 50+ games whose first position is graded **and settled**, the metric's mean clear of zero by 3 SE, coverage ≥ 0.75 (over the first positions due, below), the slot rule, and its own placebo must not pass **and must cover 50+ games** of its own. A `realized_ev` strategy cannot pass yet (below), and neither can one whose file now holds a different experiment or metric from its record | `scanner.gates.score` |
 | 3 | a person calls `arm("<strategy>")`. It also refuses a strategy whose registered experiment or metric differs from its record | `model.validation.arm` — nothing else calls it; `audit.py` checks |
 
 **The metric** is chosen in the strategy's own pre-registration: `info` (fair
@@ -151,24 +151,40 @@ against it. (For `info` it used to be graded and settled ÷ settled, so a
 position that never settled was on neither side: 60 graded positions out of
 260 resolved read as 100% coverage. Over the positions due it is 23%.)
 
-**One value per event, not per position.** *Added 2026-09-25 by the
+**One value per game: its first position.** *Added 2026-09-25 by the
 re-verification.* Positions on one game share its move, so a second entry on
 the same game is not a second piece of evidence, and nothing stops a
 strategy from entering the same market on every pass while the price stays
-attractive. The 3-SE bar was simulated on one value per game. So
-`scanner.gates.measured` gives gate 2 one value per event (the market's
-`canonical_event_id`): the mean of that event's graded, settled positions,
-with one start-time slot per event. The placebo is grouped the same way, so
-both 50 floors count events. Coverage stays a share of positions. A strategy
-with no skill, 10 games a day, two looks a day, 120 days, 4,000 trials:
+attractive. The 3-SE bar was simulated on one value per game. Counted per
+position, a strategy with no skill that entered every game k times passed
+15.2% of the time at k = 2, 29.3% at 3, 50.2% at 5 and **72.3%** at 10,
+against 1.8% at k = 1 (10 games a day, two looks a day, 120 days).
 
-| entries per game | false pass, one value per position (before) | one value per event (now) |
-|---|---|---|
-| 1 | 1.8% | 1.8% |
-| 2 | 15.2% | 1.7% |
-| 3 | 29.3% | 1.9% |
-| 5 | 50.2% | 1.9% |
-| 10 | **72.3%** | 1.9% |
+The first fix took the **mean** of a game's positions, and a second check
+broke it: when how often a strategy re-enters depends on the price, the mean
+is biased. "Buy again once the price is below my first entry" halves every
+losing first entry with a cheaper second one and leaves winners alone. A
+strategy with no skill, same cadence:
+
+| re-entry rule | per position | mean of the game's positions | first position only (now) |
+|---|---|---|---|
+| never (one entry) | 1.9% | 1.9% | 1.9% |
+| once, after the price fell | 13.7% | **65.3%** | 1.9% |
+| up to twice more | 25.0% | 99.9% | 1.9% |
+| up to 11 more | 44.0% | 100.0% | 1.9% |
+
+Scored by the real `gates.score()` and `arm()`, 20 such no-skill histories
+passed 11 times with the mean, once per position, and **0** times with the
+first position. So `scanner.gates.measured` gives gate 2 one value per event
+(the market's `canonical_event_id`): the strategy's first position on it,
+the order it placed first. That order was decided before the path it is
+judged on, so a no-skill strategy's first entries average zero whatever it
+does afterwards. Its slot is that game's. The placebo is taken the same way,
+so both 50 floors count games. Coverage counts the same unit: of the games
+whose first position is due, the share whose first position is graded and
+settled (counted per position, re-entering only the graded games lifted 60 of
+100 to 82%). A first position that cannot be graded counts against coverage;
+a later, gradable entry on the same game does not stand in for it.
 
 **The gate record pins the definition.** *Added 2026-09-25 by the
 re-verification.* A strategy's gate record holds its experiment and its
