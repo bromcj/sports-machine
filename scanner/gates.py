@@ -4,9 +4,9 @@
            strategy is registered, the experiment is the one it is
            registered against, and that is a heading in docs/experiments.md
            above the Results log - and, once a block exists, the experiment
-           it holds: a new definition is a new name. This is the deliberate
-           act that CREATES the strategy's block, by hand, in a committed
-           change.
+           and metric it holds: a new definition is a new name. This is the
+           deliberate act that CREATES the strategy's block, by hand, in a
+           committed change, and the block pins the definition.
   gate 2   score(): model.validation.record_paper - unchanged, the sport
            models' rules - on the strategy's own graded paper positions,
            one value per EVENT (measured()), its own coverage, its own
@@ -14,10 +14,12 @@
            that already exists, so the scheduled job's guard
            (only_paper_changed) may discard it - or refuses to, when
            discarding would bring back a pass.
-           Two refusals sports do not need: a realized_ev strategy cannot
-           pass yet (UNCALIBRATED, below), and nor can one whose placebo
-           has fewer than 50 graded events.
-  gate 3   model.validation.arm(name): a person. Nothing here calls it.
+           Refusals sports do not need: a realized_ev strategy cannot pass
+           yet (UNCALIBRATED, below), nor can one whose placebo has fewer
+           than 50 graded events, nor one whose file now holds a different
+           experiment or metric from its gate record (redefined()).
+  gate 3   model.validation.arm(name): a person. Nothing here calls it. It
+           refuses a redefined strategy too.
 
 LOOKS. score() re-tests gate 2 at most MAX_LOOKS_PER_DAY times per ET day and
 logs every look in gate_looks, so the cadence is the one the simulation
@@ -81,7 +83,28 @@ def record_backtest(name: str, experiment: str, passed: bool, reason: str,
         raise ValueError(f"{experiment!r} is not a heading above the Results log"
                          f" in docs/experiments.md (the whole heading): pre-register"
                          f" it before recording a result")
-    return validation.record_backtest(name, experiment, passed, reason, evidence)
+    return validation.record_backtest(name, experiment, passed, reason, evidence,
+                                      metric=s.metric)
+
+
+def redefined(name: str, block: dict) -> str | None:
+    """Why the strategy registered as `name` is not the definition its gate
+    record `block` was made for - a different experiment or metric - or
+    None when it is the same. Edited in place under the same name, a file
+    is a new strategy wearing the old one's gates (re-verification
+    2026-09-25: gate 2 re-passed, and gate 3 opened). Fails closed: a name
+    no longer registered cannot be shown to be the same."""
+    try:
+        s = strategies.get(name)
+    except KeyError:
+        return (f"no strategy named {name!r} is registered, so it cannot be shown"
+                f" to be the definition its gate record is for")
+    held = ((block.get("experiment") or "").strip(), block.get("metric"))
+    if held != (s.experiment.strip(), s.metric):
+        return (f"{name} is registered as {s.experiment!r} measured by {s.metric},"
+                f" but its gate record is for {held[0]!r} measured by {held[1]}:"
+                f" a new definition is a new name")
+    return None
 
 
 def looks_today(con, name: str, now) -> int:
@@ -166,7 +189,8 @@ def score(con, name: str, now) -> dict | None:
     is evaluated: a busy database, a rollback, a crash or a second scorer
     running at the same moment can only cost a look, never add one."""
     s = strategies.get(name)
-    if validation.status(name) is None:
+    block = validation.status(name)
+    if block is None:
         print(f"  {name}: no gate record yet - record its backtest first")
         return None
     con.commit()
@@ -184,7 +208,10 @@ def score(con, name: str, now) -> dict | None:
         con.rollback()
         raise
     m = measured(con, name, s.metric, now)
-    refuse = [UNCALIBRATED] if s.metric == "realized_ev" else []
+    changed = redefined(name, block)
+    refuse = [changed] if changed else []
+    if s.metric == "realized_ev":
+        refuse.append(UNCALIBRATED)
     # record_paper only refuses a placebo that PASSES, so one that placed
     # nothing, or too little to be graded, would block nothing. A sport's
     # placebo is automatic; a strategy's is whatever its author wrote.

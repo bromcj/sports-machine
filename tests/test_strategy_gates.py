@@ -203,6 +203,48 @@ def test_a_new_experiment_never_inherits_the_old_definitions_gate_2(env):
     assert v.status("t_one")["experiment"] == T1
 
 
+@pytest.mark.parametrize("edit", [dict(experiment=T2), dict(metric="realized_ev")])
+def test_a_definition_edited_in_place_is_refused_by_gate_2_and_by_arm(env, edit):
+    # The gate record is for one definition: its experiment and its metric.
+    # With the file edited under the same name and gate 1 never re-recorded,
+    # gate 2 re-passed on the old definition's positions and arm() opened
+    # (re-verification 2026-09-25, attack.py A).
+    _strategy()
+    gates.record_backtest("t_one", T1, True, "passed", {"n": 500})
+    rng = random.Random(1)
+    _positions(env, "t_one", STRONG)
+    _positions(env, "t_one", [rng.gauss(0, 2.9) for _ in range(60)], mode="placebo")
+    assert gates.score(env, "t_one", NOW)["passed"]
+    strategies.REGISTRY.pop("t_one")
+    _strategy(**edit)                                 # the file, edited in place
+    assert "new name" in v.arm("t_one") and not v.gates("t_one")["armed"]
+    r = gates.score(env, "t_one", NOW + dt.timedelta(days=1))
+    assert not r["passed"] and "new name" in r["reason"] and r["n_bets"] == 60
+    assert v.arm("t_one").startswith("REFUSED")
+
+
+def test_a_metric_flip_cannot_be_re_recorded_under_the_same_name(env):
+    # realized_ev cannot pass gate 2; flipping the file to info and
+    # re-recording gate 1 under the same name got round that, and arm()
+    # opened (re-verification 2026-09-25, attack.py B).
+    _strategy(metric="realized_ev")
+    gates.record_backtest("t_one", T1, True, "passed", {"n": 500})
+    assert v.status("t_one")["metric"] == "realized_ev"
+    rng = random.Random(1)
+    _positions(env, "t_one", STRONG)                  # rows hold info and realized_ev
+    _positions(env, "t_one", [rng.gauss(0, 2.9) for _ in range(60)], mode="placebo")
+    assert not gates.score(env, "t_one", NOW)["passed"]
+    strategies.REGISTRY.pop("t_one")
+    _strategy(metric="info")                          # the file, edited in place
+    before = v.PATH.read_text(encoding="utf-8")
+    with pytest.raises(ValueError, match="new name"):
+        gates.record_backtest("t_one", T1, True, "passed", {"n": 500})
+    assert v.PATH.read_text(encoding="utf-8") == before
+    r = gates.score(env, "t_one", NOW + dt.timedelta(days=1))
+    assert not r["passed"] and "new name" in r["reason"]
+    assert v.arm("t_one").startswith("REFUSED")
+
+
 def test_a_new_backtest_result_disarms_the_strategy(env):
     # Gate 3 is a person's decision about THIS result, not the next one.
     _strategy()

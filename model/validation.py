@@ -290,7 +290,7 @@ def record(sport: str, baseline_kind: str, seasons: list[dict]) -> dict:
     return new_entry
 
 def record_backtest(name: str, experiment: str, passed: bool, reason: str,
-                    evidence: dict) -> dict:
+                    evidence: dict, metric: str | None = None) -> dict:
     """Gate 1 for a scanner STRATEGY: its own pre-registered backtest.
 
     A strategy is not a forecaster, so its gate 1 is not a walk-forward
@@ -299,9 +299,11 @@ def record_backtest(name: str, experiment: str, passed: bool, reason: str,
     (scanner.gates.record_backtest checks the entry exists). The block has
     the same shape as a sport's - cleared, reason, recorded_at, armed,
     paper_trading - so gates(), arm() and only_paper_changed() treat it the
-    same way. Like record(), a new result disarms. A result for a different
-    experiment is refused: a new definition starts under a new name, with
-    none of the old one's positions or gate-2 record.
+    same way. Like record(), a new result disarms. The block also holds the
+    strategy's definition - its experiment and the metric its gate 2
+    measures - and a result for a different one is refused: a new
+    definition starts under a new name, with none of the old one's
+    positions or gate-2 record.
 
     It never writes onto a sport's block, or onto any block that is not
     already a strategy's: a sport's gate 1 is record()'s walk-forward against
@@ -326,10 +328,17 @@ def record_backtest(name: str, experiment: str, passed: bool, reason: str,
         raise ValueError(f"{name}'s gate record is for {old!r}, not"
                          f" {experiment!r}: a new definition is a new strategy -"
                          f" register it under a new name")
+    if existing and existing.get("metric") != metric:
+        # The same, for what gate 2 measures: flipped from realized_ev (which
+        # cannot pass yet) to info and re-recorded, gate 2 passed on the
+        # same positions (re-verification 2026-09-25).
+        raise ValueError(f"{name}'s gate record measures {existing.get('metric')!r},"
+                         f" not {metric!r}: a new definition is a new strategy -"
+                         f" register it under a new name")
     entry = data.setdefault(name, {})
     new_entry = dict(entry)
     new_entry.update({"kind": "strategy", "baseline_kind": "backtest",
-                      "experiment": experiment, "cleared": passed,
+                      "experiment": experiment, "metric": metric, "cleared": passed,
                       "reason": reason, "backtest": evidence,
                       "recorded_at": _now(), "armed": False})
     if entry and _same_except_time(entry, new_entry):
@@ -500,7 +509,9 @@ def arm(sport: str) -> str:
     """Gate 3: a person decides this sport may stake money.
 
     Deliberately not called anywhere in the pipeline. Refuses unless both
-    measured gates already pass, so it cannot be used to skip them.
+    measured gates already pass, so it cannot be used to skip them - and,
+    for a scanner strategy, unless the strategy registered under that name
+    now is the definition its gates were recorded for.
     """
     g = gates(sport)
     if not g["walk_forward"]:
@@ -510,6 +521,14 @@ def arm(sport: str) -> str:
         return ("REFUSED - gate 2 not passed: "
                 + paper.get("reason", "no paper trading recorded"))
     data = _load()
+    if data[sport].get("kind") == "strategy":
+        # Its file edited in place - a new experiment or metric under the
+        # same name - the gates on record are the old definition's
+        # (re-verification 2026-09-25). A sport's block never gets here.
+        from scanner import gates as strategy_gates
+        changed = strategy_gates.redefined(sport, data[sport])
+        if changed:
+            return f"REFUSED - {changed}"
     data[sport]["armed"] = True
     data[sport]["armed_at"] = _now()
     _save(data)
