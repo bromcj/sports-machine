@@ -10,7 +10,9 @@ Found by parsing, not by a hand-kept list:
   entry points run_daily.py, every .py a .bat or workflow runs, and every
                `python x.py` COMMANDS.md tells the owner to run
   reachable    the transitive imports of those (including imports inside
-               functions and `from pkg import submodule`)
+               functions and `from pkg import submodule`), and every module
+               in a folder its package imports whole at run time
+               (pkgutil.iter_modules(__path__), as scanner/strategies does)
 """
 import ast
 import re
@@ -81,6 +83,16 @@ def _imports(path: Path) -> set:
     return out
 
 
+def _loaded_folder(path: Path) -> list:
+    """The modules a package imports at run time by walking its own folder
+    with pkgutil - strategies.load() does, so a strategy is just a file."""
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if (isinstance(node, ast.Call) and getattr(node.func, "attr", None) == "iter_modules"
+                and any(getattr(a, "id", None) == "__path__" for a in node.args)):
+            return [*path.parent.glob("*.py"), *path.parent.glob("*/__init__.py")]
+    return []
+
+
 def _entry_points() -> set:
     files = {ROOT / "run_daily.py"}
     texts = [p.read_text(encoding="utf-8") for p in ROOT.glob("*.bat")]
@@ -108,6 +120,7 @@ def _reachable() -> set:
                 m = _module_file(".".join(parts[:i]))
                 if m and m not in seen:
                     todo.append(m)
+        todo += [m for m in _loaded_folder(f) if m not in seen]
     return seen
 
 
@@ -123,6 +136,30 @@ def test_every_module_is_reachable_or_a_named_reference():
         orphans.append(rel)
     assert not orphans, ("unreachable from any entry point, and not a named "
                          f"reference: {orphans}")
+
+
+def test_a_folder_loaded_by_pkgutil_is_reachable(tmp_path, monkeypatch):
+    # scanner/strategies/load() imports every module in its folder, so adding
+    # a strategy is dropping in a file. That file is reached; an orphan beside
+    # the package is still not.
+    for name, value in (("ROOT", tmp_path), ("COMMANDS", ""), ("REFERENCE", {})):
+        monkeypatch.setitem(globals(), name, value)
+    files = {
+        "run_daily.py": "from scanner import strategies\n",
+        "scanner/__init__.py": "",
+        "scanner/strategies/__init__.py":
+            "import importlib\nimport pkgutil\n\n\ndef load():\n"
+            "    for mod in pkgutil.iter_modules(__path__):\n"
+            "        importlib.import_module(f'{__name__}.{mod.name}')\n",
+        "scanner/strategies/zz_strategy.py": "",
+        "scanner/zz_orphan.py": "",
+    }
+    for rel, text in files.items():
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text(text, encoding="utf-8")
+    reach = _reachable()
+    assert tmp_path / "scanner/strategies/zz_strategy.py" in reach
+    assert tmp_path / "scanner/zz_orphan.py" not in reach
 
 
 def test_every_reference_cites_a_doc_that_exists_and_names_it():
